@@ -9,7 +9,7 @@
 // Release checklist: bump CACHE here, BUILD in js/main.js and --build in
 // css/style.css together.
 
-const CACHE = 'lights-out-v3';
+const CACHE = 'lights-out-v4';
 const CORE = [
   './',
   'index.html',
@@ -30,7 +30,8 @@ const CORE = [
   'js/ui.js',
   'js/data/tracks.js',
   'js/data/turtle.js',
-  'js/data/drivers.js',
+  'js/data/teams.js',
+  'js/data/circuits/interlagos.js',
   'icons/icon.svg',
   'icons/icon-192.png',
   'icons/icon-512.png',

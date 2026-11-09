@@ -1,7 +1,7 @@
 // Boot, game loop and screen flow.
 
 import { TRACKS } from './data/tracks.js';
-import { PLAYER, RIVALS } from './data/drivers.js';
+import { TEAMS, playerFor, rivalsFor } from './data/teams.js';
 import { Track } from './track.js';
 import { Race } from './race.js';
 import { Camera } from './camera.js';
@@ -14,7 +14,7 @@ import { bindTouchControls, initInput, isTouchDevice, onFirstTouch, readInput, s
 import { clamp, formatTime } from './util.js';
 
 // Bump together with --build in css/style.css and CACHE in sw.js.
-const BUILD = '3';
+const BUILD = '4';
 
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d', { alpha: false });
@@ -110,8 +110,7 @@ function syncChrome() {
 function startAttract() {
   const def = TRACKS[state.attractIdx % TRACKS.length];
   state.attractIdx++;
-  const field = RIVALS.concat([{ ...PLAYER, skill: 0.97 }]);
-  state.attract = new Race({ track: getTrack(def.id), mode: 'attract', rivals: field });
+  state.attract = new Race({ track: getTrack(def.id), mode: 'attract', rivals: TEAMS });
   state.attractT = 0;
   state.focusIdx = 0;
   cam.snap(state.attract.cars[0], W, H, 0.8);
@@ -128,8 +127,8 @@ function startRace(mode, trackId) {
     mode,
     laps: save.settings.laps,
     difficulty: save.settings.difficulty,
-    player: PLAYER,
-    rivals: RIVALS,
+    player: playerFor(save.settings.team),
+    rivals: rivalsFor(save.settings.team),
     record: rec,
   });
   state.paused = false;
@@ -389,6 +388,7 @@ window.lightsOut = { state, startRace, save, getTrack, tick, resume, touchSnapsh
 
 startAttract();
 ui.show('title');
+if (!save.settings.team) ui.openTeam(); // first visit: pick a team
 syncChrome();
 requestAnimationFrame(frame);
 

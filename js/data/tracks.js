@@ -1,11 +1,35 @@
 import { turtle } from './turtle.js';
+import { INTERLAGOS } from './circuits/interlagos.js';
 
-// Phase 1 circuits: made-up layouts. Each is a list of control points (in
+// Circuits. Real ones come from GPS centre lines (see circuits/); the made-up
+// ones are built from driving instructions with turtle().
+//
+// Made-up layouts: Each is a list of control points (in
 // "units"; scale turns them into pixels) that a smooth spline passes through,
 // driven clockwise or anticlockwise in list order. The first point is the
 // start/finish line, so it should sit on a straight.
 
 export const THEMES = {
+  saopaulo: {
+    groundKind: 'ground',
+    groundColor: '#2e4529',
+    runoffKind: 'grass',
+    runoff: '#3e8636',
+    runoff2: '#45903d',
+    asphalt: '#34373e',
+    asphaltEdge: '#2b2e34',
+    edge: '#efefef',
+    kerbA: '#d8262c',
+    kerbB: '#f4f4f4',
+    barrierA: '#f6d31c',
+    barrierB: '#169447',
+    dust: [140, 120, 80],
+    decor: 'city',
+    tree: ['#2a6127', '#36762f', '#23561f', '#418537'],
+    building: ['#9a9a96', '#b7b2a6', '#c08a62', '#7d8288', '#d3cdbf', '#a2675a'],
+    tint: 'rgba(255,190,110,0.07)',
+    thumb: '#169447',
+  },
   sunset: {
     groundKind: 'ground',
     groundColor: '#2d4a26',
@@ -66,6 +90,16 @@ export const THEMES = {
 };
 
 export const TRACKS = [
+  {
+    id: 'interlagos',
+    name: 'Interlagos',
+    real: true,
+    country: 'Brazil',
+    blurb: 'Autódromo José Carlos Pace, São Paulo. Anticlockwise: the Senna S, Descida do Lago, Bico de Pato and the long climb to the line.',
+    theme: THEMES.saopaulo,
+    scale: 1,
+    points: INTERLAGOS,
+  },
   {
     id: 'sunset',
     name: 'Sunset Speedway',

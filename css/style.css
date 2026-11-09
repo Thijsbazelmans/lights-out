@@ -1,7 +1,7 @@
 /* Layout: a pit-wall timing monitor floating over a live race. Left rail on
    wide screens, bottom sheet on phones; pause and results are centred modals. */
 :root {
-  --build: "3"; /* must match BUILD in js/main.js */
+  --build: "4"; /* must match BUILD in js/main.js */
   --asphalt: #0d1016;
   --panel: rgba(13, 16, 23, 0.9);
   --panel-solid: #131822;
@@ -537,6 +537,75 @@ kbd {
 .t1 { color: var(--t1); font-weight: 700; }
 .t2 { color: var(--t2); font-weight: 700; }
 .t3 { color: var(--t3); font-weight: 700; }
+
+/* ---------- team picker ---------- */
+
+.teams {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.team {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 8px 10px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.03);
+  text-align: left;
+}
+
+.team[aria-selected="true"] {
+  border-color: var(--text);
+  background: rgba(255, 255, 255, 0.09);
+  box-shadow: inset 3px 0 0 var(--team);
+}
+
+.team-car {
+  flex: none;
+  width: 28px;
+  height: 56px;
+}
+
+.team-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.team-info b {
+  font: 800 16px/1.1 var(--font-display);
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.code {
+  font: 600 11px var(--font-data);
+  color: var(--muted);
+}
+
+.code::before,
+.dot {
+  content: "";
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  margin-right: 6px;
+  vertical-align: 0;
+  background: var(--c);
+}
+
+.dot {
+  display: inline-block;
+}
 
 /* ---------- setup ---------- */
 

@@ -132,7 +132,7 @@ export class Car {
     let vf = this.vx * ca + this.vy * sa;
     let vl = -this.vx * sa + this.vy * ca;
 
-    const q = track.query(this.x, this.y, this.q);
+    const q = track.queryLocal(this.x, this.y, this.trackIdx, this.q);
     const kerbZone = q.dist > track.half - 10 && q.dist < track.half + 14 && track.kerbAt(q.idx);
     this.onKerb = kerbZone;
     this.offTrack = q.dist > track.half + (kerbZone ? 14 : 4);
@@ -209,7 +209,7 @@ export class Car {
     this.y += this.vy * dt;
 
     // Barriers.
-    const q2 = track.query(this.x, this.y, this.q);
+    const q2 = track.queryLocal(this.x, this.y, this.trackIdx, this.q);
     if (q2.dist === Infinity) {
       this.x = ox;
       this.y = oy;
@@ -220,7 +220,7 @@ export class Car {
       const fy = Math.sin(this.angle);
       const along = Math.abs(fx * q2.nx + fy * q2.ny);
       const reach = along * 21 + (1 - along) * 10;
-      const lim = track.wallDist - reach;
+      const lim = track.wallAt(q2.idx, q2.side) - reach;
       if (q2.dist > lim) {
         this.x = q2.cx + q2.nx * lim;
         this.y = q2.cy + q2.ny * lim;
@@ -332,6 +332,24 @@ function drawFlame(ctx, level) {
   ctx.restore();
 }
 
+function bodyPath(ctx) {
+  ctx.beginPath();
+  ctx.moveTo(-16.5, -3.2);
+  ctx.lineTo(-12, -6.6);
+  ctx.lineTo(0.5, -7);
+  ctx.quadraticCurveTo(5.5, -5.8, 7.5, -2.6);
+  ctx.lineTo(7.5, 2.6);
+  ctx.quadraticCurveTo(5.5, 5.8, 0.5, 7);
+  ctx.lineTo(-12, 6.6);
+  ctx.lineTo(-16.5, 3.2);
+  ctx.closePath();
+  ctx.moveTo(6, -2.7);
+  ctx.lineTo(19.5, -1.5);
+  ctx.lineTo(19.5, 1.5);
+  ctx.lineTo(6, 2.7);
+  ctx.closePath();
+}
+
 // Car points along +x. Nose at +22, rear wing at -22.
 export function drawF1(ctx, livery, steer = 0, braking = false) {
   const c1 = livery.color;
@@ -382,28 +400,20 @@ export function drawF1(ctx, livery, steer = 0, braking = false) {
   ctx.closePath();
   ctx.fill();
 
-  // Body and sidepods.
+  // Body, sidepods and nose. A split livery paints the right flank separately.
   ctx.fillStyle = c1;
-  ctx.beginPath();
-  ctx.moveTo(-16.5, -3.2);
-  ctx.lineTo(-12, -6.6);
-  ctx.lineTo(0.5, -7);
-  ctx.quadraticCurveTo(5.5, -5.8, 7.5, -2.6);
-  ctx.lineTo(7.5, 2.6);
-  ctx.quadraticCurveTo(5.5, 5.8, 0.5, 7);
-  ctx.lineTo(-12, 6.6);
-  ctx.lineTo(-16.5, 3.2);
-  ctx.closePath();
+  bodyPath(ctx);
   ctx.fill();
-
-  // Nose.
-  ctx.beginPath();
-  ctx.moveTo(6, -2.7);
-  ctx.lineTo(19.5, -1.5);
-  ctx.lineTo(19.5, 1.5);
-  ctx.lineTo(6, 2.7);
-  ctx.closePath();
-  ctx.fill();
+  if (livery.split) {
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(-30, 0, 60, 20);
+    ctx.clip();
+    ctx.fillStyle = livery.split;
+    bodyPath(ctx);
+    ctx.fill();
+    ctx.restore();
+  }
 
   // Livery stripe along the spine.
   ctx.fillStyle = c2;

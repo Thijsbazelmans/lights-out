@@ -2,6 +2,8 @@
 // behind the title and circuit screens.
 
 import { TRACKS } from './data/tracks.js';
+import { TEAMS, teamById } from './data/teams.js';
+import { drawF1 } from './car.js';
 import { save } from './storage.js';
 import { formatGap, formatTime } from './util.js';
 
@@ -26,11 +28,12 @@ export function createUI(root, h) {
       </header>
       <nav class="menu">
         <button class="btn primary" id="btn-race" data-act="mode" data-mode="race" data-primary>
-          <span>Race</span><small>vs 7 rivals</small>
+          <span>Race</span><small>vs 10 rivals</small>
         </button>
         <button class="btn" id="btn-trial" data-act="mode" data-mode="trial">
           <span>Time trial</span><small>race your own ghost</small>
         </button>
+        <button class="btn" id="btn-team" data-act="team"><span>Team</span><small id="team-label"></small></button>
         <button class="btn" id="btn-settings" data-act="settings"><span>Settings</span><small></small></button>
       </nav>
       <dl class="stats" id="stats"></dl>
@@ -110,6 +113,18 @@ export function createUI(root, h) {
     </div>
   </section>
 
+  <section class="screen rail" data-screen="team" hidden>
+    <div class="sheet">
+      <header class="sheet-head">
+        <button class="back" data-act="back" aria-label="Back to menu">‹</button>
+        <h2>Your team</h2>
+      </header>
+      <p class="hint">Pick who you race for. Your car takes their colours and shows up as YOU; the other ten teams are your rivals.</p>
+      <div class="teams" id="teams" role="listbox" aria-label="Team"></div>
+      <button class="btn primary" id="btn-team-done" data-act="team-done" data-primary><span id="team-done-label">Race for McLaren</span><small class="kbd">Enter</small></button>
+    </div>
+  </section>
+
   <section class="screen center" data-screen="pause" hidden>
     <div class="modal">
       <h2 class="modal-title">Paused</h2>
@@ -157,6 +172,10 @@ export function createUI(root, h) {
          <div><kbd>↓</kbd><kbd>S</kbd><kbd>Space</kbd><span>brake</span></div>
          <div><kbd>←</kbd><kbd>→</kbd><kbd>A</kbd><kbd>D</kbd><span>steer</span></div>
          <div><kbd>Esc</kbd><span>pause</span></div>`;
+    const team = save.settings.team ? teamById(save.settings.team) : null;
+    $('#team-label').innerHTML = team
+      ? `<i class="dot" style="background:${team.livery.color}"></i>${esc(team.name)}`
+      : 'pick one';
     const anyPB = TRACKS.map((t) => save.peek(t.id)).filter((r) => r && r.bestLap);
     $('#btn-trial small').textContent = anyPB.length ? `${anyPB.length} ghost${anyPB.length > 1 ? 's' : ''} saved` : 'race your own ghost';
   }
@@ -170,7 +189,7 @@ export function createUI(root, h) {
 
   function trackMeta(t) {
     const r = save.peek(t.id);
-    const bits = [`${t.corners} corners`];
+    const bits = [t.def.real ? `Real circuit · ${t.def.country}` : `${t.corners} corners`];
     if (r && r.bestLap) bits.push(`<span class="pb">PB ${formatTime(r.bestLap)}</span>`);
     if (r && r.bestPos) bits.push(`best P${r.bestPos}`);
     return bits.join(' · ');
@@ -201,6 +220,44 @@ export function createUI(root, h) {
         btn.querySelector('[data-meta]').innerHTML = trackMeta(t);
       });
     });
+  }
+
+  let pendingTeam = null;
+
+  function openTeam() {
+    pendingTeam = save.settings.team || TEAMS[0].id;
+    const list = $('#teams');
+    list.innerHTML = TEAMS.map(
+      (t) => `
+      <button class="team" role="option" data-team="${t.id}" aria-selected="${t.id === pendingTeam}" style="--team:${t.livery.color}">
+        <canvas class="team-car" aria-hidden="true"></canvas>
+        <span class="team-info"><b>${esc(t.name)}</b><span class="code" style="--c:${t.livery.color}">${t.code}</span></span>
+      </button>`
+    ).join('');
+    updateTeamDone();
+    show('team');
+    requestAnimationFrame(() => {
+      list.querySelectorAll('.team').forEach((btn) => drawTeamCar(btn.querySelector('canvas'), teamById(btn.dataset.team)));
+    });
+  }
+
+  function updateTeamDone() {
+    $('#team-done-label').textContent = `Race for ${teamById(pendingTeam).name}`;
+  }
+
+  function drawTeamCar(canvas, team) {
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    const W = canvas.clientWidth || 30;
+    const H = canvas.clientHeight || 60;
+    canvas.width = W * dpr;
+    canvas.height = H * dpr;
+    const ctx = canvas.getContext('2d');
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.translate(W / 2, H / 2);
+    ctx.rotate(-Math.PI / 2);
+    const k = Math.min(H / 48, W / 24);
+    ctx.scale(k, k);
+    drawF1(ctx, team.livery, 0, false);
   }
 
   function selectTrack(id) {
@@ -251,6 +308,14 @@ export function createUI(root, h) {
   }
 
   root.addEventListener('click', (e) => {
+    const teamBtn = e.target.closest('.team');
+    if (teamBtn) {
+      h.click();
+      pendingTeam = teamBtn.dataset.team;
+      root.querySelectorAll('.team').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.team === pendingTeam)));
+      updateTeamDone();
+      return;
+    }
     const trackBtn = e.target.closest('.track');
     if (trackBtn) {
       h.click();
@@ -276,6 +341,12 @@ export function createUI(root, h) {
     const act = btn.dataset.act;
     if (act === 'mode') openSetup(btn.dataset.mode);
     else if (act === 'settings') show('settings');
+    else if (act === 'team') openTeam();
+    else if (act === 'team-done') {
+      save.settings.team = pendingTeam;
+      save.write();
+      show('title');
+    }
     else if (act === 'back') show('title');
     else if (act === 'start') h.onStart(setupMode, selected);
     else if (act === 'resume') h.onResume();
@@ -307,7 +378,7 @@ export function createUI(root, h) {
         e.preventDefault();
         btn.click();
       }
-    } else if (e.code === 'Escape' && (current === 'setup' || current === 'settings')) {
+    } else if (e.code === 'Escape' && (current === 'setup' || current === 'settings' || current === 'team')) {
       show('title');
     } else if (current === 'setup' && (e.code === 'ArrowDown' || e.code === 'ArrowUp')) {
       e.preventDefault();
@@ -322,6 +393,7 @@ export function createUI(root, h) {
     show,
     hideAll,
     openSetup,
+    openTeam,
     showResults,
     get current() {
       return current;

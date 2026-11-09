@@ -2,10 +2,11 @@
 
 Top-down arcade Formula racing that runs in the browser and installs to a phone's home screen. Plain HTML, CSS and JavaScript: no build step, so it runs on GitHub Pages as-is.
 
-## Phase 1 (this version)
+## What's in it
 
-- One player against 7 computer drivers, or a solo **time trial** against your own ghost.
-- Three made-up circuits: **Sunset Speedway** (fast and flowing), **Harbour Hairpins** (tight and twisty) and **Dune Drag** (long straights).
+- **The 2026 grid:** 11 teams in their 2026 colours with 3-letter codes (MCL, MER, FER, RBR, WIL, VRB, ALP, HAS, AUD, AMR, CAD). Pick your team in the menu; it races as **YOU** and the other ten are the AI.
+- **Interlagos**, built from the real circuit's GPS centre line, plus three made-up circuits: **Sunset Speedway** (fast and flowing), **Harbour Hairpins** (tight and twisty) and **Dune Drag** (long straights).
+- A race against the field, or a solo **time trial** against your own ghost.
 - Arcade handling: drifting with boosts, slipstream, start-light launches, bumping, skid marks, sparks and synthesised engine sounds.
 - Lap records, ghosts, best finishes and race stats are saved on the device (browser `localStorage`).
 - Works offline once it has been opened online.
@@ -69,8 +70,9 @@ Then open http://localhost:8642.
 | `js/ai.js` | Computer drivers: racing line, braking points, overtaking, recovery |
 | `js/track.js` | Circuit geometry, racing line, AI speed targets, kerbs, scenery, minimap |
 | `js/data/tracks.js` | The circuits and their colour themes |
+| `js/data/circuits/` | Real circuits as game coordinates (Interlagos) |
 | `js/data/turtle.js` | Builds a circuit from "straight / turn left / turn right" instructions |
-| `js/data/drivers.js` | The grid (placeholder names until phase 2) |
+| `js/data/teams.js` | The 11 teams: names, codes, colours, AI pace |
 | `js/hud.js` | On-screen race information |
 | `js/ui.js` | Menu screens |
 | `js/input.js` | Keyboard, touch and controller input |
@@ -84,11 +86,15 @@ Developer extras:
 - Add `?nopause` to the URL to stop the game pausing when the tab is hidden (for automated testing).
 - `window.lightsOut` in the browser console gives access to the game state.
 
+## Adding a real circuit
+
+Interlagos comes from the [bacinger/f1-circuits](https://github.com/bacinger/f1-circuits) GeoJSON centre lines (MIT licence). The conversion: GPS points to metres, a point every 20 m, light smoothing, corners tighter than a 32 m radius rounded off, then 4.5 px per metre. Where two parts of a circuit run close together, the game puts a shared barrier halfway between them automatically, so the layout doesn't need hand-editing.
+
 ## Roadmap
 
-1. ~~Arcade racer, one player, saved on the device~~ (this version)
-2. Real teams and drivers to pick from, with real names and colours
-3. Real circuits and a season mode
+1. ~~Arcade racer, one player, saved on the device~~
+2. ~~Real teams with real colours to pick from~~ (drivers still to come)
+3. Real circuits (~~Interlagos~~, more to come) and a season mode
 4. Pit stops as a mini-game, tyre strategy, weather
 5. Team management: driver development, junior teams, car development
 6. Online: ghost races between two players, then live racing in the same room

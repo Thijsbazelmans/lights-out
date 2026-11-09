@@ -56,6 +56,7 @@ export class Track {
     const s = def.scale;
     const ctrl = def.points.map(([x, y]) => ({ x: x * s, y: y * s }));
     this.buildCenterline(ctrl);
+    this.buildWalls();
     this.buildRacingLine();
     this.buildSpeedProfile();
     this.buildGrid();
@@ -156,6 +157,13 @@ export class Track {
       Ny[k] = this.ny[i];
     }
     const lim = this.half - 26;
+    // Keep the line away from a barrier that sits close to the track.
+    const limR = new Float64Array(m);
+    const limL = new Float64Array(m);
+    for (let k = 0; k < m; k++) {
+      limR[k] = Math.min(lim, this.wallR[k * step] - 78);
+      limL[k] = Math.min(lim, this.wallL[k * step] - 78);
+    }
     const off = new Float64Array(m);
     const X = (k) => Cx[k] + Nx[k] * off[k];
     const Y = (k) => Cy[k] + Ny[k] * off[k];
@@ -166,7 +174,7 @@ export class Track {
         const b = (k + 1) % m;
         const gx = (X(a) + X(b)) / 2;
         const gy = (Y(a) + Y(b)) / 2;
-        off[k] = clamp((gx - Cx[k]) * Nx[k] + (gy - Cy[k]) * Ny[k], -lim, lim);
+        off[k] = clamp((gx - Cx[k]) * Nx[k] + (gy - Cy[k]) * Ny[k], -limL[k], limR[k]);
       }
     }
     for (let it = 0; it < 1500; it++) {
@@ -177,7 +185,7 @@ export class Track {
         const b2 = (k + 2) % m;
         const gx = (4 * (X(a1) + X(b1)) - (X(a2) + X(b2))) / 6;
         const gy = (4 * (Y(a1) + Y(b1)) - (Y(a2) + Y(b2))) / 6;
-        off[k] = clamp((gx - Cx[k]) * Nx[k] + (gy - Cy[k]) * Ny[k], -lim, lim);
+        off[k] = clamp((gx - Cx[k]) * Nx[k] + (gy - Cy[k]) * Ny[k], -limL[k], limR[k]);
       }
     }
     const roff = new Float64Array(n);
@@ -194,7 +202,7 @@ export class Track {
     this.rx = new Float32Array(n);
     this.ry = new Float32Array(n);
     for (let i = 0; i < n; i++) {
-      const o = clamp(roff[i], -lim, lim);
+      const o = clamp(roff[i], -Math.min(lim, this.wallL[i] - 78), Math.min(lim, this.wallR[i] - 78));
       this.roff[i] = o;
       this.rx[i] = this.px[i] + this.nx[i] * o;
       this.ry[i] = this.py[i] + this.ny[i] * o;
@@ -222,7 +230,11 @@ export class Track {
     smoothCircular(k, 4);
     this.rcurv = k;
     const v = new Float32Array(n);
-    for (let i = 0; i < n; i++) v[i] = maxCornerSpeed(Math.abs(k[i]), 0.9);
+    for (let i = 0; i < n; i++) {
+      // Less margin for error where a barrier sits close: carry a bit less speed.
+      const room = clamp((Math.min(this.wallL[i], this.wallR[i]) - this.half) / this.runoff, 0, 1);
+      v[i] = maxCornerSpeed(Math.abs(k[i]), 0.9) * (0.9 + 0.1 * room);
+    }
     // Work backwards so the AI brakes before a corner, not in it.
     const B = PHYS.BRAKE * 0.72;
     for (let pass = 0; pass < 2; pass++) {
@@ -303,6 +315,78 @@ export class Track {
     this.grid = { x0, y0, C, gw, gh, cells };
   }
 
+  // Where two parts of a circuit run close together (common on real tracks),
+  // the barrier moves in to sit halfway between them, so nobody can cut across.
+  // wallL / wallR: distance from the centerline to the barrier on each side.
+  buildWalls() {
+    const n = this.n;
+    const W = this.wallDist;
+    const wl = new Float64Array(n).fill(W);
+    const wr = new Float64Array(n).fill(W);
+    const C = 96;
+    const cells = new Map();
+    const key = (cx, cy) => `${cx},${cy}`;
+    for (let i = 0; i < n; i++) {
+      const k = key(Math.floor(this.px[i] / C), Math.floor(this.py[i] / C));
+      if (!cells.has(k)) cells.set(k, []);
+      cells.get(k).push(i);
+    }
+    const skip = Math.ceil((W * 3) / this.ds); // closer than this along the lap = same stretch
+    const R = 2 * W;
+    const reach = Math.ceil(R / C);
+    for (let i = 0; i < n; i++) {
+      const x = this.px[i];
+      const y = this.py[i];
+      const cx = Math.floor(x / C);
+      const cy = Math.floor(y / C);
+      for (let gy = cy - reach; gy <= cy + reach; gy++) {
+        for (let gx = cx - reach; gx <= cx + reach; gx++) {
+          const list = cells.get(key(gx, gy));
+          if (!list) continue;
+          for (const j of list) {
+            const di = Math.abs(i - j);
+            if (Math.min(di, n - di) < skip) continue;
+            const dx = this.px[j] - x;
+            const dy = this.py[j] - y;
+            const d = Math.hypot(dx, dy);
+            if (d >= R || d < 1) continue;
+            const along = (dx * this.nx[i] + dy * this.ny[i]) / d;
+            if (Math.abs(along) < 0.3) continue;
+            // Distance along our normal to the line halfway between the two stretches.
+            const lim = Math.max(this.half + 10, d / (2 * Math.abs(along)));
+            if (along > 0) wr[i] = Math.min(wr[i], lim);
+            else wl[i] = Math.min(wl[i], lim);
+          }
+        }
+      }
+    }
+    const smoothLimit = (a) => {
+      const m = new Float64Array(n);
+      for (let i = 0; i < n; i++) {
+        let v = a[i];
+        for (let k = -12; k <= 12; k++) v = Math.min(v, a[(i + k + n) % n]);
+        m[i] = v;
+      }
+      const out = new Float32Array(n);
+      for (let i = 0; i < n; i++) {
+        let sum = 0;
+        for (let k = -8; k <= 8; k++) sum += m[(i + k + n) % n];
+        out[i] = Math.min(W, sum / 17);
+      }
+      return out;
+    };
+    this.wallL = smoothLimit(wl);
+    this.wallR = smoothLimit(wr);
+    let pinch = W;
+    for (let i = 0; i < n; i++) pinch = Math.min(pinch, this.wallL[i], this.wallR[i]);
+    this.tightestWall = pinch;
+  }
+
+  // Barrier distance on the side of the centerline the point is on.
+  wallAt(idx, side) {
+    return side > 0 ? this.wallR[idx] : this.wallL[idx];
+  }
+
   // Nearest point on the centerline. dist is Infinity far from the circuit.
   query(x, y, out = {}) {
     const g = this.grid;
@@ -327,6 +411,34 @@ export class Track {
         best = i;
       }
     }
+    return this.refine(x, y, best, bd, out);
+  }
+
+  // Nearest point on the stretch of track around sample `hint` (the car's
+  // own position on the lap). Used for barriers, so a car never "belongs" to
+  // a different part of the circuit that happens to be close by.
+  queryLocal(x, y, hint, out = {}) {
+    const n = this.n;
+    let best = -1;
+    let bd = Infinity;
+    for (let k = -20; k <= 50; k++) {
+      const i = (hint + k + n) % n;
+      const dx = x - this.px[i];
+      const dy = y - this.py[i];
+      const d = dx * dx + dy * dy;
+      if (d < bd) {
+        bd = d;
+        best = i;
+      }
+    }
+    if (bd > (this.wallDist * 2) ** 2) return this.query(x, y, out);
+    return this.refine(x, y, best, bd, out);
+  }
+
+  refine(x, y, best, bd, out) {
+    const px = this.px;
+    const py = this.py;
+    const n = this.n;
     let bx = px[best];
     let by = py[best];
     const ax = bx;
@@ -358,6 +470,7 @@ export class Track {
       out.nx = this.nx[best];
       out.ny = this.ny[best];
     }
+    out.side = out.nx * this.nx[best] + out.ny * this.ny[best] >= 0 ? 1 : -1;
     return out;
   }
 
@@ -487,6 +600,8 @@ export class Track {
       const path = new Path2D();
       const left = new Path2D();
       const right = new Path2D();
+      const wallLeft = new Path2D();
+      const wallRight = new Path2D();
       let minX = Infinity;
       let minY = Infinity;
       let maxX = -Infinity;
@@ -500,14 +615,22 @@ export class Track {
         const ly = y - this.ny[k] * edge;
         const rx = x + this.nx[k] * edge;
         const ry = y + this.ny[k] * edge;
+        const wlx = x - this.nx[k] * (this.wallL[k] + 3);
+        const wly = y - this.ny[k] * (this.wallL[k] + 3);
+        const wrx = x + this.nx[k] * (this.wallR[k] + 3);
+        const wry = y + this.ny[k] * (this.wallR[k] + 3);
         if (i === s - 2) {
           path.moveTo(x, y);
           left.moveTo(lx, ly);
           right.moveTo(rx, ry);
+          wallLeft.moveTo(wlx, wly);
+          wallRight.moveTo(wrx, wry);
         } else {
           path.lineTo(x, y);
           left.lineTo(lx, ly);
           right.lineTo(rx, ry);
+          wallLeft.lineTo(wlx, wly);
+          wallRight.lineTo(wrx, wry);
         }
         minX = Math.min(minX, x);
         maxX = Math.max(maxX, x);
@@ -520,6 +643,8 @@ export class Track {
         path,
         left,
         right,
+        wallLeft,
+        wallRight,
         kerbA: new Path2D(),
         kerbB: new Path2D(),
         minX: minX - pad,
@@ -628,22 +753,25 @@ export class Track {
     ctx.lineJoin = 'round';
     ctx.lineCap = 'butt';
 
-    // Barrier: red/white blocks along the outer edge of the run-off.
-    ctx.lineWidth = this.wallDist * 2 + 12;
-    ctx.strokeStyle = th.barrierA;
-    for (const c of vis) ctx.stroke(c.path);
-    ctx.setLineDash([26, 26]);
-    ctx.strokeStyle = th.barrierB;
-    for (const c of vis) {
-      ctx.lineDashOffset = -(c.s - 2) * this.ds;
-      ctx.stroke(c.path);
-    }
-    ctx.setLineDash([]);
-    ctx.lineDashOffset = 0;
-
     ctx.lineWidth = this.wallDist * 2;
     ctx.strokeStyle = g.runoffPat || th.runoff;
     for (const c of vis) ctx.stroke(c.path);
+
+    // Barriers: red/white blocks along the wall line on both sides.
+    ctx.lineWidth = 8;
+    ctx.lineJoin = 'round';
+    ctx.strokeStyle = th.barrierA;
+    for (const c of vis) {
+      ctx.stroke(c.wallLeft);
+      ctx.stroke(c.wallRight);
+    }
+    ctx.setLineDash([26, 26]);
+    ctx.strokeStyle = th.barrierB;
+    for (const c of vis) {
+      ctx.stroke(c.wallLeft);
+      ctx.stroke(c.wallRight);
+    }
+    ctx.setLineDash([]);
 
     ctx.lineWidth = this.half * 2 + 4;
     ctx.strokeStyle = th.asphaltEdge;
@@ -727,7 +855,7 @@ export class Track {
     // Grid boxes.
     ctx.strokeStyle = 'rgba(255,255,255,0.75)';
     ctx.lineWidth = 2.5;
-    for (let k = 0; k < 8; k++) {
+    for (let k = 0; k < 11; k++) {
       const s = this.gridSlot(k);
       ctx.save();
       ctx.translate(s.x, s.y);
@@ -798,7 +926,10 @@ export class Track {
     for (const d of this.decor) {
       if (d.x < view.minX - m || d.x > view.maxX + m || d.y < view.minY - m || d.y > view.maxY + m) continue;
       if (kind === 'trees') drawTree(ctx, d, th);
-      else if (kind === 'boats') drawBoat(ctx, d, th);
+      else if (kind === 'city') {
+        if (d.s < 0.45) drawTree(ctx, d, th);
+        else drawBuilding(ctx, d, th);
+      } else if (kind === 'boats') drawBoat(ctx, d, th);
       else drawDesert(ctx, d, th);
     }
   }
@@ -901,6 +1032,23 @@ function drawTree(ctx, d, th) {
   ctx.beginPath();
   ctx.arc(d.x - d.r * 0.28, d.y - d.r * 0.3, d.r * 0.55, 0, Math.PI * 2);
   ctx.fill();
+}
+
+function drawBuilding(ctx, d, th) {
+  const w = d.r * 1.5;
+  const h = d.r * 1.05;
+  ctx.save();
+  ctx.translate(d.x, d.y);
+  ctx.rotate(d.a);
+  ctx.fillStyle = 'rgba(0,0,0,0.28)';
+  ctx.fillRect(-w / 2 + 6, -h / 2 + 8, w, h);
+  ctx.fillStyle = th.building[Math.floor(d.s * 97) % th.building.length];
+  ctx.fillRect(-w / 2, -h / 2, w, h);
+  ctx.fillStyle = 'rgba(255,255,255,0.12)';
+  ctx.fillRect(-w / 2 + 3, -h / 2 + 3, w - 6, h - 6);
+  ctx.fillStyle = 'rgba(0,0,0,0.18)';
+  ctx.fillRect(-w / 6, -h / 6, w / 4, h / 4);
+  ctx.restore();
 }
 
 function drawBoat(ctx, d, th) {

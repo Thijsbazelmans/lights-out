@@ -84,7 +84,7 @@ export class Race {
     }
     const field = rivals.slice().sort((a, b) => b.skill - a.skill);
     const total = field.length + (player ? 1 : 0);
-    const playerSlot = player ? Math.min(total - 1, 5) : -1;
+    const playerSlot = player ? Math.min(total - 1, Math.floor(total * 0.6)) : -1; // start in the midfield
     let r = 0;
     this.player = null;
     for (let k = 0; k < total; k++) {
