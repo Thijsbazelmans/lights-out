@@ -15,7 +15,7 @@ import { clamp, formatTime } from './util.js';
 import { POINTS, ROUNDS, abandonSeason, currentSeason, isComplete, nextTrack, playerStanding, recordRound, standings, startSeason, teamStanding } from './season.js';
 
 // Bump together with --build in css/style.css and CACHE in sw.js.
-const BUILD = '6';
+const BUILD = '10';
 
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d', { alpha: false });
@@ -113,12 +113,16 @@ window.addEventListener('resize', resize);
 window.visualViewport?.addEventListener('resize', resize);
 resize();
 
+function crossedLine() {
+  return !!state.race && state.race.phase === 'finished';
+}
+
 function touchVisible() {
-  return !!state.race && !state.paused && !state.resultsShown && isTouchDevice();
+  return !!state.race && !state.paused && !state.resultsShown && !crossedLine() && isTouchDevice();
 }
 
 function syncChrome() {
-  const racing = !!state.race && !state.resultsShown;
+  const racing = !!state.race && !state.resultsShown && !crossedLine();
   touchEl.hidden = !touchVisible();
   pauseBtn.hidden = !racing || state.paused;
   setGameActive(racing && !state.paused);
@@ -161,6 +165,18 @@ function launch({ mode, trackId, laps, difficulty, team, seat }) {
     rivals: rivalsFor(team, seat),
     record: rec,
   });
+  // What's being raced, for the title card, HUD, pause and results.
+  const season = mode === 'season' ? currentSeason() : null;
+  state.race.event = {
+    gp: track.def.gp,
+    name: track.def.name,
+    country: track.def.country,
+    accent: track.def.theme.thumb,
+    mode,
+    laps,
+    round: season ? season.round + 1 : null,
+    rounds: ROUNDS,
+  };
   state.paused = false;
   state.resultsShown = false;
   ui.hideAll();
@@ -170,9 +186,15 @@ function launch({ mode, trackId, laps, difficulty, team, seat }) {
 }
 
 function pause() {
-  if (!state.race || state.paused || state.resultsShown) return;
+  if (!state.race || state.paused || state.resultsShown || crossedLine()) return;
   state.paused = true;
   audio.silence();
+  const ev = state.race.event;
+  const p = state.race.player;
+  if (ev) {
+    const lap = ev.mode === 'trial' ? `lap ${Math.max(1, p.lap + 1)}` : `lap ${Math.min(Math.max(1, p.lap + 1), ev.laps)} of ${ev.laps}`;
+    ui.setPauseInfo(`${ev.round ? `Round ${ev.round} of ${ev.rounds} · ` : ''}${ev.gp}${ev.gp.startsWith(ev.name) ? '' : ` · ${ev.name}`} · ${lap}`);
+  }
   ui.show('pause');
   syncChrome();
 }
@@ -196,10 +218,19 @@ function quitToMenu(screen) {
 }
 
 function onPauseKey() {
-  if (!state.race || state.resultsShown) return;
+  if (!state.race || state.resultsShown || crossedLine()) return;
   if (state.paused) resume();
   else pause();
 }
+
+// After the finish, a tap or Enter jumps straight to the results.
+function skipFinish(e) {
+  if (!crossedLine() || state.resultsShown) return;
+  if (e.type === 'keydown' && !['Enter', 'NumpadEnter', 'Space', 'Escape'].includes(e.code)) return;
+  state.race.skipFinish = true;
+}
+window.addEventListener('pointerdown', skipFinish);
+window.addEventListener('keydown', skipFinish);
 
 pauseBtn.addEventListener('click', () => {
   audio.sfxClick();
@@ -243,6 +274,7 @@ function handleOut(r) {
         break;
       case 'finish':
         recordFinish(r, e.pos);
+        syncChrome(); // controls away: the race is over
         audio.sfxChime(e.pos === 1 ? [523, 659, 784, 1047, 1319] : e.pos <= 3 ? [523, 659, 784, 1047] : [523, 659, 784], 0.12);
         break;
       case 'results':
@@ -300,6 +332,7 @@ function showResults(r) {
       pos: after.pos,
       posBefore: before ? before.pos : null,
       points: after.points,
+      gp: r.track.def.gp,
       teamName: mine.team.name,
       teamPos: mine.pos,
       teamPoints: mine.points,
@@ -307,7 +340,7 @@ function showResults(r) {
       table: standings(s),
     };
   }
-  ui.showResults(res, { trackName: r.track.name, chips, season });
+  ui.showResults(res, { trackName: r.track.name, event: r.event, chips, season });
   syncChrome();
 }
 
@@ -386,7 +419,9 @@ function render(dt, input) {
   ctx.fillStyle = vg;
   ctx.fillRect(0, 0, W, H);
 
-  if (racing) drawHUD(ctx, r, cam, W, H, insets, { touchUI: touchVisible() });
+  if (racing && !state.resultsShown) {
+    drawHUD(ctx, r, cam, W, H, insets, { touchUI: crossedLine() ? isTouchDevice() : touchVisible(), season: state.mode === 'season', dt });
+  }
   updateEngineSound(r, input);
 }
 

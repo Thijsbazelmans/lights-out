@@ -42,6 +42,7 @@ export class AIDriver {
     let aheadLat = 0;
     let blockedL = false;
     let blockedR = false;
+    let besideAhead = false; // the car alongside is a nose in front: we give way
     for (const o of cars) {
       if (o === c) continue;
       const di = Math.abs(o.trackIdx - idx);
@@ -53,6 +54,7 @@ export class AIDriver {
       if (f > -56 && f < 70 && Math.abs(lat) > 14 && Math.abs(lat) < 70) {
         if (lat < 0) blockedL = true;
         else blockedR = true;
+        if (f > 6) besideAhead = true;
       }
       if (f < 8 || f > 180) continue;
       if (Math.abs(lat) > 36) continue;
@@ -68,8 +70,18 @@ export class AIDriver {
     // Usable width on each side: less where a wall sits close to the track.
     const edgeAt = (i) => [-Math.min(edge, t.wallL[i] - 40), Math.min(edge, t.wallR[i] - 40)];
     const [lo, hi] = edgeAt(idx);
+    // Pass on the straights, or when clearly quicker; through corners, follow.
+    let bend = 0;
+    for (let k = 0; k <= 32; k += 4) bend = Math.max(bend, Math.abs(t.rcurv[(idx + k) % n]));
+    const straight = bend < 1 / 650;
+    const closing = ahead ? v - ahead.forwardSpeed : 0;
+    const wantPass = ahead && (straight ? closing > 12 : closing > 70);
     let boxedIn = false;
-    if (ahead && ahead.forwardSpeed < v + 30) {
+    let following = false;
+    if (ahead && !wantPass) {
+      following = true;
+      this.offsetTarget = damp(this.offsetTarget, myLat + aheadLat * 0.4 - t.roff[idx], 1.5, dt);
+    } else if (ahead && ahead.forwardSpeed < v + 30) {
       // Pass on whichever side is open; if both are taken, wait behind.
       const otherLat = myLat + aheadLat;
       const left = { goal: otherLat - 46, ok: !blockedL };
@@ -105,7 +117,9 @@ export class AIDriver {
     vt *= this.pace * rubber;
     if (c.offTrack) vt = Math.min(vt, 320);
     if (Math.abs(err) > 0.7) vt = Math.min(vt, 240);
-    if (ahead && aheadF < (boxedIn ? 110 : 70) && ahead.forwardSpeed < v) vt = Math.min(vt, ahead.forwardSpeed * (boxedIn ? 0.94 : 0.97));
+    if (ahead && aheadF < (boxedIn || following ? 105 : 70) && ahead.forwardSpeed < v) vt = Math.min(vt, ahead.forwardSpeed * (boxedIn ? 0.94 : 0.985));
+    // Side by side into a corner: whoever is behind backs out of it.
+    if (besideAhead && !straight) vt *= 0.95;
 
     if (v < vt - 12) out.gas = 1;
     else if (v > vt + 28) out.brake = clamp((v - vt) / 90, 0.35, 1);

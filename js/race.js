@@ -11,10 +11,15 @@ const SPLITS = 40; // timing points per lap (gaps and live delta)
 const GHOST_DT = 0.05;
 const LIGHT_GAP = 0.8;
 
+// AI speed per difficulty. `top` is the corner pace of the fastest cars and
+// `spread` how much slower the slowest are; `power` is top-end engine power.
+// On lap 1 everyone runs near the middle of that range (a proper first-lap
+// scramble); during lap 1 each car moves to its own race pace, so the field
+// strings out into smaller groups and one-on-one battles.
 export const DIFFICULTY = {
-  easy: { power: 0.88, pace: 0.86 },
-  normal: { power: 0.95, pace: 0.93 },
-  hard: { power: 0.995, pace: 1.0 },
+  easy: { top: 0.93, spread: 0.13, power: 0.95, powerSpread: 0.07 },
+  normal: { top: 1.0, spread: 0.13, power: 1.0, powerSpread: 0.07 },
+  hard: { top: 1.04, spread: 0.12, power: 1.02, powerSpread: 0.06 },
 };
 
 const GHOST_LIVERY = { color: '#cfe8ff', color2: '#6fb7ff', helmet: '#ffffff' };
@@ -44,7 +49,8 @@ export class Race {
     this.fastest = null;
     this.splitFirst = new Map();
     this.finishCount = 0;
-    this.finishT = 0;
+    this.finishReal = 0;
+    this.skipFinish = false;
     this.results = null;
     this.shake = 0;
     this.delta = null;
@@ -99,17 +105,23 @@ export class Race {
         this.player = car;
       } else {
         const d = field[r++];
-        const skillN = clamp((d.skill - 0.94) / 0.06, 0, 1);
+        const skillN = clamp((d.skill - 0.94) / 0.068, 0, 1);
         const attract = this.mode === 'attract';
-        const power = attract ? 0.92 + 0.05 * skillN : D.power * (0.975 + 0.035 * skillN);
-        const pace = attract ? 0.9 + 0.04 * skillN : D.pace * (0.97 + 0.05 * skillN);
-        const car = new Car({ x: s.x, y: s.y, angle: s.angle, name: d.name, code: d.code, livery: d.livery, power });
+        // Race pace: team and driver, plus a little form on the day.
+        const q = clamp(skillN + rand(-0.1, 0.1), 0, 1);
+        const pace = attract ? 0.9 + 0.04 * skillN : D.top - D.spread * (1 - q);
+        const power = attract ? 0.92 + 0.05 * skillN : D.power - D.powerSpread * (1 - q);
+        // Lap 1: halfway between the field average and the car's own pace.
+        const startPace = attract ? pace : (D.top - D.spread * 0.5 + pace) / 2;
+        const startPower = attract ? power : (D.power - D.powerSpread * 0.5 + power) / 2;
+        const car = new Car({ x: s.x, y: s.y, angle: s.angle, name: d.name, code: d.code, livery: d.livery, power: startPower });
         car.teamId = d.teamId || d.id;
         car.driverId = d.driverId || d.id;
         car.trackIdx = s.idx;
-        car.basePower = power;
+        car.basePower = startPower;
+        Object.assign(car, { racePace: pace, racePower: power, startPace, startPower });
         this.cars.push(car);
-        this.ai.set(car, new AIDriver(car, t, { pace }));
+        this.ai.set(car, new AIDriver(car, t, { pace: startPace }));
       }
     }
   }
@@ -120,7 +132,18 @@ export class Race {
   }
 
   update(dt, input) {
-    this.acc += dt;
+    // After you cross the line: slow motion for a moment, then back to normal
+    // speed, and the results after a few seconds (or on a tap).
+    let scaled = dt;
+    if (this.phase === 'finished') {
+      this.finishReal += dt;
+      scaled = dt * (0.3 + 0.7 * clamp((this.finishReal - 0.9) / 1.2, 0, 1));
+      if (!this.results && (this.finishReal > 4.2 || (this.skipFinish && this.finishReal > 0.6))) {
+        this.results = this.buildResults();
+        this.out.push({ t: 'results' });
+      }
+    }
+    this.acc += scaled;
     let steps = 0;
     while (this.acc >= STEP && steps < 10) {
       this.step(STEP, input);
@@ -128,7 +151,7 @@ export class Race {
       steps++;
     }
     if (steps >= 10) this.acc = 0;
-    this.particles.update(dt);
+    this.particles.update(scaled);
     for (const m of this.messages) m.t += dt;
     this.messages = this.messages.filter((m) => m.t < m.dur);
   }
@@ -173,6 +196,15 @@ export class Race {
       const ai = this.ai.get(car);
       let ctl = input;
       if (ai) {
+        if (car.racePace != null && !car.finished && car !== this.player) {
+          // Bunched off the line, own race pace from about mid-lap 1, plus a
+          // slow rhythm of better and worse spells that breaks up trains.
+          const k = clamp(car.progress / (this.track.length * 0.55), 0, 1);
+          car.rhythm ??= rand(0, Math.PI * 2);
+          const swing = 1 + 0.025 * k * Math.sin(this.time * 0.3 + car.rhythm);
+          ai.pace = (car.startPace + (car.racePace - car.startPace) * k) * swing;
+          car.basePower = car.startPower + (car.racePower - car.startPower) * k;
+        }
         const rub = this.rubberFor(car);
         car.power = car.basePower * (1 + (rub - 1) * 0.6);
         ctl = ai.control(h, this.cars, rub, racing ? this.time : -1);
@@ -191,13 +223,6 @@ export class Race {
     this.recordGhost(h);
     this.handleEvents();
 
-    if (this.phase === 'finished') {
-      this.finishT += h;
-      if (this.finishT > 3.2 && !this.results) {
-        this.results = this.buildResults();
-        this.out.push({ t: 'results' });
-      }
-    }
   }
 
   go(input) {
@@ -225,12 +250,17 @@ export class Race {
     }
   }
 
+  // A light touch, not a magnet: nothing on lap 1; a runaway leader far up
+  // the road eases off a little so a late comeback stays possible; and when
+  // you lead, the cars close behind you push a bit harder.
   rubberFor(car) {
     const p = this.player;
-    if (this.mode !== 'race' || !p || p.finished || car.finished) return car.finished ? 0.8 : 1;
-    const d = car.progress - p.progress; // > 0: this rival is ahead of the player
-    if (d > 500) return Math.max(0.94, 1 - (d - 500) / 8000);
-    if (d < -400) return Math.min(1.06, 1 + (-d - 400) / 6000);
+    if (car.finished) return 0.8;
+    if (this.mode !== 'race' || !p || p.finished || p.lap < 1) return 1;
+    const L = this.track.length;
+    const d = car.progress - p.progress; // > 0: this rival is ahead of you
+    if (d > 0.2 * L) return Math.max(0.96, 1 - ((d - 0.2 * L) / L) * 0.12);
+    if (d < 0 && d > -0.15 * L && p.pos <= 2) return 1.02;
     return 1;
   }
 
@@ -270,16 +300,25 @@ export class Race {
             b.y += (ny * ov) / 2;
             const rv = (b.vx - a.vx) * nx + (b.vy - a.vy) * ny;
             if (rv < 0) {
-              const jm = (-(1 + 0.3) * rv) / 2;
+              // Rubbing, not bouncing: almost no rebound, a little scrub along
+              // the contact, and only a small twist.
+              const jm = (-(1 + 0.05) * rv) / 2;
               a.vx -= jm * nx;
               a.vy -= jm * ny;
               b.vx += jm * nx;
               b.vy += jm * ny;
-              // A hit off-centre spins the car a little.
+              const tx = -ny;
+              const ty = nx;
+              const rt = (b.vx - a.vx) * tx + (b.vy - a.vy) * ty;
+              const jt = rt * 0.08;
+              a.vx += jt * tx;
+              a.vy += jt * ty;
+              b.vx -= jt * tx;
+              b.vy -= jt * ty;
               const ta = afx * sa * (-jm * ny) - afy * sa * (-jm * nx);
               const tb = bfx * sb * (jm * ny) - bfy * sb * (jm * nx);
-              a.yawKick = clamp(a.yawKick + ta * 0.0035, -4, 4);
-              b.yawKick = clamp(b.yawKick + tb * 0.0035, -4, 4);
+              a.yawKick = clamp(a.yawKick + ta * 0.0016, -2.5, 2.5);
+              b.yawKick = clamp(b.yawKick + tb * 0.0016, -2.5, 2.5);
               if (-rv > 60) this.events.push({ t: 'bump', a, b, x: (ax + bx) / 2, y: (ay + by) / 2, power: -rv });
             }
           }
@@ -435,12 +474,14 @@ export class Race {
     if (ai) ai.pace *= 0.8;
     if (car === this.player) {
       this.phase = 'finished';
-      this.finishT = 0;
+      this.finishReal = 0;
+      this.messages.length = 0; // the finish screen takes over
       this.ai.set(car, new AIDriver(car, this.track, { pace: 0.72 }));
       car.basePower = 0.85;
-      const pos = car.finishPos;
-      this.msg(pos === 1 ? 'WINNER!' : `P${pos}`, pos === 1 ? '#ffd23f' : '#ffffff', 3.2, 1.7);
-      this.out.push({ t: 'finish', pos });
+      this.out.push({ t: 'finish', pos: car.finishPos });
+    } else if (car.finishPos === 1 && this.player && !this.player.finished) {
+      // The winner is home: everyone else is on their last lap.
+      this.msg(`CHEQUERED FLAG · ${car.name.split(' ').slice(-1)[0].toUpperCase()} WINS`, '#ffffff', 2.6, 0.75);
     }
   }
 
@@ -691,9 +732,19 @@ export class Race {
       c.draw(ctx);
     }
     if (this.player) this.player.draw(ctx);
-    if (t.crossings.length) {
-      t.drawBridges(ctx);
-      for (const c of this.cars) if (t.onBridge(c.trackIdx)) c.draw(ctx);
+    // Bridges: your own road stays clear. Crossing over: the road below is
+    // dimmed. Going under: the bridge turns see-through and your car stays on top.
+    const me = this.player || this.focus;
+    for (const c of t.crossings) {
+      const span = t.bridgeSpan;
+      const above = me && t.lapDistance(me.trackIdx, c.upper) < span * 1.6;
+      const below = me && t.lapDistance(me.trackIdx, c.lower) < span * 1.6;
+      if (above) t.dimStretch(ctx, c.lower, Math.round(span * 1.8));
+      t.drawBridge(ctx, c, below ? 0.25 : 1);
+      for (const car of this.cars) {
+        if (t.lapDistance(car.trackIdx, c.upper) <= span + 6) car.draw(ctx, below ? 0.4 : 1);
+      }
+      if (above || below) me.draw(ctx);
     }
     this.particles.draw(ctx, view);
     if (this.mode === 'race') t.drawGantry(ctx, this.phase === 'lights' ? this.lit : 0);

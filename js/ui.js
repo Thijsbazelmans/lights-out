@@ -7,7 +7,7 @@ import { drawF1 } from './car.js';
 import { drawTrackThumb } from './track.js';
 import { save } from './storage.js';
 import { POINTS, ROUNDS, constructorStandings, currentSeason, hasOutdatedSeason, isComplete, lastRound, nextTrack, playerStanding, standings, teamStanding } from './season.js';
-import { formatGap, formatTime } from './util.js';
+import { followRows, formatGap, formatTime } from './util.js';
 
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
 
@@ -146,6 +146,7 @@ export function createUI(root, h) {
   <section class="screen center" data-screen="pause" hidden>
     <div class="modal">
       <h2 class="modal-title">Paused</h2>
+      <p class="hint" id="pause-event"></p>
       <div class="menu">
         <button class="btn primary" data-act="resume" data-primary><span>Resume</span><small class="kbd">Esc</small></button>
         <button class="btn" data-act="restart"><span>Restart</span><small></small></button>
@@ -253,9 +254,17 @@ export function createUI(root, h) {
 
   // Drivers' table (kind 'drivers') or Constructors' table (kind 'teams').
   function standingsTable(table, limit, kind = 'drivers') {
+    // With a limit: a window that follows you, plus the leader and your
+    // teammate; gaps in the order are marked.
+    const me = table.findIndex((r) => r.isPlayer);
+    const show = limit ? followRows(table.length, me, limit, [0, table.findIndex((r) => r.isMate)]) : table.map((r, i) => i);
     const rows = [];
-    table.forEach((r, i) => {
-      if (limit && i >= limit && !r.isPlayer && !r.isMate) return;
+    for (const i of show) {
+      if (i < 0) {
+        rows.push('<tr class="gap"><td></td><td>···</td><td></td><td></td></tr>');
+        continue;
+      }
+      const r = table[i];
       const cls = r.isPlayer ? 'me' : r.isMate ? 'mate' : '';
       const label =
         kind === 'drivers'
@@ -267,19 +276,58 @@ export function createUI(root, h) {
         <td class="num">${r.wins}</td>
         <td class="num pts">${r.points}</td>
       </tr>`);
-    });
+    }
     return `<div class="table-wrap"><table class="res-table standings">
       <thead><tr><th>Pos</th><th>${kind === 'drivers' ? 'Driver' : 'Team'}</th><th>Wins</th><th>Pts</th></tr></thead>
       <tbody>${rows.join('')}</tbody></table></div>`;
   }
 
+  const shortGp = (gp) => gp.replace('Grand Prix', 'GP');
+
+  // Every round: the Grand Prix, how you did, who won; the next one marked.
+  function calendarTable(s) {
+    const rows = TRACKS.map((t, i) => {
+      const r = s.results[i];
+      if (r) {
+        const pos = r.order.indexOf('you') + 1;
+        const pts = POINTS[pos - 1] || 0;
+        const win = s.lineup.find((d) => d.id === r.order[0]);
+        return `<tr>
+          <td class="num">${i + 1}</td>
+          <td>${esc(shortGp(t.gp))} <span class="nm">${esc(t.name)}</span></td>
+          <td class="num">P${pos}${pts ? ` <span class="gain">+${pts}</span>` : ''}</td>
+          <td>${win.id === 'you' ? 'YOU' : esc(win.code)}</td>
+        </tr>`;
+      }
+      const next = i === s.round;
+      return `<tr class="${next ? 'me' : 'later'}">
+        <td class="num">${i + 1}</td>
+        <td>${esc(shortGp(t.gp))} <span class="nm">${esc(t.name)}</span></td>
+        <td class="num">${next ? 'next' : ''}</td>
+        <td></td>
+      </tr>`;
+    });
+    return `<div class="table-wrap"><table class="res-table standings calendar">
+      <thead><tr><th>Rd</th><th>Grand Prix</th><th>You</th><th>Winner</th></tr></thead>
+      <tbody>${rows.join('')}</tbody></table></div>`;
+  }
+
+  function standingsContent(s) {
+    if (standingsTab === 'teams') return standingsTable(constructorStandings(s), 0, 'teams');
+    if (standingsTab === 'races') return calendarTable(s);
+    return standingsTable(standings(s));
+  }
+
   function standingsBlock(s) {
+    const after = s.results.length ? `After the ${esc(TRACKS[s.results.length - 1].gp)}, round ${s.results.length} of ${ROUNDS}` : 'Before round 1';
     return `
+      <span class="eyebrow">${after}</span>
       <div class="seg" id="standings-tab">
         <button data-tab="drivers" class="${standingsTab === 'drivers' ? 'on' : ''}">Drivers</button>
         <button data-tab="teams" class="${standingsTab === 'teams' ? 'on' : ''}">Constructors</button>
+        <button data-tab="races" class="${standingsTab === 'races' ? 'on' : ''}">Races</button>
       </div>
-      <div id="standings-table">${standingsTab === 'drivers' ? standingsTable(standings(s)) : standingsTable(constructorStandings(s), 0, 'teams')}</div>`;
+      <div id="standings-table">${standingsContent(s)}</div>`;
   }
 
   function openSeason() {
@@ -335,13 +383,13 @@ export function createUI(root, h) {
           <div class="tinfo">
             <span class="eyebrow">Round ${s.round + 1} of ${ROUNDS}</span>
             <b>${esc(next.gp)}</b>
-            <span class="meta">${esc(next.name)} · ${esc(next.country)} · ${s.laps} laps</span>
+            <span class="meta">${esc(next.name)}${next.country !== next.name ? ` · ${esc(next.country)}` : ''} · ${s.laps} laps</span>
           </div>
         </div>
         <button class="btn primary" data-act="season-race" data-primary><span>Race round ${s.round + 1}</span><small class="kbd">Enter</small></button>
         ${
           last
-            ? `<p class="hint">Last race: P${last.playerPos} at ${esc(last.track.name)}, won by ${last.winner.id === 'you' ? 'you' : esc(last.winner.name)}. You're P${me.pos} in the Drivers' and ${esc(team.name)} P${mine.pos} in the Constructors'.</p>`
+            ? `<p class="hint">Last race: P${last.playerPos} in the ${esc(last.track.gp)}, won by ${last.winner.id === 'you' ? 'you' : esc(last.winner.name)}. You're P${me.pos} in the Drivers' and ${esc(team.name)} P${mine.pos} in the Constructors'.</p>`
             : `<p class="hint">Racing for ${esc(team.name)} alongside ${esc(mate.name)} · ${s.laps} laps · ${s.difficulty} rivals.</p>`
         }
         ${standingsBlock(s)}
@@ -421,7 +469,7 @@ export function createUI(root, h) {
     const arrow = moved > 0 ? `<span class="up">▲${moved}</span>` : moved < 0 ? `<span class="down">▼${-moved}</span>` : '';
     return `<div class="season-block">
       <div class="sb-head">
-        <span class="eyebrow">Championship · after round ${sb.round} of ${sb.total}</span>
+        <span class="eyebrow">Championship after the ${esc(sb.gp)} · round ${sb.round} of ${sb.total}</span>
         <b>Drivers P${sb.pos} ${arrow} · ${sb.points} pts <span class="gain">+${sb.gained}</span></b>
         <span class="meta">Constructors: ${esc(sb.teamName)} P${sb.teamPos} · ${sb.teamPoints} pts</span>
       </div>
@@ -450,8 +498,9 @@ export function createUI(root, h) {
       <div class="res-head">
         <div class="res-pos pos-${Math.min(pos, 4)}">P${pos}</div>
         <div>
+          ${info.event ? `<span class="eyebrow">${info.event.round ? `Round ${info.event.round} of ${info.event.rounds} · ` : ''}${esc(info.event.gp)}</span>` : ''}
           <h2>${head}</h2>
-          <p>${esc(info.trackName)} · ${res.laps} laps · ${formatTime(res.playerTime)}</p>
+          <p>${esc(info.trackName)}${info.event && info.event.country !== info.trackName ? ` · ${esc(info.event.country)}` : ''} · ${res.laps} laps · ${formatTime(res.playerTime)}</p>
         </div>
       </div>
       <div class="table-wrap">
@@ -496,7 +545,7 @@ export function createUI(root, h) {
       const sn = currentSeason();
       if (sn) {
         root.querySelectorAll('#standings-tab button').forEach((b) => b.classList.toggle('on', b.dataset.tab === standingsTab));
-        $('#standings-table').innerHTML = standingsTab === 'drivers' ? standingsTable(standings(sn)) : standingsTable(constructorStandings(sn), 0, 'teams');
+        $('#standings-table').innerHTML = standingsContent(sn);
       }
       return;
     }
@@ -603,9 +652,14 @@ export function createUI(root, h) {
     }
   });
 
+  function setPauseInfo(textContent) {
+    $('#pause-event').textContent = textContent || '';
+  }
+
   return {
     show,
     hideAll,
+    setPauseInfo,
     openSetup,
     openTeam,
     openSeason,

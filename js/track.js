@@ -858,46 +858,71 @@ export class Track {
     });
   }
 
-  // The upper deck, drawn over whatever passes underneath.
-  drawBridges(ctx) {
-    if (!this.crossings.length) return;
+  // Darken a stretch of the circuit (the road you're crossing over).
+  dimStretch(ctx, center, span) {
+    const n = this.n;
+    const path = new Path2D();
+    for (let i = center - span; i <= center + span; i++) {
+      const k = ((i % n) + n) % n;
+      if (i === center - span) path.moveTo(this.px[k], this.py[k]);
+      else path.lineTo(this.px[k], this.py[k]);
+    }
+    ctx.save();
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.lineWidth = this.wallDist * 2;
+    ctx.strokeStyle = 'rgba(4,6,10,0.42)';
+    ctx.stroke(path);
+    ctx.restore();
+  }
+
+  // One upper deck. alpha < 1 when you're driving underneath it, so your own
+  // road stays readable.
+  drawBridge(ctx, c, alpha = 1) {
     const n = this.n;
     const th = this.theme;
-    for (const c of this.crossings) {
-      const [a, b] = this.bridgeRange(c);
-      const path = new Path2D();
-      const left = new Path2D();
-      const right = new Path2D();
-      const shadow = new Path2D();
-      for (let i = a; i <= b; i++) {
-        const k = ((i % n) + n) % n;
-        const x = this.px[k];
-        const y = this.py[k];
-        const e = this.half - 5;
-        const m = i === a ? 'moveTo' : 'lineTo';
-        path[m](x, y);
-        shadow[m](x + 10, y + 14);
-        left[m](x - this.nx[k] * e, y - this.ny[k] * e);
-        right[m](x + this.nx[k] * e, y + this.ny[k] * e);
-      }
-      ctx.lineCap = 'butt';
-      ctx.lineJoin = 'round';
-      ctx.lineWidth = this.half * 2 + 30;
-      ctx.strokeStyle = 'rgba(0,0,0,0.35)';
-      ctx.stroke(shadow);
-      ctx.strokeStyle = '#8c9096';
-      ctx.stroke(path);
-      ctx.lineWidth = this.half * 2 + 18;
-      ctx.strokeStyle = '#5d6168';
-      ctx.stroke(path);
-      ctx.lineWidth = this.half * 2;
-      ctx.strokeStyle = th.asphalt;
-      ctx.stroke(path);
-      ctx.lineWidth = 3;
-      ctx.strokeStyle = th.edge;
-      ctx.stroke(left);
-      ctx.stroke(right);
+    const [a, b] = this.bridgeRange(c);
+    const path = new Path2D();
+    const left = new Path2D();
+    const right = new Path2D();
+    const shadow = new Path2D();
+    for (let i = a; i <= b; i++) {
+      const k = ((i % n) + n) % n;
+      const x = this.px[k];
+      const y = this.py[k];
+      const e = this.half - 5;
+      const m = i === a ? 'moveTo' : 'lineTo';
+      path[m](x, y);
+      shadow[m](x + 10, y + 14);
+      left[m](x - this.nx[k] * e, y - this.ny[k] * e);
+      right[m](x + this.nx[k] * e, y + this.ny[k] * e);
     }
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.lineCap = 'butt';
+    ctx.lineJoin = 'round';
+    ctx.lineWidth = this.half * 2 + 30;
+    ctx.strokeStyle = 'rgba(0,0,0,0.35)';
+    ctx.stroke(shadow);
+    ctx.strokeStyle = '#8c9096';
+    ctx.stroke(path);
+    ctx.lineWidth = this.half * 2 + 18;
+    ctx.strokeStyle = '#5d6168';
+    ctx.stroke(path);
+    ctx.lineWidth = this.half * 2;
+    ctx.strokeStyle = th.asphalt;
+    ctx.stroke(path);
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = th.edge;
+    ctx.stroke(left);
+    ctx.stroke(right);
+    ctx.restore();
+  }
+
+  // How far (in samples) idx is from a point on the lap.
+  lapDistance(idx, at) {
+    const d = Math.abs(idx - at);
+    return Math.min(d, this.n - d);
   }
 
   drawBoards(ctx, view) {

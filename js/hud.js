@@ -1,8 +1,9 @@
 // Heads-up display, drawn on the canvas in screen pixels.
 
-import { clamp, formatGap, formatTime, roundRect } from './util.js';
+import { clamp, followRows, formatGap, formatTime, roundRect } from './util.js';
 import { PHYS, TIER_COLORS } from './car.js';
 import { gearInfo } from './audio.js';
+import { POINTS } from './season.js';
 
 const F_DISPLAY = '"Saira Condensed", "Arial Narrow", system-ui, sans-serif';
 const F_DATA = '"JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace';
@@ -37,6 +38,10 @@ function text(ctx, s, x, y, font, color, align = 'left', base = 'alphabetic') {
 export function drawHUD(ctx, race, cam, w, h, ins, opts) {
   const p = race.player;
   if (!p) return;
+  if (race.phase === 'finished') {
+    drawFinish(ctx, race, w, h, ins, opts);
+    return;
+  }
   const L = ins.left + 12;
   const T = ins.top + 10;
   const R = w - ins.right - 12;
@@ -93,8 +98,18 @@ export function drawHUD(ctx, race, cam, w, h, ins, opts) {
   const ms = narrow ? 92 : 136;
   const mx = R - ms;
   const my = T + 54;
-  panel(ctx, mx - 6, my - 6, ms + 12, ms + 12, 12);
+  const ev = race.event;
+  const tag = ev ? `${ev.round ? `R${ev.round} · ` : ''}${ev.name.toUpperCase()}` : '';
+  panel(ctx, mx - 6, my - 6, ms + 12, ms + 12 + (tag ? 18 : 0), 12);
   race.track.drawMinimap(ctx, mx, my, ms, race.cars, p);
+  if (tag) {
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(mx - 4, my + ms, ms + 8, 20);
+    ctx.clip();
+    text(ctx, tag, mx + ms / 2, my + ms + 12, `800 ${narrow ? 10 : 11}px ${F_DISPLAY}`, C.muted, 'center');
+    ctx.restore();
+  }
 
   // ---- timing tower / nearby gaps ----
   if (isRace) {
@@ -171,6 +186,17 @@ export function drawHUD(ctx, race, cam, w, h, ins, opts) {
     drawBanner(ctx, 'WRONG WAY', C.red, cx, h * 0.38, narrow ? 34 : 44);
   }
 
+  // ---- what we're racing: title card before the start ----
+  if (ev && (race.phase === 'intro' || race.phase === 'lights' || (race.phase === 'race' && race.time < 2))) {
+    const fade = race.phase === 'race' ? clamp(1 - race.time / 2, 0, 1) : clamp(race.phaseT / 0.4 + (race.phase === 'lights' ? 1 : 0), 0, 1);
+    const lightsH = isRace ? (narrow ? 58 : 78) + 10 : 0;
+    const cw = Math.min(w - 32, 440);
+    let cy = T + lightsH + (isRace ? 0 : 64);
+    // Where the card would run into the minimap, drop it below the top panels.
+    if (cx + cw / 2 > mx - 12) cy = Math.max(cy, my + ms + (tag ? 18 : 0) + 18);
+    drawEventCard(ctx, ev, cx, cy, cw, fade, narrow);
+  }
+
   // ---- messages ----
   let my2 = shortLandscape ? T + 160 : h * (portraitTouch ? 0.24 : 0.27);
   for (const m of race.messages) {
@@ -194,6 +220,30 @@ function drawBanner(ctx, s, color, x, y, size) {
   ctx.strokeText(s, x, y);
   ctx.fillStyle = color;
   ctx.fillText(s, x, y);
+}
+
+function drawEventCard(ctx, ev, cx, y, cw, alpha, narrow) {
+  if (alpha <= 0) return;
+  const ch = narrow ? 64 : 74;
+  const x = cx - cw / 2;
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  panel(ctx, x, y, cw, ch, 12);
+  ctx.fillStyle = ev.accent || C.lights;
+  roundRect(ctx, x + 8, y + 10, 4, ch - 20, 2);
+  ctx.fill();
+  const eyebrow = ev.round ? `ROUND ${ev.round} OF ${ev.rounds}` : ev.mode === 'trial' ? 'TIME TRIAL' : 'RACE';
+  text(ctx, eyebrow, x + 22, y + (narrow ? 19 : 22), `800 ${narrow ? 10 : 11}px ${F_DISPLAY}`, C.muted);
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(x + 20, y, cw - 30, ch);
+  ctx.clip();
+  text(ctx, ev.gp.toUpperCase(), x + 22, y + (narrow ? 41 : 48), `900 italic ${narrow ? 21 : 26}px ${F_DISPLAY}`, C.text);
+  const place = ev.name === ev.country ? ev.name : `${ev.name} · ${ev.country}`;
+  const sub = ev.mode === 'trial' ? place : `${place} · ${ev.laps} laps`;
+  text(ctx, sub, x + 22, y + (narrow ? 56 : 65), `600 ${narrow ? 11 : 12}px ${F_UI}`, C.muted);
+  ctx.restore();
+  ctx.restore();
 }
 
 function drawLights(ctx, cx, T, lit, narrow) {
@@ -244,11 +294,10 @@ function drawTower(ctx, race, x, y, p) {
     }
     gaps.push(gaps[i - 1] + g);
   }
-  // Top ten, then you and your teammate if you're further back.
-  const show = [];
-  for (let i = 0; i < Math.min(10, order.length); i++) show.push(i);
-  const extra = order.map((c, i) => i).filter((i) => i >= 10 && (order[i] === p || order[i] === mate));
-  const rows = extra.length ? [...show, -1, ...extra] : show;
+  // A window of ten that follows you (you in the middle, unless you're near
+  // the front or the back), plus the leader and your teammate if they're
+  // outside it. Gaps in the order are marked.
+  const rows = followRows(order.length, order.indexOf(p), 10, [0, order.indexOf(mate)]);
   const height = rows.reduce((hgt, i) => hgt + (i < 0 ? 8 : rowH), 0) + 10;
   panel(ctx, x, y, w, height, 10);
   let ry = y + 5;
@@ -341,4 +390,141 @@ function drawSpeedLines(ctx, p, w, h) {
   }
   ctx.stroke();
   ctx.restore();
+}
+
+// ---------- the finish ----------
+
+const POS_COLOR = ['', '#ffd23f', '#d9dee7', '#d58b4a'];
+const confetti = new WeakMap();
+
+function drawFinish(ctx, race, w, h, ins, opts) {
+  const p = race.player;
+  const pos = p.finishPos;
+  const t = race.finishReal;
+  const ease = (x) => 1 - Math.pow(1 - clamp(x, 0, 1), 3);
+  const backOut = (x) => {
+    const c = 1.9;
+    const u = clamp(x, 0, 1) - 1;
+    return 1 + (c + 1) * u * u * u + c * u * u;
+  };
+
+  // Darken the race behind.
+  ctx.fillStyle = `rgba(6,8,12,${0.66 * ease(t / 0.5)})`;
+  ctx.fillRect(0, 0, w, h);
+
+  const narrow = w < 560;
+  const cy = h * (narrow ? 0.42 : 0.44);
+  const big = narrow ? 104 : 140;
+
+  // Chequered bands sweep across, above and below the card.
+  const sq = clamp(Math.round(w / 24), 14, 28);
+  const reveal = ease((t - 0.05) / 0.45);
+  const gap = big * 0.95;
+  // The lower band sits below the last line of text (the card pops up to ~10% larger).
+  const textBottom = (big * 0.5 + (narrow ? 28 : 34) + (opts.season ? (narrow ? 24 : 28) : 0) + 14) * 1.1;
+  drawChequer(ctx, w, cy - gap - sq * 2, sq, t * 70, reveal);
+  drawChequer(ctx, w, cy + textBottom, sq, -t * 70, reveal);
+  const ev = race.event;
+  if (ev) {
+    const yTop = cy - gap - sq * 2;
+    ctx.globalAlpha = clamp((t - 0.2) / 0.4, 0, 1);
+    text(ctx, ev.gp.toUpperCase(), w / 2, yTop - (narrow ? 14 : 18), `900 italic ${narrow ? 22 : 28}px ${F_DISPLAY}`, '#ffffff', 'center');
+    if (ev.round) text(ctx, `ROUND ${ev.round} OF ${ev.rounds} · ${ev.name.toUpperCase()}`, w / 2, yTop - (narrow ? 40 : 50), `800 ${narrow ? 11 : 12}px ${F_DISPLAY}`, C.muted, 'center');
+    else text(ctx, ev.name.toUpperCase(), w / 2, yTop - (narrow ? 40 : 50), `800 ${narrow ? 11 : 12}px ${F_DISPLAY}`, C.muted, 'center');
+    ctx.globalAlpha = 1;
+  }
+
+  // The result.
+  const appear = clamp((t - 0.12) / 0.3, 0, 1);
+  const pop = 0.6 + 0.4 * backOut((t - 0.12) / 0.5);
+  ctx.save();
+  ctx.globalAlpha = appear;
+  ctx.translate(w / 2, cy);
+  ctx.scale(pop, pop);
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.font = `800 ${narrow ? 13 : 15}px ${F_DISPLAY}`;
+  ctx.fillStyle = C.muted;
+  ctx.fillText('C H E Q U E R E D   F L A G', 0, -big * 0.62);
+  ctx.font = `900 italic ${big}px ${F_DISPLAY}`;
+  ctx.lineJoin = 'round';
+  ctx.lineWidth = big * 0.08;
+  ctx.strokeStyle = 'rgba(0,0,0,0.6)';
+  ctx.strokeText(`P${pos}`, 0, -big * 0.08);
+  ctx.fillStyle = POS_COLOR[pos] || '#ffffff';
+  ctx.fillText(`P${pos}`, 0, -big * 0.08);
+  const head = pos === 1 ? 'YOU WIN!' : pos <= 3 ? 'PODIUM!' : pos <= 10 ? 'IN THE POINTS' : 'FINISHED';
+  ctx.font = `900 italic ${narrow ? 26 : 32}px ${F_DISPLAY}`;
+  ctx.fillStyle = '#ffffff';
+  ctx.fillText(head, 0, big * 0.5);
+  const bits = [formatTime(p.finishTime)];
+  if (p.bestLap) bits.push(`best lap ${formatTime(p.bestLap)}`);
+  ctx.font = `500 ${narrow ? 12 : 14}px ${F_DATA}`;
+  ctx.fillStyle = race.fastest && race.fastest.car === p ? C.purple : C.muted;
+  ctx.fillText(bits.join('  ·  '), 0, big * 0.5 + (narrow ? 28 : 34));
+  if (opts.season) {
+    const pts = POINTS[pos - 1] || 0;
+    ctx.font = `800 ${narrow ? 15 : 17}px ${F_DISPLAY}`;
+    ctx.fillStyle = pts ? C.green : C.muted;
+    ctx.fillText(pts ? `+${pts} CHAMPIONSHIP POINTS` : 'NO POINTS THIS TIME', 0, big * 0.5 + (narrow ? 52 : 62));
+  }
+  ctx.restore();
+
+  // Confetti for a podium.
+  if (pos <= 3) drawConfetti(ctx, race, w, h, opts.dt || 1 / 60, pos);
+
+  if (t > 1.5 && Math.floor(t * 2) % 2 === 0) {
+    text(ctx, opts.touchUI ? 'Tap to continue' : 'Press Enter or click to continue', w / 2, h - ins.bottom - 34, `600 14px ${F_UI}`, 'rgba(238,242,248,0.8)', 'center');
+  }
+}
+
+function drawChequer(ctx, w, y, sq, shift, reveal) {
+  if (reveal <= 0) return;
+  const width = w * reveal;
+  const x0 = (w - width) / 2;
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(x0, y, width, sq * 2);
+  ctx.clip();
+  ctx.fillStyle = '#f4f4f4';
+  ctx.fillRect(x0, y, width, sq * 2);
+  ctx.fillStyle = '#111215';
+  const off = ((shift % (sq * 2)) + sq * 2) % (sq * 2);
+  for (let r = 0; r < 2; r++) {
+    for (let x = -sq * 2 + off + r * sq; x < w + sq; x += sq * 2) ctx.fillRect(x, y + r * sq, sq, sq);
+  }
+  ctx.restore();
+}
+
+function drawConfetti(ctx, race, w, h, dt, pos) {
+  let bits = confetti.get(race);
+  if (!bits) {
+    const palette = pos === 1 ? ['#ffd23f', '#ffb020', '#ffffff', '#ff2a1f', '#31d67b'] : ['#ffffff', '#ffd23f', '#4fc3ff', '#ff2a1f', '#c45cff'];
+    bits = [];
+    for (let i = 0; i < (pos === 1 ? 170 : 110); i++) {
+      bits.push({
+        x: Math.random() * w,
+        y: -Math.random() * h * 0.8,
+        vx: (Math.random() - 0.5) * 80,
+        vy: 140 + Math.random() * 200,
+        r: Math.random() * Math.PI,
+        vr: (Math.random() - 0.5) * 10,
+        s: 5 + Math.random() * 6,
+        c: palette[i % palette.length],
+      });
+    }
+    confetti.set(race, bits);
+  }
+  for (const b of bits) {
+    b.x += (b.vx + Math.sin(b.y * 0.02) * 30) * dt;
+    b.y += b.vy * dt;
+    b.r += b.vr * dt;
+    if (b.y > h + 20) continue;
+    ctx.save();
+    ctx.translate(b.x, b.y);
+    ctx.rotate(b.r);
+    ctx.fillStyle = b.c;
+    ctx.fillRect(-b.s / 2, -b.s / 4, b.s, b.s / 2);
+    ctx.restore();
+  }
 }

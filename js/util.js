@@ -62,3 +62,19 @@ export function roundRect(ctx, x, y, w, h, r) {
   ctx.arcTo(x, y, x + w, y, r);
   ctx.closePath();
 }
+
+// Indices to show: `size` rows centred on `me`, clamped to the ends, plus any
+// extra rows; -1 marks a gap between non-adjacent rows.
+export function followRows(count, me, size, extra = []) {
+  const start = Math.max(0, Math.min(me - Math.floor((size - 1) / 2), count - size));
+  const set = new Set();
+  for (let i = start; i < Math.min(count, start + size); i++) set.add(i);
+  for (const e of extra) if (e >= 0 && e < count) set.add(e);
+  const sorted = [...set].sort((a, b) => a - b);
+  const out = [];
+  sorted.forEach((i, k) => {
+    if (k > 0 && i > sorted[k - 1] + 1) out.push(-1);
+    out.push(i);
+  });
+  return out;
+}

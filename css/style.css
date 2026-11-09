@@ -1,7 +1,7 @@
 /* Layout: a pit-wall timing monitor floating over a live race. Left rail on
    wide screens, bottom sheet on phones; pause and results are centred modals. */
 :root {
-  --build: "6"; /* must match BUILD in js/main.js */
+  --build: "10"; /* must match BUILD in js/main.js */
   --asphalt: #0d1016;
   --panel: rgba(13, 16, 23, 0.9);
   --panel-solid: #131822;
@@ -812,6 +812,25 @@ kbd {
 .down {
   color: #ff5a4f;
   font-size: 14px;
+}
+
+.res-table tr.gap td {
+  padding: 0 8px;
+  color: var(--muted);
+  line-height: 1;
+}
+
+.res-table tr.later td {
+  color: var(--muted);
+}
+
+.calendar .gain {
+  font-size: 11px;
+}
+
+.res-head .eyebrow {
+  display: block;
+  margin-bottom: 2px;
 }
 
 .standings .pts {
