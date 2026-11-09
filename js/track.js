@@ -57,7 +57,15 @@ export class Track {
     const ctrl = def.points.map(([x, y]) => ({ x: x * s, y: y * s }));
     this.buildCenterline(ctrl);
     this.findCrossings();
+    if (this.separateStretches()) {
+      // Rebuild from the moved points so spacing and directions stay even.
+      const pts = [];
+      for (let i = 0; i < this.n; i++) pts.push({ x: this.px[i], y: this.py[i] });
+      this.buildCenterline(pts);
+      this.findCrossings();
+    }
     this.buildWalls();
+    this.findNeighbours();
     this.buildRacingLine();
     this.buildSpeedProfile();
     this.buildGrid();
@@ -280,6 +288,12 @@ export class Track {
       zones.push({ start: j, end: i, len: steps, drop, dir: Math.sign(this.rcurv[i]) || 1 });
     }
     this.brakeZones = zones;
+    // Which zone's corner each sample is at (a few samples wide so a car
+    // can't skip over it), for corner-exit boosts.
+    this.apexAt = new Int16Array(n).fill(-1);
+    zones.forEach((z, k) => {
+      for (let d = 0; d < 4; d++) this.apexAt[(z.end + d) % n] = k;
+    });
   }
 
   buildGrid() {
@@ -339,6 +353,156 @@ export class Track {
     }
     this.crossings = found.map(({ a, b }) => (this.def.upperFirst ? { upper: a, lower: b } : { upper: b, lower: a }));
     this.bridgeSpan = Math.ceil((this.wallDist * 1.8) / this.ds);
+  }
+
+  // Real circuits sometimes run two stretches a few metres apart, either side
+  // of one barrier. Our roads are much wider than real ones, so those would
+  // overlap and merge into one blob of tarmac. Push such stretches apart
+  // until there's room for a barrier between them (crossings excepted).
+  separateStretches() {
+    const n = this.n;
+    const need = this.half * 2 + 30;
+    const skip = Math.ceil((this.wallDist * 3) / this.ds);
+    const C = need;
+    const dx = new Float64Array(n);
+    const dy = new Float64Array(n);
+    let moved = false;
+    for (let iter = 0; iter < 60; iter++) {
+      const cells = new Map();
+      for (let i = 0; i < n; i++) {
+        const k = `${Math.floor(this.px[i] / C)},${Math.floor(this.py[i] / C)}`;
+        if (!cells.has(k)) cells.set(k, []);
+        cells.get(k).push(i);
+      }
+      dx.fill(0);
+      dy.fill(0);
+      let worst = 0;
+      for (let i = 0; i < n; i++) {
+        const x = this.px[i];
+        const y = this.py[i];
+        const cx = Math.floor(x / C);
+        const cy = Math.floor(y / C);
+        for (let gy = cy - 1; gy <= cy + 1; gy++) {
+          for (let gx = cx - 1; gx <= cx + 1; gx++) {
+            const list = cells.get(`${gx},${gy}`);
+            if (!list) continue;
+            for (const j of list) {
+              const di = Math.abs(i - j);
+              if (Math.min(di, n - di) < skip) continue;
+              if (this.crossings.length && this.nearCrossing(i, j)) continue;
+              const ex = x - this.px[j];
+              const ey = y - this.py[j];
+              const d = Math.hypot(ex, ey);
+              if (d >= need || d < 0.01) continue;
+              const push = (need - d) * 0.5;
+              dx[i] += (ex / d) * push;
+              dy[i] += (ey / d) * push;
+              worst = Math.max(worst, need - d);
+            }
+          }
+        }
+      }
+      if (worst < 2) break;
+      moved = true;
+      // Spread each push along the stretch so it bends gently instead of kinking.
+      for (let i = 0; i < n; i++) {
+        const l = Math.hypot(dx[i], dy[i]);
+        const cap = Math.min(l, 12);
+        if (l > 0) {
+          dx[i] *= cap / l;
+          dy[i] *= cap / l;
+        }
+      }
+      smoothCircular(dx, 24);
+      smoothCircular(dy, 24);
+      for (let i = 0; i < n; i++) {
+        this.px[i] += dx[i] * 1.6;
+        this.py[i] += dy[i] * 1.6;
+      }
+    }
+    return moved;
+  }
+
+  // Runs of the lap that pass beside a different part of the circuit (side
+  // by side, not a hairpin's two legs), so the one you're not on can be
+  // dimmed while you drive past.
+  findNeighbours() {
+    const n = this.n;
+    const near = this.wallDist * 2 + 40;
+    const farInLap = Math.max(150, Math.ceil((this.wallDist * 6) / this.ds));
+    const partner = new Int32Array(n).fill(-1);
+    for (let i = 0; i < n; i += 2) {
+      let best = near;
+      for (let j = 0; j < n; j += 2) {
+        if (this.lapDistance(i, j) < farInLap) continue;
+        const d = Math.hypot(this.px[j] - this.px[i], this.py[j] - this.py[i]);
+        if (d < best) {
+          best = d;
+          partner[i] = j;
+        }
+      }
+      if (i + 1 < n) partner[i + 1] = partner[i];
+    }
+    const runs = [];
+    let cur = null;
+    const close = () => {
+      if (cur && cur.a1 - cur.a0 >= 6) {
+        // The other run: the smallest stretch of lap holding all partners.
+        const first = cur.js[0];
+        let lo = 0;
+        let hi = 0;
+        for (const j of cur.js) {
+          const o = ((j - first + n + n / 2) % n) - n / 2;
+          lo = Math.min(lo, o);
+          hi = Math.max(hi, o);
+        }
+        const a = { a0: cur.a0, a1: cur.a1, b0: (first + lo - 8 + n) % n, b1: (first + hi + 8) % n };
+        const mid = (x0, x1) => (x0 + ((x1 - x0 + n) % n) / 2) % n;
+        if (!(this.crossings.length && this.nearCrossing(Math.round(mid(a.a0, a.a1)), Math.round(mid(a.b0, a.b1))))) runs.push(a);
+      }
+      cur = null;
+    };
+    for (let i = 0; i < n; i++) {
+      const j = partner[i];
+      if (j >= 0 && cur && this.lapDistance(j, cur.js[cur.js.length - 1]) < 40) {
+        cur.a1 = i;
+        cur.js.push(j);
+      } else {
+        close();
+        if (j >= 0) cur = { a0: i, a1: i, js: [j] };
+      }
+    }
+    close();
+    this.neighbours = runs;
+  }
+
+  // Indices of neighbour runs whose "our side" contains idx.
+  besideRuns(idx) {
+    const n = this.n;
+    const out = [];
+    this.neighbours.forEach((r, k) => {
+      if ((idx - r.a0 + n + 10) % n <= (r.a1 - r.a0 + n) % n + 20) out.push(k);
+    });
+    return out;
+  }
+
+  // Darken another part of the lap's road (from b0 to b1) by `alpha`.
+  dimRange(ctx, b0, b1, alpha) {
+    const n = this.n;
+    const len = (b1 - b0 + n) % n;
+    const path = new Path2D();
+    for (let k = 0; k <= len; k++) {
+      const i = (b0 + k) % n;
+      if (k === 0) path.moveTo(this.px[i], this.py[i]);
+      else path.lineTo(this.px[i], this.py[i]);
+    }
+    ctx.save();
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.lineWidth = this.half * 2 + 10;
+    ctx.strokeStyle = `rgba(4,6,10,${0.5 * alpha})`;
+    ctx.stroke(path);
+    ctx.restore();
   }
 
   nearCrossing(i, j) {

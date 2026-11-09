@@ -162,8 +162,15 @@ export function drawHUD(ctx, race, cam, w, h, ins, opts) {
   }
   ctx.fillStyle = 'rgba(11,14,20,0.9)';
   for (const tick of [0.6, 1.3]) ctx.fillRect(bx + bw * (tick / 2.2) - 1, by, 2, 5);
+  // ---- braking pace note: under the timer (under the speed panel when sideways) ----
+  const note = race.paceNote;
+  const noteY = shortLandscape ? sy + sh + 8 : T + 62;
+  if (note) {
+    const room = Math.min(cx - (L + pw) - 8, mx - 6 - cx - 8) * 2;
+    drawPaceNote(ctx, note, cx, noteY, Math.min(narrow ? 172 : 214, room), race.time);
+  }
   if (p.slipstream > 0.35) {
-    text(ctx, 'SLIPSTREAM', cx, shortLandscape ? sy + sh + 14 : sy - 8, `800 12px ${F_DISPLAY}`, '#7fd8ff', 'center');
+    text(ctx, 'SLIPSTREAM', cx, shortLandscape ? sy + sh + (note ? 62 : 14) : sy - 8, `800 12px ${F_DISPLAY}`, '#7fd8ff', 'center');
   }
 
   // ---- "YOU" marker before the start ----
@@ -187,7 +194,7 @@ export function drawHUD(ctx, race, cam, w, h, ins, opts) {
   }
 
   // ---- what we're racing: title card before the start ----
-  if (ev && (race.phase === 'intro' || race.phase === 'lights' || (race.phase === 'race' && race.time < 2))) {
+  if (ev && (race.phase === 'intro' || race.phase === 'lights' || (race.phase === 'race' && race.time < 2 && !race.paceNote))) {
     const fade = race.phase === 'race' ? clamp(1 - race.time / 2, 0, 1) : clamp(race.phaseT / 0.4 + (race.phase === 'lights' ? 1 : 0), 0, 1);
     const lightsH = isRace ? (narrow ? 58 : 78) + 10 : 0;
     const cw = Math.min(w - 32, 440);
@@ -208,6 +215,84 @@ export function drawHUD(ctx, race, cam, w, h, ins, opts) {
     ctx.globalAlpha = 1;
     my2 += (narrow ? 34 : 44) * m.scale + 6;
   }
+}
+
+// "HAIRPIN RIGHT" with a bar running down to the braking point, then a
+// flashing BRAKE.
+function drawPaceNote(ctx, note, cx, y, pw, time) {
+  const ph = 42;
+  const x = cx - pw / 2;
+  const braking = note.stage === 'brake' || (note.stage === 'done' && note.tt < 0.3);
+  ctx.save();
+  ctx.globalAlpha = clamp(note.fade, 0, 1) * clamp(note.t / 0.12, 0, 1);
+  if (braking) {
+    const on = Math.floor(time * 10) % 2 === 0;
+    ctx.fillStyle = on ? '#e8261c' : '#9d1a13';
+    roundRect(ctx, x, y, pw, ph, 10);
+    ctx.fill();
+    drawBanner(ctx, 'BRAKE!', '#fff', cx, y + ph / 2 + 1, 28);
+    ctx.restore();
+    return;
+  }
+  panel(ctx, x, y, pw, ph, 10);
+  const urgency = 1 - clamp(note.tt / note.warnAt, 0, 1);
+  const col = urgency > 0.6 ? '#ff7a2f' : C.yellow;
+  ctx.strokeStyle = col;
+  ctx.lineWidth = 2;
+  roundRect(ctx, x + 1, y + 1, pw - 2, ph - 2, 9);
+  ctx.stroke();
+  // Turn arrow: a U for a hairpin, a hook otherwise; mirrored for left.
+  ctx.save();
+  ctx.translate(x + 22, y + 19);
+  if (note.dir === 'LEFT') ctx.scale(-1, 1);
+  ctx.strokeStyle = col;
+  ctx.fillStyle = col;
+  ctx.lineWidth = 3;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  ctx.beginPath();
+  if (note.kind === 'HAIRPIN') {
+    ctx.moveTo(-5, 10);
+    ctx.lineTo(-5, -2);
+    ctx.arc(1, -2, 6, Math.PI, 0);
+    ctx.lineTo(7, 3);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(2, 2);
+    ctx.lineTo(7, 9);
+    ctx.lineTo(12, 2);
+    ctx.closePath();
+  } else {
+    ctx.moveTo(-6, 10);
+    ctx.lineTo(-6, 0);
+    ctx.quadraticCurveTo(-6, -6, 0, -6);
+    ctx.lineTo(3, -6);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(3, -11);
+    ctx.lineTo(10, -6);
+    ctx.lineTo(3, -1);
+    ctx.closePath();
+  }
+  ctx.fill();
+  ctx.restore();
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(x + 38, y, pw - 44, ph);
+  ctx.clip();
+  const big = pw > 190 ? 21 : 18;
+  text(ctx, `${note.kind} ${note.dir}`, x + 40, y + 24, `900 italic ${big}px ${F_DISPLAY}`, C.text);
+  ctx.restore();
+  // Countdown to the braking point.
+  const bx = x + 40;
+  const bw = pw - 50;
+  ctx.fillStyle = 'rgba(255,255,255,0.1)';
+  roundRect(ctx, bx, y + 31, bw, 4, 2);
+  ctx.fill();
+  ctx.fillStyle = col;
+  roundRect(ctx, bx, y + 31, Math.max(4, bw * (1 - urgency)), 4, 2);
+  ctx.fill();
+  ctx.restore();
 }
 
 function drawBanner(ctx, s, color, x, y, size) {

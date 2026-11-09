@@ -16,10 +16,19 @@ const LIGHT_GAP = 0.8;
 // On lap 1 everyone runs near the middle of that range (a proper first-lap
 // scramble); during lap 1 each car moves to its own race pace, so the field
 // strings out into smaller groups and one-on-one battles.
+// Braking pace notes: when you're above `minSpeed` × top speed and a corner
+// slower than `slowest` × top speed needs you to lose at least `minDrop` ×
+// top speed, warn `warn` seconds before the braking point. BRAKE comes `now`
+// seconds early (time to react), assuming `brake` × full braking.
+export const PACE_NOTE = { slowest: 0.6, minDrop: 0.28, minSpeed: 0.7, warn: 1.7, now: 0.35, brake: 0.75 };
+
+// How often a chasing car boosts out of a corner: base + more × how hard it chases.
+export const CHASE_BOOST = { base: 0.4, more: 0.6, tier2: 0.6 };
+
 export const DIFFICULTY = {
-  easy: { top: 0.93, spread: 0.13, power: 0.95, powerSpread: 0.07 },
-  normal: { top: 1.0, spread: 0.13, power: 1.0, powerSpread: 0.07 },
-  hard: { top: 1.04, spread: 0.12, power: 1.02, powerSpread: 0.06 },
+  easy: { top: 0.93, spread: 0.13, power: 0.95, powerSpread: 0.07, chase: 0.08 },
+  normal: { top: 1.0, spread: 0.13, power: 1.0, powerSpread: 0.07, chase: 0.12 },
+  hard: { top: 1.04, spread: 0.12, power: 1.02, powerSpread: 0.06, chase: 0.15 },
 };
 
 const GHOST_LIVERY = { color: '#cfe8ff', color2: '#6fb7ff', helmet: '#ffffff' };
@@ -152,6 +161,8 @@ export class Race {
     }
     if (steps >= 10) this.acc = 0;
     this.particles.update(scaled);
+    this.updatePaceNote(dt);
+    this.updateBeside(dt);
     for (const m of this.messages) m.t += dt;
     this.messages = this.messages.filter((m) => m.t < m.dur);
   }
@@ -208,6 +219,7 @@ export class Race {
         const rub = this.rubberFor(car);
         car.power = car.basePower * (1 + (rub - 1) * 0.6);
         ctl = ai.control(h, this.cars, rub, racing ? this.time : -1);
+        if (rub > 1 && car !== this.player) this.chaseBoost(car, rub);
         if (car.launchBoostAt != null && racing && this.time >= car.launchBoostAt) {
           car.startBoost(1, this.events, 'launch');
           car.launchBoostAt = null;
@@ -260,8 +272,92 @@ export class Race {
     const L = this.track.length;
     const d = car.progress - p.progress; // > 0: this rival is ahead of you
     if (d > 0.2 * L) return Math.max(0.96, 1 - ((d - 0.2 * L) / L) * 0.12);
-    if (d < 0 && d > -0.15 * L && p.pos <= 2) return 1.02;
+    // You're at the front: the next few cars chase, harder the further you
+    // get away, so a lead has to be kept rather than just built once.
+    if (d < 0 && p.pos <= 3 && car.pos <= p.pos + 3 && d > -0.45 * L) {
+      const chase = (DIFFICULTY[this.difficulty] || DIFFICULTY.normal).chase;
+      // The car right behind pushes hardest; less so when you're not leading.
+      const lead = ([1, 0.75, 0.5][car.pos - p.pos - 1] ?? 0.5) * (p.pos === 1 ? 1 : 0.4);
+      return 1 + Math.min(chase, 0.03 + (-d / L) * 1.0) * lead;
+    }
     return 1;
+  }
+
+  // Pace notes: a heads-up for the next slow corner, timed from your actual
+  // speed (so a boost or the slipstream brings it earlier), then BRAKE at the
+  // point where you need to be on the brakes to make it.
+  updatePaceNote(dt) {
+    const p = this.player;
+    const t = this.track;
+    const prev = this.paceNote;
+    if (!p || this.hints === false || this.phase !== 'race' || p.finished || p.frozen) {
+      this.paceNote = null;
+      return;
+    }
+    const TOP = PHYS.TOP;
+    const n = t.n;
+    let z = null;
+    let ahead = Infinity;
+    for (const c of t.brakeZones) {
+      if (t.vProfile[c.end] > PACE_NOTE.slowest * TOP) continue;
+      const a = (c.end - p.trackIdx + n) % n;
+      if (a < ahead && a < n / 2) {
+        ahead = a;
+        z = c;
+      }
+    }
+    let note = prev && prev.zone === z ? prev : null;
+    if (z) {
+      const v = Math.max(0, p.forwardSpeed);
+      const vc = t.vProfile[z.end];
+      const brakeDist = Math.max(0, (v * v - vc * vc) / (2 * PHYS.BRAKE * PACE_NOTE.brake));
+      const tt = (ahead * t.ds - brakeDist) / Math.max(v, 60); // seconds until you must brake
+      const need = v - vc;
+      if (!note && v > PACE_NOTE.minSpeed * TOP && need > PACE_NOTE.minDrop * TOP && tt < PACE_NOTE.warn && tt > 0) {
+        const kind = vc < 0.33 * TOP ? 'HAIRPIN' : vc < 0.47 * TOP ? 'SLOW' : 'MEDIUM';
+        note = { zone: z, kind, dir: z.dir > 0 ? 'RIGHT' : 'LEFT', stage: 'warn', t: 0, fade: 1, tt, warnAt: tt };
+      }
+      if (note) {
+        note.t += dt;
+        note.tt = tt;
+        if (note.stage === 'warn' && tt < PACE_NOTE.now) {
+          note.stage = 'brake';
+          this.out.push({ t: 'brakeCue' });
+        }
+        // Slowed down enough, or through the corner: let it go.
+        if (note.stage !== 'done' && (need < 0.08 * TOP || ahead > n / 2)) note.stage = 'done';
+        if (note.stage === 'done') note.fade -= dt / 0.35;
+        if (note.fade <= 0) note = null;
+      }
+    } else note = null;
+    this.paceNote = note;
+  }
+
+  // Where another part of the circuit runs right beside yours, fade it down
+  // while you're there so your own road stands out.
+  updateBeside(dt) {
+    const t = this.track;
+    const me = this.player || this.focus;
+    this.besideFade ??= new Float32Array(t.neighbours.length);
+    const on = me ? t.besideRuns(me.trackIdx) : [];
+    const f = this.besideFade;
+    for (let k = 0; k < f.length; k++) {
+      const want = on.includes(k) ? 1 : 0;
+      f[k] = clamp(f[k] + (want ? 3 : -3) * dt, 0, 1);
+    }
+  }
+
+  // Cars chasing you use corner-exit boosts too, the way you do with drifts.
+  chaseBoost(car, rub) {
+    const z = this.track.apexAt[car.trackIdx];
+    if (z < 0 || car.lastApex === z) return;
+    car.lastApex = z;
+    if (car.offTrack || car.launchPenalty > 0) return;
+    const chase = (DIFFICULTY[this.difficulty] || DIFFICULTY.normal).chase;
+    const want = clamp((rub - 1) / chase, 0, 1);
+    if (Math.random() < CHASE_BOOST.base + CHASE_BOOST.more * want) {
+      car.startBoost(want > 0.6 && Math.random() < CHASE_BOOST.tier2 ? 2 : 1, this.events, 'chase');
+    }
   }
 
   collide() {
@@ -319,6 +415,20 @@ export class Race {
               const tb = bfx * sb * (jm * ny) - bfy * sb * (jm * nx);
               a.yawKick = clamp(a.yawKick + ta * 0.0016, -2.5, 2.5);
               b.yawKick = clamp(b.yawKick + tb * 0.0016, -2.5, 2.5);
+              // Running into the back of someone costs the one doing the ramming.
+              if (-rv > 140) {
+                const lose = clamp((-rv - 140) / 900, 0, 0.18);
+                const aRams = afx * nx + afy * ny > 0.5; // a's nose points at b
+                const bRams = -(bfx * nx + bfy * ny) > 0.5;
+                if (aRams) {
+                  a.vx *= 1 - lose;
+                  a.vy *= 1 - lose;
+                }
+                if (bRams) {
+                  b.vx *= 1 - lose;
+                  b.vy *= 1 - lose;
+                }
+              }
               if (-rv > 60) this.events.push({ t: 'bump', a, b, x: (ax + bx) / 2, y: (ay + by) / 2, power: -rv });
             }
           }
@@ -731,6 +841,13 @@ export class Race {
       if (c.x < view.minX - m || c.x > view.maxX + m || c.y < view.minY - m || c.y > view.maxY + m) continue;
       c.draw(ctx);
     }
+    // The road beside yours (other cars on it included) fades down.
+    if (this.besideFade) {
+      t.neighbours.forEach((r, k) => {
+        const a = this.besideFade[k];
+        if (a > 0.01) t.dimRange(ctx, r.b0, r.b1, a);
+      });
+    }
     if (this.player) this.player.draw(ctx);
     // Bridges: your own road stays clear. Crossing over: the road below is
     // dimmed. Going under: the bridge turns see-through and your car stays on top.
@@ -740,6 +857,8 @@ export class Race {
       const above = me && t.lapDistance(me.trackIdx, c.upper) < span * 1.6;
       const below = me && t.lapDistance(me.trackIdx, c.lower) < span * 1.6;
       if (above) t.dimStretch(ctx, c.lower, Math.round(span * 1.8));
+      const s2 = Math.round(span * 2.4);
+      if (below) t.dimRange(ctx, (c.upper - s2 + t.n) % t.n, (c.upper + s2) % t.n, 1);
       t.drawBridge(ctx, c, below ? 0.25 : 1);
       for (const car of this.cars) {
         if (t.lapDistance(car.trackIdx, c.upper) <= span + 6) car.draw(ctx, below ? 0.4 : 1);

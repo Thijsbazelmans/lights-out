@@ -26,7 +26,9 @@ On a phone both thumbs stay on the screen. Steering is proportional: a small sli
 - **Drift:** while turning at speed, press and hold brake. The car slides round the corner without losing much speed. Hold it to fill the meter, then let go of brake for a boost: blue, then orange, then purple. On a phone, slide your right thumb from GAS down to BRAKE and back up.
 - **Launch:** wait for the five red lights to go out, then hit the gas. React within 0.3 s for a perfect start. Hold the gas too early and you spin the wheels.
 - **Slipstream:** tuck in behind a car on a straight for extra top speed.
-- **Braking hints:** red on the racing line shows where to brake, and 3-2-1 boards stand before the big stops (board 3 is the braking point). Can be turned off in Settings.
+- **Braking hints:** red on the racing line shows where to brake, and 3-2-1 boards stand before the big stops (board 3 is the braking point). When you're flat out towards a slow corner, a pace note under the timer warns you early ("HAIRPIN RIGHT", timed from your actual speed, so a boost brings it sooner) and turns into a flashing BRAKE! with a beep when it's time. Can be turned off in Settings.
+- **Barriers:** a light scrape costs little; using a wall as a brake costs a lot of speed and makes the engine stutter for a moment, so it's slower than braking.
+- **Leading:** once you're out in front, the cars behind chase: the further you pull away, the harder they push, and they fire boosts out of the corners like your drifts do. A lead has to be kept, not just built.
 
 Settings: sound, camera (Chase rotates with the car; Fixed keeps north up), braking hints, touch steering, auto-gas for phones, and erasing saved records.
 
@@ -98,13 +100,15 @@ node tools/convert-circuit.mjs path/to/xx-1234.geojson js/data/circuits/name.js 
 
 Options (JSON): `reverse` if the file runs the wrong way round, `startShift` (metres) to move the start line, `scale` (px per metre), `rMinPx` (tightest corner, default 144 px). The tool converts GPS to metres, puts a point every 20 m, smooths, rounds off very tight corners and scales so laps last roughly 30–40 seconds. Then add a line to `REAL` and the id to `CALENDAR` in `js/data/tracks.js`, and list the file in `sw.js`.
 
-The game handles the rest: where two parts of a circuit run close together it puts a shared barrier halfway between them, and where a circuit crosses itself (Suzuka) it builds a bridge, with the later part of the lap on top.
+The game handles the rest: where two parts of a circuit run closer than the (extra-wide) road allows, it pushes them apart and puts a shared barrier halfway between them; while you drive past, the road beside yours is dimmed. Where a circuit crosses itself (Suzuka) it builds a bridge, with the later part of the lap on top.
+
+Tuning knobs live at the top of their files: `WALL` in `js/car.js` (what barrier hits cost), `DIFFICULTY` (AI pace and how hard they chase a leader), `CHASE_BOOST` and `PACE_NOTE` in `js/race.js`.
 
 ## Roadmap
 
 1. ~~Arcade racer, one player, saved on the device~~
 2. ~~Real teams and drivers to pick from~~
 3. ~~Real circuits and a season mode~~
-4. Pit stops as a mini-game, tyre strategy, weather
+4. Pit stops as a mini-game, tyre strategy, weather (and a damage gauge that sends you to the pits)
 5. Team management: driver development, junior teams, car development
 6. Online: ghost races between two players, then live racing in the same room

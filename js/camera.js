@@ -19,6 +19,7 @@ export class Camera {
     this.rot = 0;
     this.anchorX = 0;
     this.anchorY = 0;
+    this.fast = 0; // smoothed speed, for how far ahead to look
   }
 
   baseZoom(w, h) {
@@ -43,7 +44,9 @@ export class Camera {
   update(dt, target, { w, h, mode, touchUI, speedFrac = 0, boost = false, zoomMul = 1, rate = 1, anchorX = null, anchorY = null }) {
     this.mode = mode;
     const base = this.baseZoom(w, h);
-    const zt = base * (1 - 0.28 * clamp(speedFrac, 0, 1.2)) * (boost ? 0.93 : 1) * zoomMul;
+    // Faster: zoom out and (chase view) sit the car lower, to see braking zones sooner.
+    this.fast = damp(this.fast, clamp(speedFrac, 0, 1.2), 2.5 * rate, dt);
+    const zt = base * (1 - 0.33 * clamp(speedFrac, 0, 1.2)) * (boost ? 0.93 : 1) * zoomMul;
     this.zoom = damp(this.zoom, zt, 1.8 * rate, dt);
 
     if (mode === 'chase') {
@@ -60,7 +63,7 @@ export class Camera {
       this.lookY = damp(this.lookY, 0, 4, dt);
       this.rot = -Math.PI / 2 - this.heading;
       this.anchorX = w / 2;
-      this.anchorY = h * (touchUI && h > w ? 0.6 : h < 500 ? 0.74 : 0.66);
+      this.anchorY = h * ((touchUI && h > w ? 0.6 : h < 500 ? 0.74 : 0.66) + 0.06 * Math.min(1, this.fast));
     } else {
       this.lookX = damp(this.lookX, target.vx * 0.36, 3, dt);
       this.lookY = damp(this.lookY, target.vy * 0.36, 3, dt);

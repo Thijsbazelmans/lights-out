@@ -29,6 +29,18 @@ export const PHYS = {
   R: 10, // each car is two collision circles of this radius
 };
 
+// Barrier hits: a light scrape is cheap, using the wall as a brake is not.
+export const WALL = {
+  BOUNCE: 0.15, // share of the impact speed that bounces back
+  LOSS: 0.15, // speed lost on any hit
+  LOSS_HARD: 0.85, // extra loss for a hard, head-on hit
+  HARD_V: 260, // impact speed counted as a full hard hit
+  STUN_V: 150, // impact speed above which the engine stutters
+  STUN: 0.4, // seconds of stutter at that speed...
+  STUN_MAX: 1.1, // ...growing to this
+  STUN_RAMP: 400,
+};
+
 export const BOOST_TIME = [0, 0.6, 1.0, 1.5];
 export const TIER_COLORS = ['#ffffff', '#4fc3ff', '#ffb020', '#c45cff'];
 
@@ -226,15 +238,21 @@ export class Car {
         this.y = q2.cy + q2.ny * lim;
         const vn = this.vx * q2.nx + this.vy * q2.ny;
         if (vn > 0) {
-          this.vx -= 1.4 * vn * q2.nx;
-          this.vy -= 1.4 * vn * q2.ny;
-          this.vx *= 0.9;
-          this.vy *= 0.9;
-          // Glance off: swing the nose toward where the car is now heading.
+          // The harder and more head-on the hit, the more speed it costs.
+          const W = WALL;
+          const headOn = clamp(vn / Math.max(1, this.speed), 0, 1);
+          this.vx -= (1 + W.BOUNCE) * vn * q2.nx;
+          this.vy -= (1 + W.BOUNCE) * vn * q2.ny;
+          const keep = 1 - clamp(W.LOSS + W.LOSS_HARD * headOn * Math.min(1, vn / W.HARD_V), 0, 0.9);
+          this.vx *= keep;
+          this.vy *= keep;
+          // Glance off: swing the nose a little toward the new direction.
           if (this.speed > 40) {
             const diff = wrapAngle(Math.atan2(this.vy, this.vx) - this.angle);
-            if (Math.abs(diff) < 2) this.yawKick += clamp(diff * 3, -3, 3);
+            if (Math.abs(diff) < 2) this.yawKick += clamp(diff * 1.4, -1.5, 1.5);
           }
+          // A proper hit knocks the wind out of the engine for a moment.
+          if (vn > W.STUN_V) this.launchPenalty = Math.max(this.launchPenalty, Math.min(W.STUN_MAX, W.STUN + (vn - W.STUN_V) / W.STUN_RAMP));
           if (this.drifting) {
             this.drifting = false;
             this.driftTier = 0;
