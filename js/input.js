@@ -69,9 +69,10 @@ export function touchSnapshot() {
 // so it can wander off the strip without losing control.
 export function bindTouchControls(root) {
   const pad = root.querySelector('.steer-pad');
+  const pedal = root.querySelector('.pedal');
+  if (!pad || !pedal) return; // stale page from an older version; main.js reloads it
   const knob = pad.querySelector('.steer-knob');
   const mark = pad.querySelector('.steer-center');
-  const pedal = root.querySelector('.pedal');
   const pknob = pedal.querySelector('.pedal-knob');
   const GAS_END = 0.52; // top 52% of the pedal is gas
   const BRAKE_START = 0.66; // bottom 34% is brake

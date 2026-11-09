@@ -1,8 +1,15 @@
 // Offline support. Network first, so a new version you push to GitHub shows up
 // the next time the game is opened online; the cached copy is the fallback
 // when there's no connection.
+//
+// GitHub Pages lets browsers reuse files for 10 minutes without asking. Every
+// request here checks with the server instead ('no-cache'), otherwise a phone
+// can end up with a mix of old and new files right after an update.
+//
+// Release checklist: bump CACHE here, BUILD in js/main.js and --build in
+// css/style.css together.
 
-const CACHE = 'lights-out-v2';
+const CACHE = 'lights-out-v3';
 const CORE = [
   './',
   'index.html',
@@ -34,7 +41,7 @@ self.addEventListener('install', (e) => {
   e.waitUntil(
     caches
       .open(CACHE)
-      .then((c) => c.addAll(CORE))
+      .then((c) => c.addAll(CORE.map((u) => new Request(u, { cache: 'reload' }))))
       .then(() => self.skipWaiting())
   );
 });
@@ -60,7 +67,7 @@ self.addEventListener('fetch', (e) => {
     (async () => {
       const cache = await caches.open(CACHE);
       try {
-        const res = await fetchWithTimeout(req, 4000);
+        const res = await fetchWithTimeout(sameOrigin ? fetch(req.url, { cache: 'no-cache' }) : fetch(req), 6000);
         if (res && (res.ok || res.type === 'opaque')) cache.put(req, res.clone());
         return res;
       } catch (err) {
@@ -73,10 +80,10 @@ self.addEventListener('fetch', (e) => {
   );
 });
 
-function fetchWithTimeout(req, ms) {
+function fetchWithTimeout(pending, ms) {
   return new Promise((resolve, reject) => {
     const t = setTimeout(() => reject(new Error('timeout')), ms);
-    fetch(req).then(
+    pending.then(
       (r) => {
         clearTimeout(t);
         resolve(r);

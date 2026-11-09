@@ -45,7 +45,7 @@ It opens full-screen with its own icon. Records stay on that phone.
 
 ### Publishing updates
 
-Push to `main` and GitHub Pages redeploys. The game loads the newest files whenever it's opened online. When you add or rename files, list them in `sw.js` and bump `CACHE` (for example `lights-out-v2`) so the offline copy stays complete.
+Push to `main` and GitHub Pages redeploys. The game loads the newest files whenever it's opened online. For each release, bump the version in three places together: `CACHE` in `sw.js`, `BUILD` in `js/main.js` and `--build` in `css/style.css`. If a phone ever ends up with files from two versions, the game notices and reloads itself once. When you add or rename files, also list them in `sw.js` so the offline copy stays complete.
 
 ## Run it locally
 

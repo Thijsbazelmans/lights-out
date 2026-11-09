@@ -13,6 +13,9 @@ import * as audio from './audio.js';
 import { bindTouchControls, initInput, isTouchDevice, onFirstTouch, readInput, setGameActive, setSteerMode, touchSnapshot } from './input.js';
 import { clamp, formatTime } from './util.js';
 
+// Bump together with --build in css/style.css and CACHE in sw.js.
+const BUILD = '3';
+
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d', { alpha: false });
 const touchEl = document.getElementById('touch');
@@ -382,14 +385,46 @@ if (document.fonts && document.fonts.load) {
 }
 
 // Handle for poking at the game from the browser console while testing.
-window.lightsOut = { state, startRace, save, getTrack, tick, resume, touchSnapshot };
+window.lightsOut = { state, startRace, save, getTrack, tick, resume, touchSnapshot, BUILD, versionMatches };
 
 startAttract();
 ui.show('title');
 syncChrome();
 requestAnimationFrame(frame);
 
+// Page, code and stylesheet must come from the same version. Right after an
+// update a phone can hold a mix; if so, reload once to fetch a matching set.
+function versionMatches() {
+  const css = getComputedStyle(document.documentElement).getPropertyValue('--build').replace(/["'\s]/g, '');
+  return css === BUILD && !!document.querySelector('#touch .steer-pad');
+}
+
+function checkVersion() {
+  if (versionMatches()) return;
+  let last = 0;
+  try {
+    last = Number(sessionStorage.getItem('lightsout.reloadedAt') || 0);
+  } catch (e) {
+    /* storage blocked */
+  }
+  if (Date.now() - last < 30000) return; // tried already: play on rather than loop
+  try {
+    sessionStorage.setItem('lightsout.reloadedAt', String(Date.now()));
+  } catch (e) {
+    /* storage blocked */
+  }
+  location.reload();
+}
+
+if (document.readyState === 'complete') checkVersion();
+else window.addEventListener('load', checkVersion);
+
 if ('serviceWorker' in navigator && window.isSecureContext) {
+  const hadController = !!navigator.serviceWorker.controller;
+  // A new version just took over: switch to it now, unless mid-race.
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (hadController && !state.race) location.reload();
+  });
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('sw.js').catch(() => {
       /* not available here (for example inside a sandboxed preview) */
