@@ -56,6 +56,7 @@ export class Track {
     const s = def.scale;
     const ctrl = def.points.map(([x, y]) => ({ x: x * s, y: y * s }));
     this.buildCenterline(ctrl);
+    this.findCrossings();
     this.buildWalls();
     this.buildRacingLine();
     this.buildSpeedProfile();
@@ -232,8 +233,8 @@ export class Track {
     const v = new Float32Array(n);
     for (let i = 0; i < n; i++) {
       // Less margin for error where a barrier sits close: carry a bit less speed.
-      const room = clamp((Math.min(this.wallL[i], this.wallR[i]) - this.half) / this.runoff, 0, 1);
-      v[i] = maxCornerSpeed(Math.abs(k[i]), 0.9) * (0.9 + 0.1 * room);
+      const room = clamp((Math.min(this.wallL[i], this.wallR[i]) - this.half) / 72, 0, 1);
+      v[i] = maxCornerSpeed(Math.abs(k[i]), 0.9) * (0.88 + 0.12 * room);
     }
     // Work backwards so the AI brakes before a corner, not in it.
     const B = PHYS.BRAKE * 0.72;
@@ -315,6 +316,38 @@ export class Track {
     this.grid = { x0, y0, C, gw, gh, cells };
   }
 
+  // Figure-of-eight circuits (Suzuka) cross over themselves on a bridge. The
+  // later part of the lap is the upper deck unless the circuit says otherwise.
+  findCrossings() {
+    const n = this.n;
+    const px = this.px;
+    const py = this.py;
+    const o = (ax, ay, bx, by, cx, cy) => (bx - ax) * (cy - ay) - (by - ay) * (cx - ax);
+    const found = [];
+    for (let i = 0; i < n; i++) {
+      const i2 = (i + 1) % n;
+      for (let j = i + 40; j < n; j++) {
+        if (n - (j - i) < 40) continue;
+        const j2 = (j + 1) % n;
+        const a = o(px[i], py[i], px[i2], py[i2], px[j], py[j]) * o(px[i], py[i], px[i2], py[i2], px[j2], py[j2]);
+        if (a >= 0) continue;
+        const b = o(px[j], py[j], px[j2], py[j2], px[i], py[i]) * o(px[j], py[j], px[j2], py[j2], px[i2], py[i2]);
+        if (b >= 0) continue;
+        if (found.some((c) => Math.abs(c.a - i) < 40 && Math.abs(c.b - j) < 40)) continue;
+        found.push({ a: i, b: j });
+      }
+    }
+    this.crossings = found.map(({ a, b }) => (this.def.upperFirst ? { upper: a, lower: b } : { upper: b, lower: a }));
+    this.bridgeSpan = Math.ceil((this.wallDist * 1.8) / this.ds);
+  }
+
+  nearCrossing(i, j) {
+    const n = this.n;
+    const span = this.bridgeSpan * 1.4;
+    const d = (x, y) => Math.min(Math.abs(x - y), n - Math.abs(x - y));
+    return this.crossings.some((c) => (d(i, c.upper) < span && d(j, c.lower) < span) || (d(i, c.lower) < span && d(j, c.upper) < span));
+  }
+
   // Where two parts of a circuit run close together (common on real tracks),
   // the barrier moves in to sit halfway between them, so nobody can cut across.
   // wallL / wallR: distance from the centerline to the barrier on each side.
@@ -346,6 +379,7 @@ export class Track {
           for (const j of list) {
             const di = Math.abs(i - j);
             if (Math.min(di, n - di) < skip) continue;
+            if (this.crossings.length && this.nearCrossing(i, j)) continue; // over/under, not side by side
             const dx = this.px[j] - x;
             const dy = this.py[j] - y;
             const d = Math.hypot(dx, dy);
@@ -536,7 +570,7 @@ export class Track {
   // Grid slot k (0 = pole), staggered two by two behind the line.
   gridSlot(k, extraBack = 0) {
     const n = this.n;
-    const back = 70 + k * 46 + extraBack;
+    const back = 70 + k * 40 + extraBack;
     const i = (((-Math.round(back / this.ds)) % n) + n) % n;
     const lat = (k % 2 === 0 ? -1 : 1) * 32;
     return {
@@ -553,7 +587,7 @@ export class Track {
     const pad = 900;
     const W = b.maxX - b.minX + 2 * pad;
     const H = b.maxY - b.minY + 2 * pad;
-    const tries = Math.floor((W * H) / 24000);
+    const tries = Math.floor(((W * H) / 24000) * (this.theme.density || 1));
     const items = [];
     const q = {};
     for (let t = 0; t < tries; t++) {
@@ -811,6 +845,61 @@ export class Track {
     if (hints) this.drawBoards(ctx, view);
   }
 
+  // Stretch of the upper deck around each crossing (sample indices).
+  bridgeRange(c) {
+    return [c.upper - this.bridgeSpan, c.upper + this.bridgeSpan];
+  }
+
+  onBridge(idx) {
+    const n = this.n;
+    return this.crossings.some((c) => {
+      const d = Math.min(Math.abs(idx - c.upper), n - Math.abs(idx - c.upper));
+      return d <= this.bridgeSpan + 6;
+    });
+  }
+
+  // The upper deck, drawn over whatever passes underneath.
+  drawBridges(ctx) {
+    if (!this.crossings.length) return;
+    const n = this.n;
+    const th = this.theme;
+    for (const c of this.crossings) {
+      const [a, b] = this.bridgeRange(c);
+      const path = new Path2D();
+      const left = new Path2D();
+      const right = new Path2D();
+      const shadow = new Path2D();
+      for (let i = a; i <= b; i++) {
+        const k = ((i % n) + n) % n;
+        const x = this.px[k];
+        const y = this.py[k];
+        const e = this.half - 5;
+        const m = i === a ? 'moveTo' : 'lineTo';
+        path[m](x, y);
+        shadow[m](x + 10, y + 14);
+        left[m](x - this.nx[k] * e, y - this.ny[k] * e);
+        right[m](x + this.nx[k] * e, y + this.ny[k] * e);
+      }
+      ctx.lineCap = 'butt';
+      ctx.lineJoin = 'round';
+      ctx.lineWidth = this.half * 2 + 30;
+      ctx.strokeStyle = 'rgba(0,0,0,0.35)';
+      ctx.stroke(shadow);
+      ctx.strokeStyle = '#8c9096';
+      ctx.stroke(path);
+      ctx.lineWidth = this.half * 2 + 18;
+      ctx.strokeStyle = '#5d6168';
+      ctx.stroke(path);
+      ctx.lineWidth = this.half * 2;
+      ctx.strokeStyle = th.asphalt;
+      ctx.stroke(path);
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = th.edge;
+      ctx.stroke(left);
+      ctx.stroke(right);
+    }
+  }
+
   drawBoards(ctx, view) {
     const m = 40;
     for (const b of this.geo.boards) {
@@ -855,7 +944,7 @@ export class Track {
     // Grid boxes.
     ctx.strokeStyle = 'rgba(255,255,255,0.75)';
     ctx.lineWidth = 2.5;
-    for (let k = 0; k < 11; k++) {
+    for (let k = 0; k < 22; k++) {
       const s = this.gridSlot(k);
       ctx.save();
       ctx.translate(s.x, s.y);
@@ -928,6 +1017,15 @@ export class Track {
       if (kind === 'trees') drawTree(ctx, d, th);
       else if (kind === 'city') {
         if (d.s < 0.45) drawTree(ctx, d, th);
+        else drawBuilding(ctx, d, th);
+      } else if (kind === 'street') {
+        if (d.s < 0.12) drawTree(ctx, d, th);
+        else drawBuilding(ctx, d, th);
+      } else if (kind === 'night') {
+        if (d.s < 0.1) drawTree(ctx, d, th);
+        else drawNightBuilding(ctx, d, th);
+      } else if (kind === 'palms') {
+        if (d.s < 0.75) drawPalm(ctx, d, th);
         else drawBuilding(ctx, d, th);
       } else if (kind === 'boats') drawBoat(ctx, d, th);
       else drawDesert(ctx, d, th);
@@ -1017,6 +1115,52 @@ export class Track {
   }
 }
 
+// Small preview for the circuit picker, drawn straight from the control
+// points so the list doesn't have to build every circuit.
+export function drawTrackThumb(canvas, def) {
+  const ctx = canvas.getContext('2d');
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  const W = canvas.clientWidth || canvas.width;
+  const H = canvas.clientHeight || canvas.height;
+  canvas.width = W * dpr;
+  canvas.height = H * dpr;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, W, H);
+  const pts = def.points.map(([x, y]) => [x * def.scale, y * def.scale]);
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  for (const [x, y] of pts) {
+    minX = Math.min(minX, x);
+    maxX = Math.max(maxX, x);
+    minY = Math.min(minY, y);
+    maxY = Math.max(maxY, y);
+  }
+  const pad = 9;
+  const s = Math.min((W - pad * 2) / (maxX - minX), (H - pad * 2) / (maxY - minY));
+  const ox = (W - (maxX - minX) * s) / 2 - minX * s;
+  const oy = (H - (maxY - minY) * s) / 2 - minY * s;
+  ctx.lineJoin = 'round';
+  const path = () => {
+    ctx.beginPath();
+    pts.forEach(([x, y], i) => (i ? ctx.lineTo(ox + x * s, oy + y * s) : ctx.moveTo(ox + x * s, oy + y * s)));
+    ctx.closePath();
+  };
+  path();
+  ctx.strokeStyle = def.theme.thumb;
+  ctx.lineWidth = 6;
+  ctx.stroke();
+  path();
+  ctx.strokeStyle = '#eef2f8';
+  ctx.lineWidth = 2.4;
+  ctx.stroke();
+  ctx.fillStyle = '#ff2a1f';
+  ctx.beginPath();
+  ctx.arc(ox + pts[0][0] * s, oy + pts[0][1] * s, 3.5, 0, Math.PI * 2);
+  ctx.fill();
+}
+
 const CROWD = ['#ff5a4f', '#ffd23f', '#f4f4f4', '#3fa9ff', '#31d67b', '#ff9a3d', '#b65cff', '#ff7ab8'];
 
 function drawTree(ctx, d, th) {
@@ -1048,6 +1192,52 @@ function drawBuilding(ctx, d, th) {
   ctx.fillRect(-w / 2 + 3, -h / 2 + 3, w - 6, h - 6);
   ctx.fillStyle = 'rgba(0,0,0,0.18)';
   ctx.fillRect(-w / 6, -h / 6, w / 4, h / 4);
+  ctx.restore();
+}
+
+function drawNightBuilding(ctx, d, th) {
+  const w = d.r * 1.6;
+  const h = d.r * 1.1;
+  ctx.save();
+  ctx.translate(d.x, d.y);
+  ctx.rotate(d.a);
+  ctx.fillStyle = 'rgba(0,0,0,0.4)';
+  ctx.fillRect(-w / 2 + 6, -h / 2 + 8, w, h);
+  ctx.fillStyle = th.building[Math.floor(d.s * 97) % th.building.length];
+  ctx.fillRect(-w / 2, -h / 2, w, h);
+  // Lit windows on the roof edge, different on every building.
+  const seed = Math.floor(d.s * 1000);
+  ctx.fillStyle = th.windows || 'rgba(255,214,120,0.85)';
+  for (let i = 0; i < 6; i++) {
+    for (let j = 0; j < 4; j++) {
+      if ((i * 7 + j * 13 + seed) % 3 === 0) continue;
+      ctx.fillRect(-w / 2 + 3 + (i * (w - 6)) / 6, -h / 2 + 3 + (j * (h - 6)) / 4, (w - 6) / 6 - 2, (h - 6) / 4 - 2);
+    }
+  }
+  ctx.restore();
+}
+
+function drawPalm(ctx, d, th) {
+  const r = d.r * 0.9;
+  ctx.fillStyle = 'rgba(0,0,0,0.22)';
+  ctx.beginPath();
+  ctx.arc(d.x + r * 0.35, d.y + r * 0.45, r * 0.85, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.save();
+  ctx.translate(d.x, d.y);
+  ctx.rotate(d.a);
+  const fronds = 7;
+  for (let k = 0; k < fronds; k++) {
+    ctx.rotate((Math.PI * 2) / fronds);
+    ctx.fillStyle = th.tree[k % th.tree.length];
+    ctx.beginPath();
+    ctx.ellipse(r * 0.5, 0, r * 0.55, r * 0.16, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.fillStyle = '#6b4f2a';
+  ctx.beginPath();
+  ctx.arc(0, 0, r * 0.14, 0, Math.PI * 2);
+  ctx.fill();
   ctx.restore();
 }
 
@@ -1149,6 +1339,39 @@ function makePattern(kind, th) {
       g.beginPath();
       g.arc(x, y, 10 + rnd() * 10, Math.PI * 1.15, Math.PI * 1.85);
       g.stroke();
+    }
+  } else if (kind === 'concrete') {
+    g.fillStyle = th.groundColor;
+    g.fillRect(0, 0, S, S);
+    g.strokeStyle = 'rgba(0,0,0,0.08)';
+    g.lineWidth = 2;
+    for (let k = 0; k <= S; k += 64) {
+      g.beginPath();
+      g.moveTo(k, 0);
+      g.lineTo(k, S);
+      g.moveTo(0, k);
+      g.lineTo(S, k);
+      g.stroke();
+    }
+    speckle(g, rnd, S, 380, 'rgba(255,255,255,0.05)', 2);
+    speckle(g, rnd, S, 380, 'rgba(0,0,0,0.06)', 2);
+  } else if (kind === 'paved') {
+    g.fillStyle = th.runoff;
+    g.fillRect(0, 0, S, S);
+    speckle(g, rnd, S, 500, 'rgba(255,255,255,0.05)', 1.6);
+    speckle(g, rnd, S, 500, 'rgba(0,0,0,0.07)', 1.6);
+  } else if (kind === 'night') {
+    g.fillStyle = th.groundColor;
+    g.fillRect(0, 0, S, S);
+    speckle(g, rnd, S, 260, 'rgba(255,255,255,0.03)', 2);
+    for (let k = 0; k < 5; k++) {
+      const x = rnd() * S;
+      const y = rnd() * S;
+      const gr = g.createRadialGradient(x, y, 0, x, y, 26);
+      gr.addColorStop(0, 'rgba(255,200,120,0.10)');
+      gr.addColorStop(1, 'rgba(255,200,120,0)');
+      g.fillStyle = gr;
+      g.fillRect(x - 26, y - 26, 52, 52);
     }
   } else if (kind === 'dunes') {
     g.fillStyle = th.groundColor;

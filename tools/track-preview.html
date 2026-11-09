@@ -18,11 +18,13 @@
 <div class="grid" id="grid"></div>
 <script type="module">
 import { Track } from '../js/track.js';
-import { TRACKS } from '../js/data/tracks.js';
+import { ALL_REAL, TRACKS } from '../js/data/tracks.js';
 import { PHYS } from '../js/car.js';
 
 const grid = document.getElementById('grid');
-for (const def of TRACKS) {
+const want = new URLSearchParams(location.search).get('ids');
+const defs = want ? ALL_REAL.filter((d) => want.split(',').includes(d.id)) : [...ALL_REAL, ...TRACKS.filter((t) => !t.real)];
+for (const def of defs) {
   const t = new Track(def);
   const fig = document.createElement('figure');
   const c = document.createElement('canvas');

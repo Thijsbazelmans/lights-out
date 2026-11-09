@@ -4,9 +4,10 @@ Top-down arcade Formula racing that runs in the browser and installs to a phone'
 
 ## What's in it
 
-- **The 2026 grid:** 11 teams in their 2026 colours with 3-letter codes (MCL, MER, FER, RBR, WIL, VRB, ALP, HAS, AUD, AMR, CAD). Pick your team in the menu; it races as **YOU** and the other ten are the AI.
-- **Interlagos**, built from the real circuit's GPS centre line, plus three made-up circuits: **Sunset Speedway** (fast and flowing), **Harbour Hairpins** (tight and twisty) and **Dune Drag** (long straights).
-- A race against the field, or a solo **time trial** against your own ghost.
+- **The 2026 grid:** 22 drivers in 11 teams, in their 2026 colours with real driver codes (NOR, PIA, VER, LEC, HAM…). Pick a team and whose seat you take: you race as **YOU**, the other driver is your teammate, and the other 20 are rivals. On the timing tower and the phone HUD your teammate is marked in yellow.
+- **25 real circuits**, built from GPS centre lines: the 2026 calendar plus Malaysia (Sepang). Street circuits have walls close to the track, Suzuka has its bridge, and each circuit has its own look (night races in Singapore, Las Vegas and Jeddah, dunes at Zandvoort, forest at Spa and Monza, water round Montréal).
+- **Season:** the whole calendar as a championship with a Drivers' and a Constructors' table, F1 points for the top ten (25-18-15-12-10-8-6-4-2-1). Choose laps per race and rival difficulty; standings are kept on the device until the season ends.
+- A single **race** on any circuit, or a solo **time trial** against your own ghost.
 - Arcade handling: drifting with boosts, slipstream, start-light launches, bumping, skid marks, sparks and synthesised engine sounds.
 - Lap records, ghosts, best finishes and race stats are saved on the device (browser `localStorage`).
 - Works offline once it has been opened online.
@@ -69,10 +70,10 @@ Then open http://localhost:8642.
 | `js/car.js` | Car physics (grip, drift, boost, barriers) and the car drawing |
 | `js/ai.js` | Computer drivers: racing line, braking points, overtaking, recovery |
 | `js/track.js` | Circuit geometry, racing line, AI speed targets, kerbs, scenery, minimap |
-| `js/data/tracks.js` | The circuits and their colour themes |
-| `js/data/circuits/` | Real circuits as game coordinates (Interlagos) |
-| `js/data/turtle.js` | Builds a circuit from "straight / turn left / turn right" instructions |
-| `js/data/teams.js` | The 11 teams: names, codes, colours, AI pace |
+| `js/data/tracks.js` | The circuits, their looks and the season calendar |
+| `js/data/circuits/` | Each real circuit as game coordinates |
+| `js/season.js` | Championship: points, standings, rounds |
+| `js/data/teams.js` | The 11 teams and 22 drivers: names, codes, colours, AI pace |
 | `js/hud.js` | On-screen race information |
 | `js/ui.js` | Menu screens |
 | `js/input.js` | Keyboard, touch and controller input |
@@ -82,19 +83,28 @@ Then open http://localhost:8642.
 
 Developer extras:
 
-- `tools/track-preview.html` draws every circuit with its racing line coloured by AI target speed, plus braking zones and boards.
+- `tools/track-preview.html` draws every circuit with its racing line coloured by AI target speed, plus braking zones and boards (`?ids=monaco,spa` for just a few).
+- `tools/convert-circuit.mjs` turns a GeoJSON centre line into a circuit file (see below).
 - Add `?nopause` to the URL to stop the game pausing when the tab is hidden (for automated testing).
 - `window.lightsOut` in the browser console gives access to the game state.
 
 ## Adding a real circuit
 
-Interlagos comes from the [bacinger/f1-circuits](https://github.com/bacinger/f1-circuits) GeoJSON centre lines (MIT licence). The conversion: GPS points to metres, a point every 20 m, light smoothing, corners tighter than a 32 m radius rounded off, then 4.5 px per metre. Where two parts of a circuit run close together, the game puts a shared barrier halfway between them automatically, so the layout doesn't need hand-editing.
+The circuits come from the [bacinger/f1-circuits](https://github.com/bacinger/f1-circuits) GeoJSON centre lines (MIT licence).
+
+```bash
+node tools/convert-circuit.mjs path/to/xx-1234.geojson js/data/circuits/name.js NAME '{}'
+```
+
+Options (JSON): `reverse` if the file runs the wrong way round, `startShift` (metres) to move the start line, `scale` (px per metre), `rMinPx` (tightest corner, default 144 px). The tool converts GPS to metres, puts a point every 20 m, smooths, rounds off very tight corners and scales so laps last roughly 30–40 seconds. Then add a line to `REAL` and the id to `CALENDAR` in `js/data/tracks.js`, and list the file in `sw.js`.
+
+The game handles the rest: where two parts of a circuit run close together it puts a shared barrier halfway between them, and where a circuit crosses itself (Suzuka) it builds a bridge, with the later part of the lap on top.
 
 ## Roadmap
 
 1. ~~Arcade racer, one player, saved on the device~~
-2. ~~Real teams with real colours to pick from~~ (drivers still to come)
-3. Real circuits (~~Interlagos~~, more to come) and a season mode
+2. ~~Real teams and drivers to pick from~~
+3. ~~Real circuits and a season mode~~
 4. Pit stops as a mini-game, tyre strategy, weather
 5. Team management: driver development, junior teams, car development
 6. Online: ghost races between two players, then live racing in the same room

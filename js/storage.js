@@ -15,9 +15,11 @@ function defaults() {
       touchSteer: 'float', // 'float': centre where the thumb lands, 'fixed': centre of the strip
       brakeHints: true, // red braking zones on the racing line and 3-2-1 boards
       team: null, // id of the team you race for; null until picked
+      seat: 1, // which of the team's two drivers you replace (0 or 1)
     },
     records: {},
-    stats: { races: 0, wins: 0, podiums: 0 },
+    stats: { races: 0, wins: 0, podiums: 0, championships: 0 },
+    season: null, // championship in progress (see season.js)
   };
 }
 
@@ -31,6 +33,7 @@ function load() {
       settings: { ...def.settings, ...(d.settings || {}) },
       records: d.records || {},
       stats: { ...def.stats, ...(d.stats || {}) },
+      season: d.season || null,
     };
   } catch (e) {
     return def;
@@ -45,6 +48,12 @@ export const save = {
   },
   get stats() {
     return data.stats;
+  },
+  get season() {
+    return data.season;
+  },
+  set season(v) {
+    data.season = v;
   },
   // Record for one circuit; created on first use.
   record(trackId) {

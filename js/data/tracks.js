@@ -1,13 +1,90 @@
-import { turtle } from './turtle.js';
 import { INTERLAGOS } from './circuits/interlagos.js';
+import { MONACO } from './circuits/monaco.js';
+import { ZANDVOORT } from './circuits/zandvoort.js';
+import { SUZUKA } from './circuits/suzuka.js';
+import { LAS_VEGAS } from './circuits/lasvegas.js';
+import { SILVERSTONE } from './circuits/silverstone.js';
+import { SPA } from './circuits/spa.js';
+import { BAKU } from './circuits/baku.js';
+import { MONZA } from './circuits/monza.js';
+import { SEPANG } from './circuits/sepang.js';
+import { MARINA_BAY } from './circuits/singapore.js';
+import { MIAMI } from './circuits/miami.js';
+import { ALBERT_PARK } from './circuits/melbourne.js';
+import { SHANGHAI } from './circuits/shanghai.js';
+import { BAHRAIN } from './circuits/bahrain.js';
+import { JEDDAH } from './circuits/jeddah.js';
+import { MONTREAL } from './circuits/montreal.js';
+import { BARCELONA } from './circuits/barcelona.js';
+import { RED_BULL_RING } from './circuits/austria.js';
+import { HUNGARORING } from './circuits/hungary.js';
+import { COTA } from './circuits/austin.js';
+import { MEXICO_CITY } from './circuits/mexico.js';
+import { LUSAIL } from './circuits/qatar.js';
+import { YAS_MARINA } from './circuits/abudhabi.js';
+import { MADRING } from './circuits/madrid.js';
 
-// Circuits. Real ones come from GPS centre lines (see circuits/); the made-up
-// ones are built from driving instructions with turtle().
-//
-// Made-up layouts: Each is a list of control points (in
-// "units"; scale turns them into pixels) that a smooth spline passes through,
-// driven clockwise or anticlockwise in list order. The first point is the
-// start/finish line, so it should sit on a straight.
+// Circuits and their looks. Real circuits come from GPS centre lines
+// (tools/convert-circuit.mjs writes the files in circuits/). Street circuits
+// get a narrow run-off, so the walls are close.
+
+const BASE = {
+  groundKind: 'ground',
+  groundColor: '#2d4a26',
+  runoffKind: 'grass',
+  runoff: '#4a8639',
+  runoff2: '#518f40',
+  asphalt: '#3a3d45',
+  asphaltEdge: '#30333a',
+  edge: '#efefef',
+  kerbA: '#d8262c',
+  kerbB: '#f4f4f4',
+  barrierA: '#f1f1f1',
+  barrierB: '#d42b2b',
+  dust: [150, 128, 80],
+  decor: 'trees',
+  tree: ['#2c6428', '#3a7a31', '#25591f', '#46853a'],
+  building: ['#9a9a96', '#b7b2a6', '#c08a62', '#7d8288', '#d3cdbf', '#a2675a'],
+  boatDeck: ['#c9a777', '#3a7bd5', '#e04b3c', '#2c3e50'],
+  rock: ['#8a6a48', '#9b7a55', '#7a5c3e'],
+  tint: 'rgba(0,0,0,0)',
+  thumb: '#43a047',
+  density: 1,
+};
+const theme = (o) => ({ ...BASE, ...o });
+
+const NIGHT = {
+  groundKind: 'night',
+  groundColor: '#161b27',
+  runoffKind: 'paved',
+  runoff: '#2b303b',
+  runoff2: '#30353f',
+  asphalt: '#2a2d34',
+  asphaltEdge: '#22252b',
+  edge: '#f4f4f4',
+  barrierA: '#e9ecf2',
+  barrierB: '#2f6bff',
+  dust: [90, 90, 100],
+  decor: 'night',
+  tree: ['#1c3320', '#22402a'],
+  building: ['#1d2433', '#232b3c', '#1a1f2c', '#283044'],
+  tint: 'rgba(30,40,110,0.10)',
+  thumb: '#6e8bff',
+};
+
+const STREET = {
+  groundKind: 'concrete',
+  groundColor: '#76787c',
+  runoffKind: 'paved',
+  runoff: '#8b8d91',
+  runoff2: '#929498',
+  asphalt: '#33363c',
+  asphaltEdge: '#2b2e33',
+  dust: [170, 170, 170],
+  decor: 'street',
+  density: 1.4,
+  thumb: '#9aa0a6',
+};
 
 export const THEMES = {
   saopaulo: {
@@ -30,45 +107,65 @@ export const THEMES = {
     tint: 'rgba(255,190,110,0.07)',
     thumb: '#169447',
   },
-  sunset: {
-    groundKind: 'ground',
-    groundColor: '#2d4a26',
-    runoffKind: 'grass',
-    runoff: '#4a8639',
-    runoff2: '#518f40',
-    asphalt: '#3a3d45',
-    asphaltEdge: '#30333a',
-    edge: '#efefef',
-    kerbA: '#d8262c',
-    kerbB: '#f4f4f4',
-    barrierA: '#f1f1f1',
-    barrierB: '#d42b2b',
-    dust: [150, 128, 80],
-    decor: 'trees',
-    tree: ['#2c6428', '#3a7a31', '#25591f', '#46853a'],
-    tint: 'rgba(255,120,40,0.10)',
-    thumb: '#e2602a',
-  },
-  harbour: {
-    groundKind: 'water',
-    groundColor: '#1d4d70',
-    runoffKind: 'grass',
-    runoff: '#4f8f47',
-    runoff2: '#57984e',
-    asphalt: '#383b43',
-    asphaltEdge: '#2e3138',
-    edge: '#efefef',
-    kerbA: '#1f6fe0',
-    kerbB: '#f4f4f4',
-    barrierA: '#f1f1f1',
-    barrierB: '#1f6fe0',
-    dust: [120, 140, 90],
-    decor: 'boats',
-    boatDeck: ['#c9a777', '#3a7bd5', '#e04b3c', '#2c3e50'],
-    tint: 'rgba(60,150,255,0.06)',
-    thumb: '#2f8be0',
-  },
-  desert: {
+  park: theme({}),
+  britain: theme({ tint: 'rgba(150,170,200,0.06)', thumb: '#2e7d32' }),
+  forest: theme({
+    groundColor: '#1f3a1d',
+    runoff: '#3f7f35',
+    runoff2: '#468a3b',
+    tree: ['#1e4f1c', '#2a6125', '#1a451a', '#336d2c'],
+    density: 1.9,
+    thumb: '#2e7d32',
+  }),
+  alpine: theme({
+    groundColor: '#3b6b2c',
+    runoff: '#53a23f',
+    runoff2: '#5aab46',
+    tree: ['#23502a', '#2d6234', '#1d4524'],
+    density: 1.4,
+    tint: 'rgba(120,180,255,0.05)',
+    thumb: '#66bb6a',
+  }),
+  dunes: theme({
+    groundKind: 'dunes',
+    groundColor: '#cdb98b',
+    runoff: '#5b9a45',
+    runoff2: '#62a24b',
+    tree: ['#5a7f3a', '#6d8f45', '#4c7032'],
+    barrierB: '#ff7a00',
+    dust: [200, 180, 130],
+    density: 0.7,
+    thumb: '#ff7a00',
+  }),
+  dry: theme({
+    groundColor: '#8e7a4e',
+    runoff: '#7a9a3e',
+    runoff2: '#84a346',
+    tree: ['#55702f', '#62803a', '#4a6328'],
+    dust: [190, 160, 110],
+    thumb: '#c0a050',
+  }),
+  hungary: theme({ groundColor: '#5b6e34', runoff: '#6c9a3d', runoff2: '#74a244', barrierB: '#2e7d32', thumb: '#7cb342' }),
+  tropical: theme({ groundColor: '#244a20', runoff: '#3f8f3a', runoff2: '#46983f', decor: 'palms', tree: ['#2f7d32', '#3c9440', '#27692b'], thumb: '#26a69a' }),
+  miami: theme({ ...STREET, decor: 'palms', tree: ['#2f7d32', '#3c9440'], barrierB: '#00b2a9', density: 1, thumb: '#00b2a9' }),
+  street: theme({ ...STREET }),
+  monaco: theme({ ...STREET, building: ['#e8d9b8', '#d9b48f', '#efe6d2', '#c98f6b', '#f2efe6'], thumb: '#d42b2b' }),
+  baku: theme({ ...STREET, building: ['#c9b38a', '#d8c7a2', '#b89b6c', '#e3d6b8'], barrierB: '#00b5e2', thumb: '#00b5e2' }),
+  madrid: theme({ ...STREET, building: ['#e8d9b8', '#c98f6b', '#b56a4c', '#efe6d2'], barrierB: '#c60b1e', thumb: '#ffc400' }),
+  night: theme({ ...NIGHT }),
+  vegas: theme({ ...NIGHT, barrierB: '#ff2fa0', windows: 'rgba(255,120,220,0.85)', tint: 'rgba(90,20,120,0.10)', thumb: '#ff2fa0' }),
+  jeddah: theme({ ...NIGHT, barrierB: '#1aa260', thumb: '#1aa260' }),
+  island: theme({ groundKind: 'water', groundColor: '#24557a', decor: 'boats', barrierB: '#d42b2b', thumb: '#2f8be0' }),
+  mexico: theme({ decor: 'city', barrierB: '#006847', thumb: '#006847' }),
+  usa: theme({ barrierB: '#1f4fd8', thumb: '#1f4fd8' }),
+  china: theme({ barrierB: '#d42b2b', thumb: '#e53935' }),
+  bahrain: theme({ ...THEME_DESERT(), barrierB: '#d42b2b', thumb: '#e53935' }),
+  qatar: theme({ ...THEME_DESERT(), barrierB: '#8a1538', thumb: '#8a1538' }),
+  yas: theme({ ...THEME_DESERT(), groundColor: '#9a7a4b', tint: 'rgba(255,120,60,0.10)', barrierB: '#00843d', thumb: '#ff8a3d' }),
+};
+
+function THEME_DESERT() {
+  return {
     groundKind: 'dunes',
     groundColor: '#b88a4f',
     runoffKind: 'sand',
@@ -76,110 +173,59 @@ export const THEMES = {
     runoff2: '#d9b274',
     asphalt: '#45464c',
     asphaltEdge: '#3a3b40',
-    edge: '#f2f2f2',
-    kerbA: '#e8a317',
-    kerbB: '#f4f4f4',
-    barrierA: '#f1f1f1',
-    barrierB: '#e8a317',
-    dust: [210, 170, 110],
+    kerbA: '#d8262c',
     decor: 'cacti',
-    rock: ['#8a6a48', '#9b7a55', '#7a5c3e'],
-    tint: 'rgba(255,170,60,0.08)',
-    thumb: '#e8a317',
-  },
-};
+    dust: [210, 170, 110],
+  };
+}
 
-export const TRACKS = [
-  {
-    id: 'interlagos',
-    name: 'Interlagos',
-    real: true,
-    country: 'Brazil',
-    blurb: 'Autódromo José Carlos Pace, São Paulo. Anticlockwise: the Senna S, Descida do Lago, Bico de Pato and the long climb to the line.',
-    theme: THEMES.saopaulo,
-    scale: 1,
-    points: INTERLAGOS,
-  },
-  {
-    id: 'sunset',
-    name: 'Sunset Speedway',
-    blurb: 'Fast and flowing. A long sweeper, quick esses and a huge stop at the end of the back straight.',
-    theme: THEMES.sunset,
-    scale: 1,
-    points: turtle([
-      ['S', 1500],
-      ['R', 75, 260], // T1: hard braking from top speed
-      ['S', 350],
-      ['L', 30, 400], ['R', 75, 380], ['L', 40, 380], // esses
-      ['S', 300],
-      ['R', 100, 200],
-      ['S', 400],
-      ['L', 120, 170], // tight left
-      ['S', 350],
-      ['R', 75, 520], // long sweeper
-      ['A', 700],
-      ['R', 45, 600],
-      ['S', 400],
-      ['R', 25, 300], ['L', 50, 260], ['R', 25, 300], // kink
-      ['S', 300],
-      ['R', 90, 300],
-      ['A', 1400], // back straight
-      ['R', 90, 160], // the big stop
-      ['S', 300],
-      ['L', 50, 260], ['R', 50, 260], // flick onto the main straight
-      ['S', 800],
-    ]),
-  },
-  {
-    id: 'harbour',
-    name: 'Harbour Hairpins',
-    blurb: 'Tight and twisty on the waterfront. A chicane, two hairpins and nowhere to hide.',
-    theme: THEMES.harbour,
-    scale: 1,
-    points: turtle([
-      ['S', 900],
-      ['L', 25, 180], ['R', 50, 180], ['L', 25, 180], // chicane
-      ['A', 400],
-      ['L', 90, 150], ['S', 160], ['L', 90, 150], // hairpin 1
-      ['S', 300],
-      ['L', 20, 500], ['R', 20, 500],
-      ['S', 250],
-      ['R', 90, 200],
-      ['A', 450],
-      ['L', 90, 140], ['S', 160], ['L', 90, 140], // hairpin 2
-      ['S', 350],
-      ['R', 40, 260], ['L', 80, 260], ['R', 40, 260], // waterfront esses
-      ['S', 350],
-      ['R', 90, 200],
-      ['S', 300],
-      ['L', 30, 400], ['R', 30, 400],
-      ['S', 400],
-      ['L', 90, 200], ['S', 200], ['L', 90, 200], // hairpin 3
-      ['S', 900],
-    ]),
-  },
-  {
-    id: 'desert',
-    name: 'Dune Drag',
-    blurb: 'Enormous straights, slipstream battles and one hairpin in the middle of nowhere.',
-    theme: THEMES.desert,
-    scale: 1,
-    points: turtle([
-      ['S', 1900],
-      ['R', 70, 420],
-      ['S', 300],
-      ['R', 50, 700],
-      ['A', 1800],
-      ['R', 25, 200], ['L', 50, 200], ['R', 25, 200], // chicane
-      ['S', 700],
-      ['R', 90, 170], ['S', 100], ['R', 90, 170], // hairpin
-      ['S', 1300],
-      ['L', 35, 600], ['R', 35, 600], // flat-out kink
-      ['S', 300],
-      ['L', 60, 350],
-      ['A', 600],
-      ['R', 120, 380],
-      ['S', 1500],
-    ]),
-  },
+// Real circuits. lengthKm: real lap length.
+const REAL = [
+  ['interlagos', 'Interlagos', 'São Paulo Grand Prix', 'Brazil', 4.31, 'saopaulo', INTERLAGOS],
+  ['monaco', 'Monaco', 'Monaco Grand Prix', 'Monaco', 3.34, 'monaco', MONACO, { runoff: 30 }],
+  ['zandvoort', 'Zandvoort', 'Dutch Grand Prix', 'Netherlands', 4.26, 'dunes', ZANDVOORT],
+  ['suzuka', 'Suzuka', 'Japanese Grand Prix', 'Japan', 5.81, 'park', SUZUKA],
+  ['lasvegas', 'Las Vegas', 'Las Vegas Grand Prix', 'United States', 6.2, 'vegas', LAS_VEGAS, { runoff: 42 }],
+  ['silverstone', 'Silverstone', 'British Grand Prix', 'Great Britain', 5.89, 'britain', SILVERSTONE],
+  ['spa', 'Spa-Francorchamps', 'Belgian Grand Prix', 'Belgium', 7.0, 'forest', SPA],
+  ['baku', 'Baku', 'Azerbaijan Grand Prix', 'Azerbaijan', 6.0, 'baku', BAKU, { runoff: 42 }],
+  ['monza', 'Monza', 'Italian Grand Prix', 'Italy', 5.79, 'forest', MONZA],
+  ['sepang', 'Sepang', 'Malaysian Grand Prix', 'Malaysia', 5.54, 'tropical', SEPANG],
+  ['singapore', 'Marina Bay', 'Singapore Grand Prix', 'Singapore', 4.94, 'night', MARINA_BAY, { runoff: 42 }],
+  ['miami', 'Miami', 'Miami Grand Prix', 'United States', 5.41, 'miami', MIAMI, { runoff: 46 }],
+  ['melbourne', 'Albert Park', 'Australian Grand Prix', 'Australia', 5.28, 'park', ALBERT_PARK, { runoff: 54 }],
+  ['shanghai', 'Shanghai', 'Chinese Grand Prix', 'China', 5.45, 'china', SHANGHAI],
+  ['bahrain', 'Bahrain', 'Bahrain Grand Prix', 'Bahrain', 5.41, 'bahrain', BAHRAIN],
+  ['jeddah', 'Jeddah', 'Saudi Arabian Grand Prix', 'Saudi Arabia', 6.17, 'jeddah', JEDDAH, { runoff: 42 }],
+  ['montreal', 'Montréal', 'Canadian Grand Prix', 'Canada', 4.36, 'island', MONTREAL, { runoff: 50 }],
+  ['barcelona', 'Barcelona', 'Barcelona-Catalunya Grand Prix', 'Spain', 4.66, 'dry', BARCELONA],
+  ['austria', 'Red Bull Ring', 'Austrian Grand Prix', 'Austria', 4.32, 'alpine', RED_BULL_RING],
+  ['hungary', 'Hungaroring', 'Hungarian Grand Prix', 'Hungary', 4.38, 'hungary', HUNGARORING],
+  ['austin', 'Austin', 'United States Grand Prix', 'United States', 5.51, 'usa', COTA],
+  ['mexico', 'Mexico City', 'Mexico City Grand Prix', 'Mexico', 4.3, 'mexico', MEXICO_CITY],
+  ['qatar', 'Lusail', 'Qatar Grand Prix', 'Qatar', 5.42, 'qatar', LUSAIL],
+  ['abudhabi', 'Yas Marina', 'Abu Dhabi Grand Prix', 'Abu Dhabi', 5.28, 'yas', YAS_MARINA],
+  ['madrid', 'Madring', 'Spanish Grand Prix', 'Spain', 5.42, 'madrid', MADRING, { runoff: 34 }],
 ];
+
+export const ALL_REAL = REAL.map(([id, name, gp, country, lengthKm, themeId, points, extra]) => ({
+  id,
+  name,
+  gp,
+  country,
+  lengthKm,
+  real: true,
+  theme: THEMES[themeId],
+  scale: 1,
+  points,
+  ...(extra || {}),
+}));
+
+// The 2026 calendar, plus Malaysia (Sepang), in season order.
+export const CALENDAR = [
+  'melbourne', 'shanghai', 'suzuka', 'bahrain', 'jeddah', 'miami', 'montreal', 'monaco', 'barcelona',
+  'austria', 'silverstone', 'spa', 'hungary', 'zandvoort', 'monza', 'madrid', 'baku', 'singapore',
+  'sepang', 'austin', 'mexico', 'interlagos', 'lasvegas', 'qatar', 'abudhabi',
+];
+
+export const TRACKS = CALENDAR.map((id) => ALL_REAL.find((t) => t.id === id));

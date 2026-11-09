@@ -84,13 +84,15 @@ export class Race {
     }
     const field = rivals.slice().sort((a, b) => b.skill - a.skill);
     const total = field.length + (player ? 1 : 0);
-    const playerSlot = player ? Math.min(total - 1, Math.floor(total * 0.6)) : -1; // start in the midfield
+    const playerSlot = player ? Math.min(total - 1, Math.floor(total * 0.55)) : -1; // start in the midfield
     let r = 0;
     this.player = null;
     for (let k = 0; k < total; k++) {
       const s = t.gridSlot(k);
       if (k === playerSlot) {
         const car = new Car({ x: s.x, y: s.y, angle: s.angle, name: player.name, code: player.code, livery: player.livery, isPlayer: true });
+        car.teamId = player.teamId || (player.team ? player.team.id : null);
+        car.driverId = player.id || 'you';
         car.trackIdx = s.idx;
         car.basePower = 1;
         this.cars.push(car);
@@ -102,6 +104,8 @@ export class Race {
         const power = attract ? 0.92 + 0.05 * skillN : D.power * (0.975 + 0.035 * skillN);
         const pace = attract ? 0.9 + 0.04 * skillN : D.pace * (0.97 + 0.05 * skillN);
         const car = new Car({ x: s.x, y: s.y, angle: s.angle, name: d.name, code: d.code, livery: d.livery, power });
+        car.teamId = d.teamId || d.id;
+        car.driverId = d.driverId || d.id;
         car.trackIdx = s.idx;
         car.basePower = power;
         this.cars.push(car);
@@ -243,6 +247,7 @@ export class Race {
         const dx0 = b.x - a.x;
         const dy0 = b.y - a.y;
         if (dx0 * dx0 + dy0 * dy0 > 3600) continue;
+        if (!this.sameStretch(a, b)) continue; // e.g. one on the bridge, one underneath
         const bfx = Math.cos(b.angle);
         const bfy = Math.sin(b.angle);
         for (let sa = -11; sa <= 11; sa += 22) {
@@ -283,6 +288,14 @@ export class Race {
     }
   }
 
+  // Cars far apart along the lap can only be close on screen across a
+  // bridge or a barrier; they never touch, draft or block each other.
+  sameStretch(a, b) {
+    const n = this.track.n;
+    const d = Math.abs(a.trackIdx - b.trackIdx);
+    return Math.min(d, n - d) < n * 0.15;
+  }
+
   slip(h) {
     for (const a of this.cars) {
       let best = 0;
@@ -290,7 +303,7 @@ export class Race {
       const fy = Math.sin(a.angle);
       if (a.forwardSpeed > 250) {
         for (const b of this.cars) {
-          if (b === a || b.forwardSpeed < 250) continue;
+          if (b === a || b.forwardSpeed < 250 || !this.sameStretch(a, b)) continue;
           const dx = b.x - a.x;
           const dy = b.y - a.y;
           const d = Math.hypot(dx, dy);
@@ -642,7 +655,7 @@ export class Race {
         time = Math.max(time, prev + 0.15);
       }
       prev = time;
-      rows.push({ name: c.name, code: c.code, livery: c.livery, isPlayer: c.isPlayer, time, best: c.bestLap, finished: c.finished });
+      rows.push({ name: c.name, code: c.code, team: c.teamId, driver: c.driverId, livery: c.livery, isPlayer: c.isPlayer, time, best: c.bestLap, finished: c.finished });
     }
     const p = this.player;
     return {
@@ -678,6 +691,10 @@ export class Race {
       c.draw(ctx);
     }
     if (this.player) this.player.draw(ctx);
+    if (t.crossings.length) {
+      t.drawBridges(ctx);
+      for (const c of this.cars) if (t.onBridge(c.trackIdx)) c.draw(ctx);
+    }
     this.particles.draw(ctx, view);
     if (this.mode === 'race') t.drawGantry(ctx, this.phase === 'lights' ? this.lit : 0);
   }

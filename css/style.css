@@ -1,7 +1,7 @@
 /* Layout: a pit-wall timing monitor floating over a live race. Left rail on
    wide screens, bottom sheet on phones; pause and results are centred modals. */
 :root {
-  --build: "4"; /* must match BUILD in js/main.js */
+  --build: "6"; /* must match BUILD in js/main.js */
   --asphalt: #0d1016;
   --panel: rgba(13, 16, 23, 0.9);
   --panel-solid: #131822;
@@ -750,6 +750,75 @@ kbd {
   margin-top: auto;
 }
 
+/* ---------- season ---------- */
+
+.season {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.season-next {
+  display: grid;
+  grid-template-columns: 112px 1fr;
+  gap: 12px;
+  align-items: center;
+  padding: 10px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.season-next b,
+.sb-head b {
+  font: 800 20px/1.1 var(--font-display);
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.eyebrow {
+  font: 800 11px var(--font-display);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.season-block {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.sb-head {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.gain {
+  color: var(--green);
+  font-family: var(--font-data);
+  font-size: 14px;
+}
+
+.up {
+  color: var(--green);
+  font-size: 14px;
+}
+
+.down {
+  color: #ff5a4f;
+  font-size: 14px;
+}
+
+.standings .pts {
+  font-weight: 700;
+  color: var(--text);
+}
+
 /* ---------- modals ---------- */
 
 .screen.center {
@@ -818,6 +887,13 @@ kbd {
 .table-wrap {
   overflow-x: auto;
   min-width: 0;
+  flex-shrink: 0; /* the card scrolls as a whole, never the table inside it */
+}
+
+.modal > *,
+.sheet > *,
+.season > * {
+  flex-shrink: 0;
 }
 
 .res-table {
@@ -867,6 +943,10 @@ kbd {
 
 .res-table tr.me td {
   background: rgba(255, 255, 255, 0.08);
+}
+
+.res-table tr.mate td {
+  background: rgba(255, 210, 63, 0.08);
 }
 
 .res-table .purple {

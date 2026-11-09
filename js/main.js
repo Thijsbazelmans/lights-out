@@ -1,7 +1,7 @@
 // Boot, game loop and screen flow.
 
 import { TRACKS } from './data/tracks.js';
-import { TEAMS, playerFor, rivalsFor } from './data/teams.js';
+import { allDrivers, playerFor, rivalsFor } from './data/teams.js';
 import { Track } from './track.js';
 import { Race } from './race.js';
 import { Camera } from './camera.js';
@@ -12,9 +12,10 @@ import { save } from './storage.js';
 import * as audio from './audio.js';
 import { bindTouchControls, initInput, isTouchDevice, onFirstTouch, readInput, setGameActive, setSteerMode, touchSnapshot } from './input.js';
 import { clamp, formatTime } from './util.js';
+import { POINTS, ROUNDS, abandonSeason, currentSeason, isComplete, nextTrack, playerStanding, recordRound, standings, startSeason, teamStanding } from './season.js';
 
 // Bump together with --build in css/style.css and CACHE in sw.js.
-const BUILD = '4';
+const BUILD = '6';
 
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d', { alpha: false });
@@ -31,12 +32,17 @@ const cam = new Camera();
 const trackCache = new Map();
 const NO_INPUT = { gas: 0, brake: 0, steer: 0, analog: false };
 
+// Building a circuit takes a moment and some memory, so keep the last few.
 function getTrack(id) {
   if (!trackCache.has(id)) {
     const def = TRACKS.find((t) => t.id === id) || TRACKS[0];
-    trackCache.set(id, new Track(def));
+    trackCache.set(def.id === id ? id : def.id, new Track(def));
+    if (trackCache.size > 4) trackCache.delete(trackCache.keys().next().value);
   }
-  return trackCache.get(id);
+  const t = trackCache.get(id) || trackCache.get(TRACKS[0].id);
+  trackCache.delete(t.id);
+  trackCache.set(t.id, t); // most recently used last
+  return t;
 }
 
 const state = {
@@ -47,7 +53,7 @@ const state = {
   focusIdx: 0,
   paused: false,
   mode: 'race',
-  trackId: save.settings.lastTrack || TRACKS[0].id,
+  trackId: TRACKS.some((t) => t.id === save.settings.lastTrack) ? save.settings.lastTrack : TRACKS[0].id,
   resultsShown: false,
 };
 
@@ -60,7 +66,20 @@ const ui = createUI(document.getElementById('ui'), {
   },
   onStart: (mode, trackId) => startRace(mode, trackId),
   onResume: () => resume(),
-  onRestart: () => startRace(state.mode, state.trackId),
+  onRestart: () => (state.mode === 'season' ? startSeasonRace() : startRace(state.mode, state.trackId)),
+  onSeasonStart: (opts) => {
+    startSeason(opts);
+    ui.openSeason();
+  },
+  onSeasonRace: () => startSeasonRace(),
+  onSeasonAbandon: () => {
+    abandonSeason();
+    ui.openSeason();
+  },
+  onSeasonContinue: () => {
+    quitToMenu(null);
+    ui.openSeason();
+  },
   onQuit: () => quitToMenu('title'),
   onTracks: (mode) => {
     quitToMenu(null);
@@ -110,13 +129,24 @@ function syncChrome() {
 function startAttract() {
   const def = TRACKS[state.attractIdx % TRACKS.length];
   state.attractIdx++;
-  state.attract = new Race({ track: getTrack(def.id), mode: 'attract', rivals: TEAMS });
+  state.attract = new Race({ track: getTrack(def.id), mode: 'attract', rivals: allDrivers() });
   state.attractT = 0;
   state.focusIdx = 0;
   cam.snap(state.attract.cars[0], W, H, 0.8);
 }
 
 function startRace(mode, trackId) {
+  launch({ mode, trackId, laps: save.settings.laps, difficulty: save.settings.difficulty, team: save.settings.team, seat: save.settings.seat });
+}
+
+// The next round of the championship, with the season's own settings.
+function startSeasonRace() {
+  const s = currentSeason();
+  if (!s || isComplete(s)) return;
+  launch({ mode: 'season', trackId: nextTrack(s).id, laps: s.laps, difficulty: s.difficulty, team: s.team, seat: s.seat });
+}
+
+function launch({ mode, trackId, laps, difficulty, team, seat }) {
   audio.unlockAudio();
   state.mode = mode;
   state.trackId = trackId;
@@ -124,11 +154,11 @@ function startRace(mode, trackId) {
   const rec = save.record(trackId);
   state.race = new Race({
     track,
-    mode,
-    laps: save.settings.laps,
-    difficulty: save.settings.difficulty,
-    player: playerFor(save.settings.team),
-    rivals: rivalsFor(save.settings.team),
+    mode: mode === 'season' ? 'race' : mode,
+    laps,
+    difficulty,
+    player: playerFor(team, seat),
+    rivals: rivalsFor(team, seat),
     record: rec,
   });
   state.paused = false;
@@ -255,7 +285,29 @@ function showResults(r) {
     chips.push({ kind: 'purple', text: `Circuit record: ${formatTime(rec.bestLap)}` });
   }
   if (r.prevBestPos == null || res.playerPos < r.prevBestPos) chips.push({ kind: 'green', text: `Best finish here: P${res.playerPos}` });
-  ui.showResults(res, { trackName: r.track.name, chips });
+  let season = null;
+  const s = currentSeason();
+  if (state.mode === 'season' && s && !isComplete(s)) {
+    const order = res.rows.map((row) => row.driver);
+    const before = s.results.length ? playerStanding(s) : null; // no position before round 1
+    recordRound(s, order);
+    const after = playerStanding(s);
+    const mine = teamStanding(s);
+    season = {
+      round: s.round,
+      total: ROUNDS,
+      gained: POINTS[res.playerPos - 1] || 0,
+      pos: after.pos,
+      posBefore: before ? before.pos : null,
+      points: after.points,
+      teamName: mine.team.name,
+      teamPos: mine.pos,
+      teamPoints: mine.points,
+      complete: isComplete(s),
+      table: standings(s),
+    };
+  }
+  ui.showResults(res, { trackName: r.track.name, chips, season });
   syncChrome();
 }
 

@@ -4,7 +4,9 @@
 import { TRACKS } from './data/tracks.js';
 import { TEAMS, teamById } from './data/teams.js';
 import { drawF1 } from './car.js';
+import { drawTrackThumb } from './track.js';
 import { save } from './storage.js';
+import { POINTS, ROUNDS, constructorStandings, currentSeason, hasOutdatedSeason, isComplete, lastRound, nextTrack, playerStanding, standings, teamStanding } from './season.js';
 import { formatGap, formatTime } from './util.js';
 
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
@@ -14,7 +16,7 @@ const HEADLINES = ['', 'Victory!', 'Podium!', 'Podium!', 'Solid race', 'Solid ra
 export function createUI(root, h) {
   let current = null;
   let setupMode = 'race';
-  let selected = save.settings.lastTrack || TRACKS[0].id;
+  let selected = TRACKS.some((t) => t.id === save.settings.lastTrack) ? save.settings.lastTrack : TRACKS[0].id;
   let getTrack = h.getTrack;
   let resetArmed = 0;
 
@@ -30,6 +32,7 @@ export function createUI(root, h) {
         <button class="btn primary" id="btn-race" data-act="mode" data-mode="race" data-primary>
           <span>Race</span><small>vs 10 rivals</small>
         </button>
+        <button class="btn" id="btn-season" data-act="season"><span>Season</span><small id="season-label"></small></button>
         <button class="btn" id="btn-trial" data-act="mode" data-mode="trial">
           <span>Time trial</span><small>race your own ghost</small>
         </button>
@@ -119,9 +122,24 @@ export function createUI(root, h) {
         <button class="back" data-act="back" aria-label="Back to menu">‹</button>
         <h2>Your team</h2>
       </header>
-      <p class="hint">Pick who you race for. Your car takes their colours and shows up as YOU; the other ten teams are your rivals.</p>
+      <p class="hint">Pick a team and whose seat you take. You race as YOU in their colours, the other driver is your teammate, and the other 20 cars are your rivals.</p>
       <div class="teams" id="teams" role="listbox" aria-label="Team"></div>
+      <div class="opt">
+        <span class="label">Take the seat of</span>
+        <div class="seg" id="seat-seg"><button data-seat="0"></button><button data-seat="1"></button></div>
+        <p class="hint" id="seat-hint"></p>
+      </div>
       <button class="btn primary" id="btn-team-done" data-act="team-done" data-primary><span id="team-done-label">Race for McLaren</span><small class="kbd">Enter</small></button>
+    </div>
+  </section>
+
+  <section class="screen rail" data-screen="season" hidden>
+    <div class="sheet">
+      <header class="sheet-head">
+        <button class="back" data-act="back" aria-label="Back to menu">‹</button>
+        <h2>Season</h2>
+      </header>
+      <div class="season" id="season-body"></div>
     </div>
   </section>
 
@@ -172,9 +190,12 @@ export function createUI(root, h) {
          <div><kbd>↓</kbd><kbd>S</kbd><kbd>Space</kbd><span>brake</span></div>
          <div><kbd>←</kbd><kbd>→</kbd><kbd>A</kbd><kbd>D</kbd><span>steer</span></div>
          <div><kbd>Esc</kbd><span>pause</span></div>`;
+    const ss = currentSeason();
+    $('#season-label').textContent = !ss ? `${ROUNDS} rounds` : isComplete(ss) ? 'season complete' : `round ${ss.round + 1} of ${ROUNDS}`;
     const team = save.settings.team ? teamById(save.settings.team) : null;
+    const mate = team ? team.drivers[save.settings.seat === 0 ? 1 : 0] : null;
     $('#team-label').innerHTML = team
-      ? `<i class="dot" style="background:${team.livery.color}"></i>${esc(team.name)}`
+      ? `<i class="dot" style="background:${team.livery.color}"></i>${esc(team.name)}, with ${esc(mate.name.split(' ').slice(-1)[0])}`
       : 'pick one';
     const anyPB = TRACKS.map((t) => save.peek(t.id)).filter((r) => r && r.bestLap);
     $('#btn-trial small').textContent = anyPB.length ? `${anyPB.length} ghost${anyPB.length > 1 ? 's' : ''} saved` : 'race your own ghost';
@@ -187,9 +208,9 @@ export function createUI(root, h) {
     });
   }
 
-  function trackMeta(t) {
-    const r = save.peek(t.id);
-    const bits = [t.def.real ? `Real circuit · ${t.def.country}` : `${t.corners} corners`];
+  function trackMeta(def) {
+    const r = save.peek(def.id);
+    const bits = [`${def.country} · ${def.lengthKm.toFixed(2)} km`];
     if (r && r.bestLap) bits.push(`<span class="pb">PB ${formatTime(r.bestLap)}</span>`);
     if (r && r.bestPos) bits.push(`best P${r.bestPos}`);
     return bits.join(' · ');
@@ -206,7 +227,7 @@ export function createUI(root, h) {
         <canvas class="thumb" width="120" height="84" aria-hidden="true"></canvas>
         <span class="tinfo">
           <b>${esc(def.name)}</b>
-          <span class="blurb">${esc(def.blurb)}</span>
+          <span class="blurb">${esc(def.gp || def.blurb || '')}</span>
           <span class="meta" data-meta="${def.id}"></span>
         </span>
       </button>`
@@ -215,17 +236,137 @@ export function createUI(root, h) {
     // Thumbnails and stats need the built track; build them after the screen shows.
     requestAnimationFrame(() => {
       list.querySelectorAll('.track').forEach((btn) => {
-        const t = getTrack(btn.dataset.track);
-        t.drawThumb(btn.querySelector('canvas'));
-        btn.querySelector('[data-meta]').innerHTML = trackMeta(t);
+        const def = TRACKS.find((t) => t.id === btn.dataset.track);
+        drawTrackThumb(btn.querySelector('canvas'), def);
+        btn.querySelector('[data-meta]').innerHTML = trackMeta(def);
       });
+      list.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: 'nearest' });
+    });
+  }
+
+  // ---------- season ----------
+
+  const seasonSetup = { laps: 3, difficulty: save.settings.difficulty };
+  let abandonArmed = 0;
+
+  let standingsTab = 'drivers';
+
+  // Drivers' table (kind 'drivers') or Constructors' table (kind 'teams').
+  function standingsTable(table, limit, kind = 'drivers') {
+    const rows = [];
+    table.forEach((r, i) => {
+      if (limit && i >= limit && !r.isPlayer && !r.isMate) return;
+      const cls = r.isPlayer ? 'me' : r.isMate ? 'mate' : '';
+      const label =
+        kind === 'drivers'
+          ? `${r.isPlayer ? 'YOU' : r.driver.code} <span class="nm">${esc(r.isPlayer ? `You (${r.team.name})` : r.driver.name)}</span>`
+          : `${r.team.code} <span class="nm">${esc(r.team.name)}</span>`;
+      rows.push(`<tr class="${cls}">
+        <td class="num">${i + 1}</td>
+        <td><span class="swatch" style="background:${r.team.livery.color}"></span>${label}</td>
+        <td class="num">${r.wins}</td>
+        <td class="num pts">${r.points}</td>
+      </tr>`);
+    });
+    return `<div class="table-wrap"><table class="res-table standings">
+      <thead><tr><th>Pos</th><th>${kind === 'drivers' ? 'Driver' : 'Team'}</th><th>Wins</th><th>Pts</th></tr></thead>
+      <tbody>${rows.join('')}</tbody></table></div>`;
+  }
+
+  function standingsBlock(s) {
+    return `
+      <div class="seg" id="standings-tab">
+        <button data-tab="drivers" class="${standingsTab === 'drivers' ? 'on' : ''}">Drivers</button>
+        <button data-tab="teams" class="${standingsTab === 'teams' ? 'on' : ''}">Constructors</button>
+      </div>
+      <div id="standings-table">${standingsTab === 'drivers' ? standingsTable(standings(s)) : standingsTable(constructorStandings(s), 0, 'teams')}</div>`;
+  }
+
+  function openSeason() {
+    const s = currentSeason();
+    const body = $('#season-body');
+    if (!s) {
+      const team = teamById(save.settings.team);
+      const mate = team.drivers[save.settings.seat === 0 ? 1 : 0];
+      body.innerHTML = `
+        ${hasOutdatedSeason() ? '<p class="hint"><b>Your earlier season was for 11 cars, so it can\'t continue in the new 22-car format.</b> Starting a new season replaces it.</p>' : ''}
+        <p class="hint">The full calendar: ${ROUNDS} rounds from Melbourne to Abu Dhabi. 22 drivers in 11 teams, points for the top ten (${POINTS.join(', ')}), with a Drivers' and a Constructors' championship. Saved on this device.</p>
+        <div class="opts">
+          <div class="opt">
+            <span class="label">Laps per race</span>
+            <div class="seg" data-season="laps"><button data-val="2">2</button><button data-val="3">3</button><button data-val="5">5</button></div>
+          </div>
+          <div class="opt">
+            <span class="label">Rivals</span>
+            <div class="seg" data-season="difficulty"><button data-val="easy">Easy</button><button data-val="normal">Normal</button><button data-val="hard">Hard</button></div>
+          </div>
+          <div class="opt">
+            <span class="label">Your seat</span>
+            <button class="btn" data-act="team"><span><i class="dot" style="background:${team.livery.color}"></i>${esc(team.name)}</span><small>teammate ${esc(mate.name)} · change</small></button>
+          </div>
+        </div>
+        <button class="btn primary" data-act="season-start" data-primary><span>Start season</span><small class="kbd">Enter</small></button>`;
+      refreshSeasonSegs();
+    } else if (isComplete(s)) {
+      const me = playerStanding(s);
+      const mine = teamStanding(s);
+      const champ = standings(s)[0];
+      const champTeam = constructorStandings(s)[0];
+      body.innerHTML = `
+        <div class="res-head">
+          <div class="res-pos pos-${Math.min(me.pos, 4)}">P${me.pos}</div>
+          <div>
+            <h2>${me.pos === 1 ? 'World Champion!' : `${esc(champ.driver.name)} is World Champion`}</h2>
+            <p>You finished P${me.pos} with ${me.points} points and ${me.wins} win${me.wins === 1 ? '' : 's'}. ${mine.pos === 1 ? `${esc(mine.team.name)} won the Constructors' title too.` : `Constructors' champions: ${esc(champTeam.team.name)}. ${esc(mine.team.name)} finished P${mine.pos}.`}</p>
+          </div>
+        </div>
+        ${standingsBlock(s)}
+        <button class="btn primary" data-act="season-new" data-primary><span>Start a new season</span><small class="kbd">Enter</small></button>`;
+    } else {
+      const next = nextTrack(s);
+      const last = lastRound(s);
+      const me = playerStanding(s);
+      const mine = teamStanding(s);
+      const team = teamById(s.team);
+      const mate = s.lineup.find((d) => d.teamId === s.team && d.id !== 'you');
+      body.innerHTML = `
+        <div class="season-next">
+          <canvas class="thumb" aria-hidden="true"></canvas>
+          <div class="tinfo">
+            <span class="eyebrow">Round ${s.round + 1} of ${ROUNDS}</span>
+            <b>${esc(next.gp)}</b>
+            <span class="meta">${esc(next.name)} · ${esc(next.country)} · ${s.laps} laps</span>
+          </div>
+        </div>
+        <button class="btn primary" data-act="season-race" data-primary><span>Race round ${s.round + 1}</span><small class="kbd">Enter</small></button>
+        ${
+          last
+            ? `<p class="hint">Last race: P${last.playerPos} at ${esc(last.track.name)}, won by ${last.winner.id === 'you' ? 'you' : esc(last.winner.name)}. You're P${me.pos} in the Drivers' and ${esc(team.name)} P${mine.pos} in the Constructors'.</p>`
+            : `<p class="hint">Racing for ${esc(team.name)} alongside ${esc(mate.name)} · ${s.laps} laps · ${s.difficulty} rivals.</p>`
+        }
+        ${standingsBlock(s)}
+        <button class="btn danger" id="btn-abandon" data-act="season-abandon"><span>Abandon season</span><small>can't be undone</small></button>`;
+      requestAnimationFrame(() => drawTrackThumb(body.querySelector('canvas'), next));
+    }
+    show('season');
+  }
+
+  function refreshSeasonSegs() {
+    root.querySelectorAll('.seg[data-season]').forEach((seg) => {
+      const v = String(seasonSetup[seg.dataset.season]);
+      seg.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b.dataset.val === v));
     });
   }
 
   let pendingTeam = null;
+  let pendingSeat = 1;
+
+  let teamReturn = 'title';
 
   function openTeam() {
+    teamReturn = current === 'season' ? 'season' : 'title';
     pendingTeam = save.settings.team || TEAMS[0].id;
+    pendingSeat = save.settings.seat === 0 ? 0 : 1;
     const list = $('#teams');
     list.innerHTML = TEAMS.map(
       (t) => `
@@ -242,7 +383,15 @@ export function createUI(root, h) {
   }
 
   function updateTeamDone() {
-    $('#team-done-label').textContent = `Race for ${teamById(pendingTeam).name}`;
+    const team = teamById(pendingTeam);
+    $('#team-done-label').textContent = `Race for ${team.name}`;
+    const seg = $('#seat-seg');
+    seg.querySelectorAll('button').forEach((b) => {
+      const i = Number(b.dataset.seat);
+      b.textContent = team.drivers[i].name.split(' ').slice(-1)[0];
+      b.classList.toggle('on', i === pendingSeat);
+    });
+    $('#seat-hint').textContent = `Your teammate: ${team.drivers[1 - pendingSeat].name}`;
   }
 
   function drawTeamCar(canvas, team) {
@@ -267,6 +416,19 @@ export function createUI(root, h) {
     root.querySelectorAll('.track').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.track === id)));
   }
 
+  function seasonBlock(sb) {
+    const moved = sb.posBefore == null ? 0 : sb.posBefore - sb.pos;
+    const arrow = moved > 0 ? `<span class="up">▲${moved}</span>` : moved < 0 ? `<span class="down">▼${-moved}</span>` : '';
+    return `<div class="season-block">
+      <div class="sb-head">
+        <span class="eyebrow">Championship · after round ${sb.round} of ${sb.total}</span>
+        <b>Drivers P${sb.pos} ${arrow} · ${sb.points} pts <span class="gain">+${sb.gained}</span></b>
+        <span class="meta">Constructors: ${esc(sb.teamName)} P${sb.teamPos} · ${sb.teamPoints} pts</span>
+      </div>
+      ${standingsTable(sb.table, 5)}
+    </div>`;
+  }
+
   function showResults(res, info) {
     const pos = res.playerPos;
     const head = HEADLINES[pos] || 'Tough day';
@@ -277,7 +439,7 @@ export function createUI(root, h) {
         const fast = best && best.code === r.code;
         return `<tr class="${r.isPlayer ? 'me' : ''}">
           <td class="num">${i + 1}</td>
-          <td><span class="swatch" style="background:${r.livery.color}"></span>${esc(r.code)} <span class="nm">${esc(r.name)}</span></td>
+          <td><span class="swatch" style="background:${r.livery.color}"></span>${esc(r.code)} <span class="nm">${esc(r.isPlayer ? 'You' : r.name)}</span></td>
           <td class="num">${gap}</td>
           <td class="num ${fast ? 'purple' : ''}">${formatTime(r.best)}</td>
         </tr>`;
@@ -299,9 +461,14 @@ export function createUI(root, h) {
         </table>
       </div>
       ${chips ? `<ul class="chips">${chips}</ul>` : ''}
+      ${info.season ? seasonBlock(info.season) : ''}
       <div class="menu">
-        <button class="btn primary" data-act="again" data-primary><span>Race again</span><small class="kbd">Enter</small></button>
-        <button class="btn" data-act="tracks"><span>Change circuit</span><small></small></button>
+        ${
+          info.season
+            ? `<button class="btn primary" data-act="season-continue" data-primary><span>${info.season.complete ? 'Final standings' : 'Continue season'}</span><small class="kbd">Enter</small></button>`
+            : `<button class="btn primary" data-act="again" data-primary><span>Race again</span><small class="kbd">Enter</small></button>
+               <button class="btn" data-act="tracks"><span>Change circuit</span><small></small></button>`
+        }
         <button class="btn" data-act="quit"><span>Menu</span><small></small></button>
       </div>`;
     show('results');
@@ -320,6 +487,33 @@ export function createUI(root, h) {
     if (trackBtn) {
       h.click();
       selectTrack(trackBtn.dataset.track);
+      return;
+    }
+    const tabBtn = e.target.closest('#standings-tab button');
+    if (tabBtn) {
+      h.click();
+      standingsTab = tabBtn.dataset.tab;
+      const sn = currentSeason();
+      if (sn) {
+        root.querySelectorAll('#standings-tab button').forEach((b) => b.classList.toggle('on', b.dataset.tab === standingsTab));
+        $('#standings-table').innerHTML = standingsTab === 'drivers' ? standingsTable(standings(sn)) : standingsTable(constructorStandings(sn), 0, 'teams');
+      }
+      return;
+    }
+    const seatBtn = e.target.closest('#seat-seg button');
+    if (seatBtn) {
+      h.click();
+      pendingSeat = Number(seatBtn.dataset.seat);
+      updateTeamDone();
+      return;
+    }
+    const seasonSeg = e.target.closest('.seg[data-season] button');
+    if (seasonSeg) {
+      const key = seasonSeg.parentElement.dataset.season;
+      const v = seasonSeg.dataset.val;
+      seasonSetup[key] = /^\d+$/.test(v) ? Number(v) : v;
+      refreshSeasonSegs();
+      h.click();
       return;
     }
     const segBtn = e.target.closest('.seg button');
@@ -342,10 +536,30 @@ export function createUI(root, h) {
     if (act === 'mode') openSetup(btn.dataset.mode);
     else if (act === 'settings') show('settings');
     else if (act === 'team') openTeam();
+    else if (act === 'season') openSeason();
+    else if (act === 'season-start') h.onSeasonStart({ laps: seasonSetup.laps, difficulty: seasonSetup.difficulty, team: save.settings.team || TEAMS[0].id, seat: save.settings.seat });
+    else if (act === 'season-race') h.onSeasonRace();
+    else if (act === 'season-continue') h.onSeasonContinue();
+    else if (act === 'season-new') h.onSeasonAbandon();
+    else if (act === 'season-abandon') {
+      const b = $('#btn-abandon span');
+      if (Date.now() - abandonArmed < 3000) {
+        abandonArmed = 0;
+        h.onSeasonAbandon();
+      } else {
+        abandonArmed = Date.now();
+        b.textContent = 'Tap again to abandon';
+        setTimeout(() => {
+          if (Date.now() - abandonArmed >= 3000 && $('#btn-abandon span')) $('#btn-abandon span').textContent = 'Abandon season';
+        }, 3100);
+      }
+    }
     else if (act === 'team-done') {
       save.settings.team = pendingTeam;
+      save.settings.seat = pendingSeat;
       save.write();
-      show('title');
+      if (teamReturn === 'season') openSeason();
+      else show('title');
     }
     else if (act === 'back') show('title');
     else if (act === 'start') h.onStart(setupMode, selected);
@@ -378,7 +592,7 @@ export function createUI(root, h) {
         e.preventDefault();
         btn.click();
       }
-    } else if (e.code === 'Escape' && (current === 'setup' || current === 'settings' || current === 'team')) {
+    } else if (e.code === 'Escape' && (current === 'setup' || current === 'settings' || current === 'team' || current === 'season')) {
       show('title');
     } else if (current === 'setup' && (e.code === 'ArrowDown' || e.code === 'ArrowUp')) {
       e.preventDefault();
@@ -394,6 +608,7 @@ export function createUI(root, h) {
     hideAll,
     openSetup,
     openTeam,
+    openSeason,
     showResults,
     get current() {
       return current;

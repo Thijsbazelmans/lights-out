@@ -222,44 +222,63 @@ function drawLights(ctx, cx, T, lit, narrow) {
   }
 }
 
+function teammateOf(race, p) {
+  return race.cars.find((c) => c !== p && c.teamId && c.teamId === p.teamId) || null;
+}
+
 function drawTower(ctx, race, x, y, p) {
-  const rowH = 21;
+  const rowH = 20;
   const w = 168;
-  const rows = race.order;
-  panel(ctx, x, y, w, rows.length * rowH + 10, 10);
-  // Gap to the leader, built from car-to-car intervals (distance / speed),
-  // so it always grows down the order.
-  let gap = 0;
-  rows.forEach((c, i) => {
-    const ry = y + 5 + i * rowH;
-    if (c === p) {
-      ctx.fillStyle = 'rgba(255,255,255,0.12)';
+  const order = race.order;
+  const mate = teammateOf(race, p);
+  // Gap to the leader for everyone, built from car-to-car intervals.
+  const gaps = [0];
+  for (let i = 1; i < order.length; i++) {
+    const prev = order[i - 1];
+    const c = order[i];
+    let g;
+    if (c.finished && prev.finished) g = c.finishTime - prev.finishTime;
+    else {
+      const v = Math.max(150, (Math.max(0, prev.forwardSpeed) + Math.max(0, c.forwardSpeed)) / 2);
+      g = Math.abs(prev.progress - c.progress) / v;
+    }
+    gaps.push(gaps[i - 1] + g);
+  }
+  // Top ten, then you and your teammate if you're further back.
+  const show = [];
+  for (let i = 0; i < Math.min(10, order.length); i++) show.push(i);
+  const extra = order.map((c, i) => i).filter((i) => i >= 10 && (order[i] === p || order[i] === mate));
+  const rows = extra.length ? [...show, -1, ...extra] : show;
+  const height = rows.reduce((hgt, i) => hgt + (i < 0 ? 8 : rowH), 0) + 10;
+  panel(ctx, x, y, w, height, 10);
+  let ry = y + 5;
+  for (const i of rows) {
+    if (i < 0) {
+      ctx.fillStyle = C.line;
+      ctx.fillRect(x + 12, ry + 3, w - 24, 2);
+      ry += 8;
+      continue;
+    }
+    const c = order[i];
+    if (c === p || c === mate) {
+      ctx.fillStyle = c === p ? 'rgba(255,255,255,0.13)' : 'rgba(255,210,63,0.13)';
       roundRect(ctx, x + 4, ry, w - 8, rowH - 1, 5);
       ctx.fill();
     }
-    text(ctx, String(i + 1), x + 18, ry + 15, `700 12px ${F_DATA}`, C.muted, 'center');
+    text(ctx, String(i + 1), x + 18, ry + 14, `700 12px ${F_DATA}`, C.muted, 'center');
     ctx.fillStyle = c.livery.color;
     ctx.fillRect(x + 30, ry + 4, 3, rowH - 9);
-    text(ctx, c.code, x + 40, ry + 15, `800 14px ${F_DISPLAY}`, C.text);
-    let g = '';
-    if (i === 0) g = c.finished ? 'FINISH' : 'LEADER';
-    else {
-      const prev = rows[i - 1];
-      if (c.finished && prev.finished) gap += c.finishTime - prev.finishTime;
-      else {
-        const v = Math.max(150, (Math.max(0, prev.forwardSpeed) + Math.max(0, c.forwardSpeed)) / 2);
-        gap += Math.abs(prev.progress - c.progress) / v;
-      }
-      g = formatGap(gap);
-    }
-    text(ctx, g, x + w - 10, ry + 15, `500 11px ${F_DATA}`, i === 0 ? C.muted : C.text, 'right');
+    text(ctx, c.code, x + 40, ry + 14, `800 14px ${F_DISPLAY}`, c === mate ? C.yellow : C.text);
+    const g = i === 0 ? (c.finished ? 'FINISH' : 'LEADER') : formatGap(gaps[i]);
+    text(ctx, g, x + w - 10, ry + 14, `500 11px ${F_DATA}`, i === 0 ? C.muted : C.text, 'right');
     if (race.fastest && race.fastest.car === c) {
       ctx.fillStyle = C.purple;
       ctx.beginPath();
-      ctx.arc(x + 82, ry + 10.5, 3, 0, Math.PI * 2);
+      ctx.arc(x + 82, ry + 10, 3, 0, Math.PI * 2);
       ctx.fill();
     }
-  });
+    ry += rowH;
+  }
 }
 
 function drawNearby(ctx, race, x, y, p, w) {
@@ -274,11 +293,16 @@ function drawNearby(ctx, race, x, y, p, w) {
   const lines = [];
   if (ahead && !ahead.finished) lines.push(['▲', ahead, interval(ahead, p)]);
   if (behind) lines.push(['▼', behind, interval(p, behind)]);
+  const mate = teammateOf(race, p);
+  if (mate && mate !== ahead && mate !== behind) {
+    const matesAhead = race.order.indexOf(mate) < idx;
+    lines.push(['TM', mate, `${matesAhead ? '▲' : '▼'}${matesAhead ? interval(mate, p) : interval(p, mate)}`]);
+  }
   if (!lines.length) return;
   panel(ctx, x, y, w, lines.length * 20 + 8, 10);
   lines.forEach(([arrow, c, g], i) => {
     const ry = y + 4 + i * 20;
-    text(ctx, arrow, x + 10, ry + 15, `700 10px ${F_UI}`, arrow === '▲' ? C.green : C.red);
+    text(ctx, arrow, x + 8, ry + 15, `700 ${arrow === 'TM' ? 8 : 10}px ${F_UI}`, arrow === '▲' ? C.green : arrow === 'TM' ? C.yellow : C.red);
     ctx.fillStyle = c.livery.color;
     ctx.fillRect(x + 23, ry + 4, 3, 13);
     text(ctx, c.code, x + 31, ry + 15, `800 13px ${F_DISPLAY}`, C.text);
