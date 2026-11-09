@@ -42,6 +42,11 @@ export function drawHUD(ctx, race, cam, w, h, ins, opts) {
     drawFinish(ctx, race, w, h, ins, opts);
     return;
   }
+  // Phone held sideways with the sliders on screen: keep the middle clear.
+  if (opts.touchUI && opts.ctl && h < 500 && w > h) {
+    drawSideHUD(ctx, race, cam, w, h, ins, opts);
+    return;
+  }
   const L = ins.left + 12;
   const T = ins.top + 10;
   const R = w - ins.right - 12;
@@ -120,48 +125,15 @@ export function drawHUD(ctx, race, cam, w, h, ins, opts) {
   }
 
   // ---- speed / gear / drift meter ----
-  const sp = Math.max(0, p.forwardSpeed);
-  const kmh = Math.round(sp * 0.447);
-  const { gear } = gearInfo(sp / PHYS.TOP);
   const sw = 150;
   const sh = 58;
   const portraitTouch = opts.touchUI && h > w;
   const shortLandscape = h < 500 && w > h;
   const sx = cx - sw / 2;
-  let sy = portraitTouch ? (opts.pedalsTop != null ? opts.pedalsTop - 16 - sh : B - 118 - sh) : opts.touchUI ? B - sh : B - sh - 6;
+  let sy = portraitTouch ? B - 118 - sh : opts.touchUI ? B - sh : B - sh - 6;
   // Keep the road ahead clear on a phone held sideways: sit under the timer (or the lights).
   if (shortLandscape) sy = T + (race.phase === 'lights' || (race.phase === 'intro' && isRace) ? 86 : 60);
-  panel(ctx, sx, sy, sw, sh, 12);
-  ctx.fillStyle = 'rgba(255,255,255,0.08)';
-  roundRect(ctx, sx + 8, sy + 8, 30, 30, 7);
-  ctx.fill();
-  text(ctx, sp < 5 && p.forwardSpeed < -5 ? 'R' : String(gear), sx + 23, sy + 31, `900 22px ${F_DISPLAY}`, C.text, 'center');
-  text(ctx, String(kmh), sx + sw - 46, sy + 36, `800 30px ${F_DISPLAY}`, C.text, 'right');
-  text(ctx, 'KM/H', sx + sw - 10, sy + 35, `700 10px ${F_UI}`, C.muted, 'right');
-  // Drift charge or boost.
-  const bx = sx + 8;
-  const by = sy + sh - 12;
-  const bw = sw - 16;
-  ctx.fillStyle = 'rgba(255,255,255,0.08)';
-  roundRect(ctx, bx, by, bw, 5, 2.5);
-  ctx.fill();
-  let fill = 0;
-  let col = '#fff';
-  if (p.drifting) {
-    fill = clamp(p.driftCharge / 2.2, 0, 1);
-    col = TIER_COLORS[Math.max(1, p.driftTier)];
-    if (p.driftTier === 0) col = 'rgba(255,255,255,0.6)';
-  } else if (p.boost > 0) {
-    fill = clamp(p.boost / 1.5, 0, 1);
-    col = TIER_COLORS[p.boostLevel] || TIER_COLORS[2];
-  }
-  if (fill > 0) {
-    ctx.fillStyle = col;
-    roundRect(ctx, bx, by, Math.max(5, bw * fill), 5, 2.5);
-    ctx.fill();
-  }
-  ctx.fillStyle = 'rgba(11,14,20,0.9)';
-  for (const tick of [0.6, 1.3]) ctx.fillRect(bx + bw * (tick / 2.2) - 1, by, 2, 5);
+  drawSpeedPanel(ctx, p, sx, sy, sw, sh);
   // ---- on a phone: how far you're steering, and gas and brake ----
   const gauges = !!opts.touchUI;
   const below = gauges && shortLandscape ? 18 : 0; // steering bar goes under the panel when sideways
@@ -331,6 +303,180 @@ function drawPaceNote(ctx, note, cx, y, pw, time) {
   ctx.restore();
 }
 
+// Gear, speed and the drift-charge / boost bar.
+function drawSpeedPanel(ctx, p, sx, sy, sw, sh) {
+  const sp = Math.max(0, p.forwardSpeed);
+  const kmh = Math.round(sp * 0.447);
+  const { gear } = gearInfo(sp / PHYS.TOP);
+  panel(ctx, sx, sy, sw, sh, 12);
+  ctx.fillStyle = 'rgba(255,255,255,0.08)';
+  roundRect(ctx, sx + 8, sy + 8, 30, 30, 7);
+  ctx.fill();
+  text(ctx, sp < 5 && p.forwardSpeed < -5 ? 'R' : String(gear), sx + 23, sy + 31, `900 22px ${F_DISPLAY}`, C.text, 'center');
+  text(ctx, String(kmh), sx + sw - 46, sy + 36, `800 30px ${F_DISPLAY}`, C.text, 'right');
+  text(ctx, 'KM/H', sx + sw - 10, sy + 35, `700 10px ${F_UI}`, C.muted, 'right');
+  // Drift charge or boost.
+  const bx = sx + 8;
+  const by = sy + sh - 12;
+  const bw = sw - 16;
+  ctx.fillStyle = 'rgba(255,255,255,0.08)';
+  roundRect(ctx, bx, by, bw, 5, 2.5);
+  ctx.fill();
+  let fill = 0;
+  let col = '#fff';
+  if (p.drifting) {
+    fill = clamp(p.driftCharge / 2.2, 0, 1);
+    col = TIER_COLORS[Math.max(1, p.driftTier)];
+    if (p.driftTier === 0) col = 'rgba(255,255,255,0.6)';
+  } else if (p.boost > 0) {
+    fill = clamp(p.boost / 1.5, 0, 1);
+    col = TIER_COLORS[p.boostLevel] || TIER_COLORS[2];
+  }
+  if (fill > 0) {
+    ctx.fillStyle = col;
+    roundRect(ctx, bx, by, Math.max(5, bw * fill), 5, 2.5);
+    ctx.fill();
+  }
+  ctx.fillStyle = 'rgba(11,14,20,0.9)';
+  for (const tick of [0.6, 1.3]) ctx.fillRect(bx + bw * (tick / 2.2) - 1, by, 2, 5);
+}
+
+// Phone held sideways. The column above the steering strip holds position,
+// lap times, gaps, messages and the speed readout; the corner above the
+// pedal holds the map, next to the pause button. Only the start lights,
+// the title card before the start and the corner warnings use the middle.
+function drawSideHUD(ctx, race, cam, w, h, ins, opts) {
+  const p = race.player;
+  const T = ins.top + 10;
+  const L = ins.left + 12;
+  const R = w - ins.right - 12;
+  const cx = w / 2;
+  const isRace = race.mode === 'race';
+  const { steer: sr } = opts.ctl;
+  const steerLeft = sr.left + sr.width / 2 < w / 2;
+  const colW = 178;
+  const colX = steerLeft ? L : R - colW;
+  const colBottom = sr.top - 10;
+  const before = race.phase === 'intro' || race.phase === 'lights';
+
+  drawSpeedLines(ctx, p, w, h);
+
+  // ---- position, lap and lap time ----
+  drawSideTimes(ctx, race, p, colX, T, colW);
+  const y = T + 70;
+
+  // ---- messages (overtakes, fastest lap...) for a moment, else the gaps to
+  // the cars around you (or recent laps in a time trial) ----
+  const msgs = race.messages.slice(-2).reverse();
+  if (msgs.length) {
+    let my = y + 14;
+    for (const m of msgs) {
+      const appear = clamp(m.t / 0.14, 0, 1);
+      const fade = clamp((m.dur - m.t) / 0.3, 0, 1);
+      let size = 24 * Math.min(1, m.scale) * (1 + (1 - appear) * 0.3);
+      ctx.font = `900 italic ${size}px ${F_DISPLAY}`;
+      const tw = ctx.measureText(m.text).width;
+      if (tw > colW - 8) size *= (colW - 8) / tw;
+      ctx.globalAlpha = fade;
+      drawBanner(ctx, m.text, m.color, colX + colW / 2, my, size);
+      ctx.globalAlpha = 1;
+      my += size + 10;
+    }
+  } else if (isRace) drawNearby(ctx, race, colX, y, p, colW);
+  else drawLapList(ctx, race, colX, y, colW, p);
+
+  // ---- speed, gear, drift charge; brake and gas either side ----
+  const sw = 150;
+  const sh = 58;
+  const sx = colX + 14;
+  const sy = colBottom - sh;
+  drawSpeedPanel(ctx, p, sx, sy, sw, sh);
+  const bar = (x, v, col) => {
+    panel(ctx, x, sy, 10, sh, 5);
+    if (v > 0.01) {
+      const hh = (sh - 6) * clamp(v, 0, 1);
+      ctx.fillStyle = col;
+      roundRect(ctx, x + 2, sy + sh - 3 - hh, 6, hh, 3);
+      ctx.fill();
+    }
+  };
+  bar(colX, p.brake, C.red);
+  bar(colX + colW - 10, p.gas, C.green);
+  if (p.slipstream > 0.35) text(ctx, 'SLIPSTREAM', colX + colW / 2, sy - 7, `800 12px ${F_DISPLAY}`, '#7fd8ff', 'center');
+
+  // ---- map, in the corner above the pedal, beside the pause button ----
+  const ms = 92;
+  const mx = steerLeft ? R - 44 - 12 - ms : L + 44 + 12;
+  const ev = race.event;
+  const tag = ev ? `${ev.round ? `R${ev.round} · ` : ''}${ev.name.toUpperCase()}` : '';
+  panel(ctx, mx - 6, T - 6 + 6, ms + 12, ms + 12 + (tag ? 18 : 0), 12);
+  race.track.drawMinimap(ctx, mx, T + 6, ms, race.cars, p);
+  if (tag) {
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(mx - 4, T + 6 + ms, ms + 8, 20);
+    ctx.clip();
+    text(ctx, tag, mx + ms / 2, T + 6 + ms + 12, `800 10px ${F_DISPLAY}`, C.muted, 'center');
+    ctx.restore();
+  }
+
+  // ---- the middle: lights, title card before the start, corner warnings ----
+  const gapL = steerLeft ? colX + colW + 10 : mx + ms + 16;
+  const gapR = steerLeft ? mx - 16 : colX - 10;
+  const mid = clamp(cx, gapL + 60, gapR - 60);
+  if (before && isRace) drawLights(ctx, mid, T, race.phase === 'lights' ? race.lit : 0, true);
+  if (ev && before) {
+    const fade = clamp(race.phaseT / 0.4 + (race.phase === 'lights' ? 1 : 0), 0, 1);
+    const cw = Math.min(gapR - gapL, 440);
+    drawEventCard(ctx, ev, (gapL + gapR) / 2, T + (isRace ? 68 : 0), cw, fade, true);
+  }
+  if (race.paceNote) drawPaceNote(ctx, race.paceNote, mid, T, Math.min(214, gapR - gapL), race.time);
+  if (before && isRace) {
+    const [px, py] = cam.toScreen(p.x, p.y);
+    const yy = py - 46;
+    ctx.fillStyle = C.lights;
+    roundRect(ctx, px - 22, yy - 12, 44, 20, 6);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(px - 6, yy + 8);
+    ctx.lineTo(px + 6, yy + 8);
+    ctx.lineTo(px, yy + 15);
+    ctx.fill();
+    text(ctx, 'YOU', px, yy + 3, `900 13px ${F_DISPLAY}`, '#fff', 'center');
+  }
+  if (race.wrongWayT > 0.9 && Math.floor(race.wrongWayT * 3) % 2 === 0) {
+    drawBanner(ctx, 'WRONG WAY', C.red, mid, h * 0.3, 34);
+  }
+}
+
+// Position, lap and lap time in one panel (race), or lap, time and personal
+// best (time trial).
+function drawSideTimes(ctx, race, p, x, y, w) {
+  panel(ctx, x, y, w, 62);
+  const isRace = race.mode === 'race';
+  const total = race.totalLaps;
+  let cur = 0;
+  if (race.phase === 'race' || race.phase === 'finished') cur = p.lap >= 0 || isRace ? race.time - p.lapStart : 0;
+  if (p.finished) cur = p.laps[p.laps.length - 1] || 0;
+  const rx = x + w - 10;
+  text(ctx, formatTime(cur), rx, y + 23, `700 14px ${F_DATA}`, C.text, 'right');
+  if (isRace) {
+    text(ctx, `P${p.pos}`, x + 12, y + 42, `900 italic 36px ${F_DISPLAY}`, C.text);
+    ctx.font = `900 italic 36px ${F_DISPLAY}`;
+    const pwid = ctx.measureText(`P${p.pos}`).width;
+    text(ctx, `/${race.cars.length}`, x + 15 + pwid, y + 41, `700 15px ${F_DISPLAY}`, C.muted);
+    text(ctx, `LAP ${clamp(p.lap + 1, 1, total)}/${total}`, rx, y + 39, `700 11px ${F_UI}`, C.muted, 'right');
+    const isFastest = race.fastest && race.fastest.car === p;
+    text(ctx, `BEST ${formatTime(p.bestLap)}`, rx, y + 54, `500 10px ${F_DATA}`, isFastest ? C.purple : C.muted, 'right');
+  } else {
+    text(ctx, `LAP ${Math.max(1, p.lap + 1)}`, x + 12, y + 38, `900 italic 26px ${F_DISPLAY}`, C.text);
+    text(ctx, 'TIME TRIAL', x + 12, y + 54, `700 9px ${F_UI}`, C.muted);
+    const rec = race.record && race.record.bestLap;
+    text(ctx, `PB ${formatTime(rec)}`, rx, y + 39, `500 10px ${F_DATA}`, rec ? C.purple : C.muted, 'right');
+    if (race.delta != null) text(ctx, formatGap(race.delta), rx, y + 54, `700 10px ${F_DATA}`, race.delta <= 0 ? C.green : C.red, 'right');
+  }
+}
+
 function drawBanner(ctx, s, color, x, y, size) {
   ctx.font = `900 italic ${size}px ${F_DISPLAY}`;
   ctx.textAlign = 'center';
@@ -468,7 +614,7 @@ function drawNearby(ctx, race, x, y, p, w) {
     const matesAhead = race.order.indexOf(mate) < idx;
     lines.push(['TM', mate, `${matesAhead ? '▲' : '▼'}${matesAhead ? interval(mate, p) : interval(p, mate)}`]);
   }
-  if (!lines.length) return;
+  if (!lines.length) return 0;
   panel(ctx, x, y, w, lines.length * 20 + 8, 10);
   lines.forEach(([arrow, c, g], i) => {
     const ry = y + 4 + i * 20;
@@ -478,6 +624,7 @@ function drawNearby(ctx, race, x, y, p, w) {
     text(ctx, c.code, x + 31, ry + 15, `800 13px ${F_DISPLAY}`, C.text);
     text(ctx, g, x + w - 8, ry + 15, `500 10px ${F_DATA}`, C.text, 'right');
   });
+  return lines.length * 20 + 8;
 }
 
 function drawLapList(ctx, race, x, y, w, p) {
@@ -490,6 +637,7 @@ function drawLapList(ctx, race, x, y, w, p) {
     text(ctx, `L${offset + i + 1}`, x + 10, ry + 13, `700 10px ${F_UI}`, C.muted);
     text(ctx, formatTime(lt), x + w - 8, ry + 13, `500 11px ${F_DATA}`, lt === best ? C.purple : C.text, 'right');
   });
+  return laps.length ? laps.length * 18 + 8 : 0;
 }
 
 function drawSpeedLines(ctx, p, w, h) {

@@ -113,19 +113,9 @@ export function createUI(root, h) {
           <p class="hint">Red braking zones on the racing line and 3-2-1 boards before the big stops.</p>
         </div>
         <div class="opt">
-          <span class="label">Phone controls</span>
-          <div class="seg" data-setting="phoneControls"><button data-val="tilt">Tilt</button><button data-val="slider">Sliders</button></div>
-          <p class="hint">Tilt: hold the phone in both hands and turn it like a steering wheel; brake under your left thumb, gas under your right. Straight ahead is however you hold it when the lights go out. Sliders: steer on a strip with your left thumb, gas and brake on one pedal with your right. If the phone doesn't share its motion (on iPhone, allow motion access when asked), the sliders are used.</p>
-        </div>
-        <div class="opt">
-          <span class="label">Tilt sensitivity</span>
-          <div class="seg" data-setting="tiltSens"><button data-val="low">Low</button><button data-val="mid">Medium</button><button data-val="high">High</button></div>
-          <p class="hint">How far you turn the phone for full lock: about 26°, 18° or 12°.</p>
-        </div>
-        <div class="opt">
-          <span class="label">Straight-line help</span>
-          <div class="seg" data-setting="tiltHelp"><button data-val="true">On</button><button data-val="false">Off</button></div>
-          <p class="hint">With tilt: while you hold the phone close to level, the car lines itself up with the road on straights, so it doesn't weave. Tilt a little more and it's all you.</p>
+          <span class="label">Phone layout</span>
+          <div class="seg" data-setting="steerSide"><button data-val="left">Steer left</button><button data-val="right">Steer right</button></div>
+          <p class="hint">Steer left: steering under your left thumb, gas and brake under your right. Steer right: the other way round.</p>
         </div>
         <div class="opt">
           <span class="label">Slider steering</span>

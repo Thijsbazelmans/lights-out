@@ -1,30 +1,11 @@
-// Keyboard, on-screen controls, tilting the phone and game controllers all
-// end up as one { gas, brake, steer } reading per frame.
+// Keyboard, on-screen sliders and game controllers all end up as one
+// { gas, brake, steer } reading per frame.
 
 import { clamp } from './util.js';
 
 const keys = new Set();
 const touch = { steer: 0, steering: false, gas: 0, brake: 0 };
 let steerMode = 'float'; // 'float': centre is where the thumb lands; 'fixed': centre of the strip
-let controlMode = 'tilt'; // phone layout: 'tilt' (turn the phone, two pedals) or 'slider'
-let touchRoot = null;
-
-// Tilt steering. The phone's gravity reading, smoothed, gives how far the
-// screen is turned from level, like a steering wheel. Straight ahead is set
-// from how you hold the phone before the start (and when you resume).
-const D2R = Math.PI / 180;
-const tilt = {
-  state: 'off', // off | asking | waiting | ok | denied | unavailable
-  gx: 0, // gravity along the device's x and y axes, smoothed
-  gy: 0,
-  have: false,
-  since: 0, // when we started listening
-  screen: 0, // screen rotation (radians) steering is measured against
-  zero: 0, // degrees of turn that count as straight ahead
-  following: false, // before the start: keep straight ahead = however it's held
-  range: 18, // degrees of turn for full lock
-  help: true, // straight-line help (see Race.steerAssist)
-};
 let pauseCb = null;
 let padPausePrev = false;
 let gameActive = false;
@@ -78,154 +59,18 @@ export function setSteerMode(mode) {
   steerMode = mode === 'fixed' ? 'fixed' : 'float';
 }
 
-// ---------- tilt ----------
-
-function screenAngle() {
-  const a = screen.orientation && typeof screen.orientation.angle === 'number' ? screen.orientation.angle : Number(window.orientation) || 0;
-  return a * D2R;
-}
-
-function onOrientation(e) {
-  if (e.beta == null || e.gamma == null) return;
-  const b = e.beta * D2R;
-  const g = e.gamma * D2R;
-  // Which way is down, in the phone's own axes (x right, y up the screen).
-  const gx = Math.cos(b) * Math.sin(g);
-  const gy = -Math.sin(b);
-  if (!tilt.have) {
-    tilt.gx = gx;
-    tilt.gy = gy;
-  }
-  tilt.gx += (gx - tilt.gx) * 0.5;
-  tilt.gy += (gy - tilt.gy) * 0.5;
-  tilt.have = true;
-  if (tilt.state !== 'ok') setTiltState('ok'); // readings arriving is what counts
-}
-
-// Degrees the phone is turned like a steering wheel (clockwise positive),
-// whether it's held upright or tilted back. Flatter than about 60° back it
-// falls back to how far it's tipped sideways, a bit amplified.
-function tiltDegrees() {
-  const a = tilt.screen;
-  const sx = Math.cos(a) * tilt.gx - Math.sin(a) * tilt.gy; // down, along the screen's left-right
-  const sy = Math.sin(a) * tilt.gx + Math.cos(a) * tilt.gy; // down, along the screen's up
-  return Math.atan2(sx, Math.max(-sy, 0.5)) / D2R;
-}
-
-function setTiltState(st) {
-  tilt.state = st;
-  applyLayout();
-}
-
-let listening = false;
-
-function waitForReadings() {
-  if (!listening) {
-    window.addEventListener('deviceorientation', onOrientation);
-    listening = true;
-  }
-  tilt.since = performance.now();
-  if (tilt.state !== 'ok') setTiltState('waiting');
-}
-
-// Start tilt steering. On iPhone this has to run inside a tap (it may show
-// the motion-access prompt).
-export function enableTilt() {
-  if (tilt.state === 'ok' || tilt.state === 'waiting' || tilt.state === 'asking') return;
-  if (typeof window.DeviceOrientationEvent === 'undefined') {
-    setTiltState('unavailable');
-    return;
-  }
-  const ask = window.DeviceOrientationEvent.requestPermission;
-  if (typeof ask !== 'function') {
-    waitForReadings();
-    return;
-  }
-  setTiltState('asking');
-  tilt.since = performance.now();
-  const refused = () => {
-    if (tilt.state !== 'ok') setTiltState('denied');
-  };
-  try {
-    ask
-      .call(window.DeviceOrientationEvent)
-      .then((r) => (r === 'granted' ? waitForReadings() : refused()))
-      .catch(refused);
-  } catch (e) {
-    refused();
-  }
-  // Some browsers answer "no" but send readings anyway: listen regardless.
-  if (!listening) {
-    window.addEventListener('deviceorientation', onOrientation);
-    listening = true;
-  }
-}
-
-export function tiltStatus() {
-  // No readings a while after we started listening: no motion sensor here.
-  if (tilt.state === 'waiting' && performance.now() - tilt.since > 2000) setTiltState('unavailable');
-  // Never answered: carry on without (so the race doesn't wait forever).
-  if (tilt.state === 'asking' && performance.now() - tilt.since > 15000) setTiltState('denied');
-  return tilt.state;
-}
-
-// Straight ahead = how the phone is held right now.
-export function centreTilt() {
-  tilt.screen = screenAngle();
-  if (tilt.have) tilt.zero = tiltDegrees();
-}
-
-// Before the start, keep re-centring so straight ahead is however you hold it.
-export function followTilt(on) {
-  if (on && !tilt.following) tilt.screen = screenAngle();
-  tilt.following = on;
-}
-
-export function setTiltHelp(on) {
-  tilt.help = on !== false;
-}
-
-export function setTiltRange(level) {
-  tilt.range = level === 'high' ? 12 : level === 'low' ? 26 : 18;
-}
-
-export function setControlMode(mode) {
-  controlMode = mode === 'slider' ? 'slider' : 'tilt';
-  applyLayout();
-}
-
-// Tilt layout only while tilt works; otherwise the sliders.
-function usingTilt() {
-  return controlMode === 'tilt' && (tilt.state === 'ok' || tilt.state === 'waiting' || tilt.state === 'asking');
-}
-
-function applyLayout() {
-  if (!touchRoot) return;
-  const on = usingTilt();
-  if (touchRoot.classList.contains('tilt') !== on) {
-    clearTouch();
-    touchRoot.classList.toggle('tilt', on);
-  }
-}
-
 export function touchSnapshot() {
   return { ...touch };
 }
 
-// Two sliders. Left thumb: a steering strip, proportional left/right.
-// Right thumb: an upright pedal, gas at the top, neutral band, brake at the
-// bottom. A finger belongs to whichever control it landed on until it lifts,
+// Two sliders. One thumb: a steering strip, proportional left/right. The
+// other: an upright pedal, gas at the top, neutral band, brake at the
+// bottom. Steering is on the left unless the sides are swapped in Settings. A finger belongs to whichever control it landed on until it lifts,
 // so it can wander off the strip without losing control.
-// In tilt mode: two big buttons side by side, brake under the left thumb and
-// gas under the right. Each half of the screen counts, so you can't miss.
 export function bindTouchControls(root) {
-  touchRoot = root;
   const pad = root.querySelector('.steer-pad');
   const pedal = root.querySelector('.pedal');
-  const gasBtn = root.querySelector('.pedal-btn.gas');
-  const brakeBtn = root.querySelector('.pedal-btn.brake');
-  if (!pad || !pedal || !gasBtn || !brakeBtn) return; // stale page from an older version; main.js reloads it
-  const held = new Map(); // pointer id -> 'gas' | 'brake' (tilt mode)
+  if (!pad || !pedal) return; // stale page from an older version; main.js reloads it
   const knob = pad.querySelector('.steer-knob');
   const mark = pad.querySelector('.steer-center');
   const pknob = pedal.querySelector('.pedal-knob');
@@ -280,17 +125,6 @@ export function bindTouchControls(root) {
     pknob.style.top = '';
   }
 
-  function syncButtons() {
-    const vals = [...held.values()];
-    const gas = vals.includes('gas') ? 1 : 0;
-    const brake = vals.includes('brake') ? 1 : 0;
-    if ((gas && !touch.gas) || (brake && !touch.brake)) navigator.vibrate?.(8);
-    touch.gas = gas;
-    touch.brake = brake;
-    gasBtn.classList.toggle('on', !!gas);
-    brakeBtn.classList.toggle('on', !!brake);
-  }
-
   root.addEventListener('pointerdown', (e) => {
     e.preventDefault();
     try {
@@ -298,13 +132,9 @@ export function bindTouchControls(root) {
     } catch (err) {
       /* not supported */
     }
-    if (root.classList.contains('tilt')) {
-      held.set(e.pointerId, e.clientX < window.innerWidth / 2 ? 'brake' : 'gas');
-      syncButtons();
-      return;
-    }
     const pr = pedal.getBoundingClientRect();
-    if (e.clientX >= pr.left - 28) {
+    const pedalRight = pr.left + pr.width / 2 > window.innerWidth / 2;
+    if (pedalRight ? e.clientX >= pr.left - 28 : e.clientX <= pr.right + 28) {
       pedalPtr = e.pointerId;
       pedal.classList.add('on');
       pedalTo(e.clientY);
@@ -319,7 +149,6 @@ export function bindTouchControls(root) {
     else if (e.pointerId === pedalPtr) pedalTo(e.clientY);
   });
   const end = (e) => {
-    if (held.delete(e.pointerId)) syncButtons();
     if (steerPtr && e.pointerId === steerPtr.id) releaseSteer();
     else if (e.pointerId === pedalPtr) releasePedal();
   };
@@ -331,10 +160,7 @@ export function bindTouchControls(root) {
   clearTouch = () => {
     releaseSteer();
     releasePedal();
-    held.clear();
-    syncButtons();
   };
-  applyLayout();
 }
 
 export function readInput(autoGas) {
@@ -342,7 +168,6 @@ export function readInput(autoGas) {
   let brake = 0;
   let steer = 0;
   let analog = false;
-  let assist = false;
 
   if (keys.has('ArrowUp') || keys.has('KeyW')) gas = 1;
   if (keys.has('ArrowDown') || keys.has('KeyS') || keys.has('Space')) brake = 1;
@@ -354,19 +179,6 @@ export function readInput(autoGas) {
   if (touch.steering) {
     steer += touch.steer;
     analog = true;
-  }
-  if (usingTilt() && tilt.have) {
-    if (tilt.following) {
-      tilt.zero = tiltDegrees();
-    } else if (gameActive) {
-      const d = tiltDegrees() - tilt.zero;
-      const dead = 1;
-      const u = clamp((Math.abs(d) - dead) / (tilt.range - dead), 0, 1);
-      // Gentle around level, full lock at the same turn as before.
-      steer += Math.sign(d) * Math.pow(u, 1.4);
-      analog = true;
-      assist = tilt.help;
-    }
   }
 
   let padPause = false;
@@ -394,5 +206,5 @@ export function readInput(autoGas) {
 
   if (autoGas && brake < 0.1) gas = 1;
 
-  return { gas: clamp(gas, 0, 1), brake: clamp(brake, 0, 1), steer: clamp(steer, -1, 1), analog, assist };
+  return { gas: clamp(gas, 0, 1), brake: clamp(brake, 0, 1), steer: clamp(steer, -1, 1), analog };
 }

@@ -12,9 +12,7 @@ function defaults() {
       difficulty: 'normal',
       laps: 3,
       autoGas: false,
-      phoneControls: 'tilt', // 'tilt': turn the phone to steer, two pedals; 'slider': steering strip and pedal slider
-      tiltSens: 'mid', // tilt for full lock: 'low' 26°, 'mid' 18°, 'high' 12°
-      tiltHelp: true, // tilt: the car lines itself up with the road on straights while the phone is near level
+      steerSide: 'left', // phone: steering strip under the 'left' or 'right' thumb, pedal under the other
       touchSteer: 'float', // sliders: 'float' centre where the thumb lands, 'fixed' centre of the strip
       brakeHints: true, // red braking zones on the racing line and 3-2-1 boards
       team: null, // id of the team you race for; null until picked

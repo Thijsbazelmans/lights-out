@@ -9,7 +9,7 @@
 // Release checklist: bump CACHE here, BUILD in js/main.js and --build in
 // css/style.css together.
 
-const CACHE = 'lights-out-v13';
+const CACHE = 'lights-out-v14';
 const CORE = [
   './',
   'index.html',
