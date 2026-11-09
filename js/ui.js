@@ -57,7 +57,22 @@ export function createUI(root, h) {
         <button class="back" data-act="back" aria-label="Back to menu">‹</button>
         <h2 id="setup-title">Race</h2>
       </header>
-      <div class="tracks" id="tracks" role="listbox" aria-label="Circuit"></div>
+      <div class="track-pick">
+        <span class="label">Circuit</span>
+        <div class="pick-row">
+          <button class="step" data-act="track-prev" aria-label="Previous circuit">‹</button>
+          <select id="track-select" aria-label="Circuit"></select>
+          <button class="step" data-act="track-next" aria-label="Next circuit">›</button>
+        </div>
+        <div class="track-card" id="track-card">
+          <canvas class="thumb" width="120" height="84" aria-hidden="true"></canvas>
+          <span class="tinfo">
+            <b id="tc-name"></b>
+            <span class="blurb" id="tc-gp"></span>
+            <span class="meta" id="tc-meta"></span>
+          </span>
+        </div>
+      </div>
       <div class="opts" id="race-opts">
         <div class="opt">
           <span class="label">Laps</span>
@@ -98,9 +113,19 @@ export function createUI(root, h) {
           <p class="hint">Red braking zones on the racing line and 3-2-1 boards before the big stops.</p>
         </div>
         <div class="opt">
-          <span class="label">Touch steering</span>
+          <span class="label">Phone controls</span>
+          <div class="seg" data-setting="phoneControls"><button data-val="tilt">Tilt</button><button data-val="slider">Sliders</button></div>
+          <p class="hint">Tilt: hold the phone in both hands and turn it like a steering wheel; brake under your left thumb, gas under your right. Straight ahead is however you hold it when the lights go out. Sliders: steer on a strip with your left thumb, gas and brake on one pedal with your right. If the phone doesn't share its motion (on iPhone, allow motion access when asked), the sliders are used.</p>
+        </div>
+        <div class="opt">
+          <span class="label">Tilt sensitivity</span>
+          <div class="seg" data-setting="tiltSens"><button data-val="low">Low</button><button data-val="mid">Medium</button><button data-val="high">High</button></div>
+          <p class="hint">How far you turn the phone for full lock: about 35°, 25° or 17°.</p>
+        </div>
+        <div class="opt">
+          <span class="label">Slider steering</span>
           <div class="seg" data-setting="touchSteer"><button data-val="float">From thumb</button><button data-val="fixed">Fixed centre</button></div>
-          <p class="hint">From thumb: wherever you put your thumb down is straight ahead; slide left or right from there. Fixed centre: the middle of the strip is straight ahead.</p>
+          <p class="hint">With the sliders. From thumb: wherever you put your thumb down is straight ahead; slide left or right from there. Fixed centre: the middle of the strip is straight ahead.</p>
         </div>
         <div class="opt">
           <span class="label">Auto-gas</span>
@@ -221,28 +246,23 @@ export function createUI(root, h) {
     setupMode = mode;
     $('#setup-title').textContent = mode === 'race' ? 'Race' : 'Time trial';
     $('#race-opts').hidden = mode !== 'race';
-    const list = $('#tracks');
-    list.innerHTML = TRACKS.map(
-      (def) => `
-      <button class="track" role="option" data-track="${def.id}" aria-selected="${def.id === selected}">
-        <canvas class="thumb" width="120" height="84" aria-hidden="true"></canvas>
-        <span class="tinfo">
-          <b>${esc(def.name)}</b>
-          <span class="blurb">${esc(def.gp || def.blurb || '')}</span>
-          <span class="meta" data-meta="${def.id}"></span>
-        </span>
-      </button>`
-    ).join('');
+    // One dropdown in calendar order (on a phone it opens the system picker),
+    // with the chosen circuit shown underneath.
+    const sel = $('#track-select');
+    sel.innerHTML = TRACKS.map((def, i) => {
+      const place = def.name === def.country ? def.name : `${def.name} · ${def.country}`;
+      return `<option value="${def.id}">${i + 1}. ${esc(place)}</option>`;
+    }).join('');
     show('setup');
-    // Thumbnails and stats need the built track; build them after the screen shows.
-    requestAnimationFrame(() => {
-      list.querySelectorAll('.track').forEach((btn) => {
-        const def = TRACKS.find((t) => t.id === btn.dataset.track);
-        drawTrackThumb(btn.querySelector('canvas'), def);
-        btn.querySelector('[data-meta]').innerHTML = trackMeta(def);
-      });
-      list.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: 'nearest' });
-    });
+    selectTrack(selected);
+  }
+
+  function showTrackCard(def) {
+    $('#tc-name').textContent = def.name;
+    $('#tc-gp').textContent = def.gp || def.blurb || '';
+    $('#tc-meta').innerHTML = trackMeta(def);
+    // The thumbnail needs the card laid out; draw it once the screen shows.
+    requestAnimationFrame(() => drawTrackThumb($('#track-card canvas'), def));
   }
 
   // ---------- season ----------
@@ -458,10 +478,18 @@ export function createUI(root, h) {
   }
 
   function selectTrack(id) {
-    selected = id;
-    save.settings.lastTrack = id;
+    const def = TRACKS.find((t) => t.id === id) || TRACKS[0];
+    selected = def.id;
+    save.settings.lastTrack = def.id;
     save.write();
-    root.querySelectorAll('.track').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.track === id)));
+    const sel = $('#track-select');
+    if (sel && sel.value !== def.id) sel.value = def.id;
+    showTrackCard(def);
+  }
+
+  function stepTrack(by) {
+    const i = TRACKS.findIndex((t) => t.id === selected);
+    selectTrack(TRACKS[(i + by + TRACKS.length) % TRACKS.length].id);
   }
 
   function seasonBlock(sb) {
@@ -523,6 +551,10 @@ export function createUI(root, h) {
     show('results');
   }
 
+  root.addEventListener('change', (e) => {
+    if (e.target.id === 'track-select') selectTrack(e.target.value);
+  });
+
   root.addEventListener('click', (e) => {
     const teamBtn = e.target.closest('.team');
     if (teamBtn) {
@@ -530,12 +562,6 @@ export function createUI(root, h) {
       pendingTeam = teamBtn.dataset.team;
       root.querySelectorAll('.team').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.team === pendingTeam)));
       updateTeamDone();
-      return;
-    }
-    const trackBtn = e.target.closest('.track');
-    if (trackBtn) {
-      h.click();
-      selectTrack(trackBtn.dataset.track);
       return;
     }
     const tabBtn = e.target.closest('#standings-tab button');
@@ -617,6 +643,8 @@ export function createUI(root, h) {
     else if (act === 'quit') h.onQuit();
     else if (act === 'again') h.onRestart();
     else if (act === 'tracks') h.onTracks(setupMode);
+    else if (act === 'track-prev') stepTrack(-1);
+    else if (act === 'track-next') stepTrack(1);
     else if (act === 'reset') {
       const b = $('#btn-reset span');
       if (Date.now() - resetArmed < 3000) {
@@ -644,11 +672,9 @@ export function createUI(root, h) {
     } else if (e.code === 'Escape' && (current === 'setup' || current === 'settings' || current === 'team' || current === 'season')) {
       show('title');
     } else if (current === 'setup' && (e.code === 'ArrowDown' || e.code === 'ArrowUp')) {
+      if (document.activeElement && document.activeElement.id === 'track-select') return; // the dropdown handles its own keys
       e.preventDefault();
-      const i = TRACKS.findIndex((t) => t.id === selected);
-      const j = (i + (e.code === 'ArrowDown' ? 1 : -1) + TRACKS.length) % TRACKS.length;
-      selectTrack(TRACKS[j].id);
-      root.querySelector(`.track[data-track="${TRACKS[j].id}"]`)?.scrollIntoView({ block: 'nearest' });
+      stepTrack(e.code === 'ArrowDown' ? 1 : -1);
     }
   });
 

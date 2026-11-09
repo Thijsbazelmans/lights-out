@@ -95,7 +95,7 @@ export function drawHUD(ctx, race, cam, w, h, ins, opts) {
   }
 
   // ---- minimap ----
-  const ms = narrow ? 92 : 136;
+  const ms = narrow || (opts.touchUI && h < 500) ? 92 : 136; // small on phones, so the pedals stay clear
   const mx = R - ms;
   const my = T + 54;
   const ev = race.event;
@@ -128,7 +128,7 @@ export function drawHUD(ctx, race, cam, w, h, ins, opts) {
   const portraitTouch = opts.touchUI && h > w;
   const shortLandscape = h < 500 && w > h;
   const sx = cx - sw / 2;
-  let sy = portraitTouch ? B - 118 - sh : opts.touchUI ? B - sh : B - sh - 6;
+  let sy = portraitTouch ? (opts.pedalsTop != null ? opts.pedalsTop - 16 - sh : B - 118 - sh) : opts.touchUI ? B - sh : B - sh - 6;
   // Keep the road ahead clear on a phone held sideways: sit under the timer (or the lights).
   if (shortLandscape) sy = T + (race.phase === 'lights' || (race.phase === 'intro' && isRace) ? 86 : 60);
   panel(ctx, sx, sy, sw, sh, 12);
@@ -162,15 +162,20 @@ export function drawHUD(ctx, race, cam, w, h, ins, opts) {
   }
   ctx.fillStyle = 'rgba(11,14,20,0.9)';
   for (const tick of [0.6, 1.3]) ctx.fillRect(bx + bw * (tick / 2.2) - 1, by, 2, 5);
+  // ---- on a phone: how far you're steering, and gas and brake ----
+  const gauges = !!opts.touchUI;
+  const below = gauges && shortLandscape ? 18 : 0; // steering bar goes under the panel when sideways
+  if (gauges) drawInputs(ctx, p, sx, sy, sw, sh, shortLandscape ? sy + sh + 6 : sy - 18);
+
   // ---- braking pace note: under the timer (under the speed panel when sideways) ----
   const note = race.paceNote;
-  const noteY = shortLandscape ? sy + sh + 8 : T + 62;
+  const noteY = shortLandscape ? sy + sh + 8 + below : T + 62;
   if (note) {
     const room = Math.min(cx - (L + pw) - 8, mx - 6 - cx - 8) * 2;
     drawPaceNote(ctx, note, cx, noteY, Math.min(narrow ? 172 : 214, room), race.time);
   }
   if (p.slipstream > 0.35) {
-    text(ctx, 'SLIPSTREAM', cx, shortLandscape ? sy + sh + (note ? 62 : 14) : sy - 8, `800 12px ${F_DISPLAY}`, '#7fd8ff', 'center');
+    text(ctx, 'SLIPSTREAM', cx, shortLandscape ? sy + sh + below + (note ? 62 : 14) : sy - (gauges ? 26 : 8), `800 12px ${F_DISPLAY}`, '#7fd8ff', 'center');
   }
 
   // ---- "YOU" marker before the start ----
@@ -215,6 +220,37 @@ export function drawHUD(ctx, race, cam, w, h, ins, opts) {
     ctx.globalAlpha = 1;
     my2 += (narrow ? 34 : 44) * m.scale + 6;
   }
+}
+
+// Steering as a bar with a centre mark (yellow: how far you're turning), and
+// brake (left) and gas (right) as upright bars beside the speed panel.
+function drawInputs(ctx, p, sx, sy, sw, sh, gy) {
+  panel(ctx, sx, gy, sw, 12, 6);
+  const mid = sx + sw / 2;
+  const half = sw / 2 - 12;
+  ctx.fillStyle = 'rgba(255,255,255,0.14)';
+  ctx.fillRect(sx + 12, gy + 5, sw - 24, 2);
+  const st = clamp(p.steer, -1, 1);
+  const x1 = mid + st * half;
+  ctx.fillStyle = C.yellow;
+  ctx.fillRect(Math.min(mid, x1), gy + 4, Math.abs(x1 - mid), 4);
+  ctx.fillStyle = 'rgba(255,255,255,0.55)';
+  ctx.fillRect(mid - 1, gy + 2, 2, 8);
+  ctx.beginPath();
+  ctx.arc(x1, gy + 6, 4.5, 0, Math.PI * 2);
+  ctx.fillStyle = Math.abs(st) > 0.03 ? C.yellow : 'rgba(255,255,255,0.75)';
+  ctx.fill();
+  const bar = (x, v, col) => {
+    panel(ctx, x, sy, 10, sh, 5);
+    if (v > 0.01) {
+      const hh = (sh - 6) * clamp(v, 0, 1);
+      ctx.fillStyle = col;
+      roundRect(ctx, x + 2, sy + sh - 3 - hh, 6, hh, 3);
+      ctx.fill();
+    }
+  };
+  bar(sx - 14, p.brake, C.red);
+  bar(sx + sw + 4, p.gas, C.green);
 }
 
 // "HAIRPIN RIGHT" with a bar running down to the braking point, then a

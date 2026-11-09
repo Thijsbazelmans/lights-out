@@ -16,12 +16,14 @@ Top-down arcade Formula racing that runs in the browser and installs to a phone'
 
 | | Keyboard | Phone | Controller |
 |---|---|---|---|
-| Gas | ↑ or W | right thumb on the top of the pedal | RT or A |
-| Brake | ↓, S or Space | slide the right thumb down the pedal | LT, B or X |
-| Steer | ← → or A D | left thumb on the steering strip, slide left or right | left stick or d-pad |
+| Gas | ↑ or W | right thumb on GAS | RT or A |
+| Brake | ↓, S or Space | left thumb on BRAKE | LT, B or X |
+| Steer | ← → or A D | turn the phone like a steering wheel | left stick or d-pad |
 | Pause | Esc or P | ❚❚ top right | Start |
 
-On a phone both thumbs stay on the screen. Steering is proportional: a small slide is a small turn. By default, wherever you put your left thumb down counts as straight ahead; Settings → Touch steering switches to a fixed centre.
+On a phone you steer by tilting: hold it in both hands and turn it like a steering wheel, upright or sideways. Straight ahead is however you hold it when the lights go out (and when you resume after a pause). Let go of both buttons to coast. The bars around the speed readout show how far you're steering (yellow, above) and how much brake (red, left) and gas (green, right) you're using. On iPhone the game asks for motion access on the first race; if it's refused, or the phone has no motion sensor, it switches to the sliders.
+
+Settings → Phone controls → Sliders brings back the touch layout: a steering strip under the left thumb and one pedal under the right (slide up for gas, down for brake). Tilt sensitivity sets how far you turn the phone for full lock.
 
 - **Drift:** while turning at speed, press and hold brake. The car slides round the corner without losing much speed. Hold it to fill the meter, then let go of brake for a boost: blue, then orange, then purple. On a phone, slide your right thumb from GAS down to BRAKE and back up.
 - **Launch:** wait for the five red lights to go out, then hit the gas. React within 0.3 s for a perfect start. Hold the gas too early and you spin the wheels.
@@ -30,7 +32,7 @@ On a phone both thumbs stay on the screen. Steering is proportional: a small sli
 - **Barriers:** a light scrape costs little; using a wall as a brake costs a lot of speed and makes the engine stutter for a moment, so it's slower than braking.
 - **Leading:** once you're out in front, the cars behind chase: the further you pull away, the harder they push, and they fire boosts out of the corners like your drifts do. A lead has to be kept, not just built.
 
-Settings: sound, camera (Chase rotates with the car; Fixed keeps north up), braking hints, touch steering, auto-gas for phones, and erasing saved records.
+Settings: sound, camera (Chase rotates with the car; Fixed keeps north up), braking hints, phone controls (tilt or sliders), tilt sensitivity, slider steering, auto-gas for phones, and erasing saved records.
 
 ## Put it on GitHub Pages
 
@@ -78,7 +80,7 @@ Then open http://localhost:8642.
 | `js/data/teams.js` | The 11 teams and 22 drivers: names, codes, colours, AI pace |
 | `js/hud.js` | On-screen race information |
 | `js/ui.js` | Menu screens |
-| `js/input.js` | Keyboard, touch and controller input |
+| `js/input.js` | Keyboard, touch, tilt and controller input |
 | `js/audio.js` | Synthesised engine, tyres, impacts and beeps |
 | `js/storage.js` | Everything saved on the device |
 | `sw.js`, `manifest.webmanifest`, `icons/` | Home-screen app and offline support |

@@ -63,7 +63,7 @@ export class Camera {
       this.lookY = damp(this.lookY, 0, 4, dt);
       this.rot = -Math.PI / 2 - this.heading;
       this.anchorX = w / 2;
-      this.anchorY = h * ((touchUI && h > w ? 0.6 : h < 500 ? 0.74 : 0.66) + 0.06 * Math.min(1, this.fast));
+      this.anchorY = h * ((touchUI && h > w ? 0.6 : h < 500 ? 0.74 : 0.66) + (touchUI && h > w ? 0.03 : 0.06) * Math.min(1, this.fast));
     } else {
       this.lookX = damp(this.lookX, target.vx * 0.36, 3, dt);
       this.lookY = damp(this.lookY, target.vy * 0.36, 3, dt);

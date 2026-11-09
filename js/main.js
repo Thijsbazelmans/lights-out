@@ -10,12 +10,27 @@ import { drawHUD } from './hud.js';
 import { createUI } from './ui.js';
 import { save } from './storage.js';
 import * as audio from './audio.js';
-import { bindTouchControls, initInput, isTouchDevice, onFirstTouch, readInput, setGameActive, setSteerMode, touchSnapshot } from './input.js';
+import {
+  bindTouchControls,
+  centreTilt,
+  enableTilt,
+  followTilt,
+  initInput,
+  isTouchDevice,
+  onFirstTouch,
+  readInput,
+  setControlMode,
+  setGameActive,
+  setSteerMode,
+  setTiltRange,
+  tiltStatus,
+  touchSnapshot,
+} from './input.js';
 import { clamp, formatTime } from './util.js';
 import { POINTS, ROUNDS, abandonSeason, currentSeason, isComplete, nextTrack, playerStanding, recordRound, standings, startSeason, teamStanding } from './season.js';
 
 // Bump together with --build in css/style.css and CACHE in sw.js.
-const BUILD = '11';
+const BUILD = '12';
 
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d', { alpha: false });
@@ -88,6 +103,11 @@ const ui = createUI(document.getElementById('ui'), {
   onSetting: (key, v) => {
     if (key === 'sound') audio.setSoundEnabled(v);
     if (key === 'touchSteer') setSteerMode(v);
+    if (key === 'tiltSens') setTiltRange(v);
+    if (key === 'phoneControls') {
+      setControlMode(v);
+      if (v === 'tilt') enableTilt(); // inside the tap, so iPhone can ask for motion access
+    }
   },
 });
 
@@ -152,6 +172,8 @@ function startSeasonRace() {
 
 function launch({ mode, trackId, laps, difficulty, team, seat }) {
   audio.unlockAudio();
+  if (save.settings.phoneControls === 'tilt' && isTouchDevice()) enableTilt(); // runs inside the tap
+  state.tiltNoted = false;
   state.mode = mode;
   state.trackId = trackId;
   const track = getTrack(trackId);
@@ -201,6 +223,7 @@ function pause() {
 
 function resume() {
   if (!state.race) return;
+  centreTilt(); // straight ahead = how you're holding the phone now
   state.paused = false;
   ui.hideAll();
   syncChrome();
@@ -347,6 +370,24 @@ function showResults(r) {
   syncChrome();
 }
 
+// Tilt chosen but not working (no motion sensor, or access refused): say so
+// once per race; the sliders are shown instead.
+function noteTilt(r) {
+  if (state.tiltNoted || save.settings.phoneControls !== 'tilt' || !isTouchDevice() || r.phase !== 'race') return;
+  const st = tiltStatus();
+  if (st !== 'denied' && st !== 'unavailable') return;
+  state.tiltNoted = true;
+  r.msg(st === 'denied' ? 'NO MOTION ACCESS · SLIDERS' : 'NO TILT · SLIDERS', '#ffd23f', 2.6, 0.62);
+}
+
+// Top of the tilt-mode pedals on screen, so the speed panel sits above them.
+function pedalsTop() {
+  if (touchEl.hidden || !touchEl.classList.contains('tilt')) return null;
+  const b = touchEl.querySelector('.pedal-btn.gas');
+  const rect = b && b.getBoundingClientRect();
+  return rect && rect.height > 0 ? rect.top : null;
+}
+
 // ---------- loop ----------
 
 let last = performance.now();
@@ -359,11 +400,15 @@ function frame(now) {
 }
 
 function tick(dt, forcedInput) {
-  const input = forcedInput || readInput(save.settings.autoGas);
   const r = state.race;
-  if (r && !state.paused) {
+  // Until the lights go out, straight ahead follows however the phone is held.
+  followTilt(!!r && (r.phase === 'intro' || r.phase === 'lights'));
+  const input = forcedInput || readInput(save.settings.autoGas);
+  // While an iPhone asks for motion access, the race waits.
+  if (r && !state.paused && !(tiltStatus() === 'asking' && r.phase !== 'race')) {
     r.update(dt, input);
     handleOut(r);
+    noteTilt(r);
   } else if (!r && state.attract) {
     const a = state.attract;
     a.update(dt, NO_INPUT);
@@ -423,7 +468,12 @@ function render(dt, input) {
   ctx.fillRect(0, 0, W, H);
 
   if (racing && !state.resultsShown) {
-    drawHUD(ctx, r, cam, W, H, insets, { touchUI: crossedLine() ? isTouchDevice() : touchVisible(), season: state.mode === 'season', dt });
+    drawHUD(ctx, r, cam, W, H, insets, {
+      touchUI: crossedLine() ? isTouchDevice() : touchVisible(),
+      pedalsTop: pedalsTop(),
+      season: state.mode === 'season',
+      dt,
+    });
   }
   updateEngineSound(r, input);
 }
@@ -466,6 +516,8 @@ onFirstTouch(() => {
 });
 audio.setSoundEnabled(save.settings.sound);
 setSteerMode(save.settings.touchSteer);
+setControlMode(save.settings.phoneControls);
+setTiltRange(save.settings.tiltSens);
 
 if (document.fonts && document.fonts.load) {
   ['900 20px "Saira Condensed"', '700 16px "JetBrains Mono"', '700 16px "Titillium Web"'].forEach((f) =>
@@ -486,7 +538,7 @@ requestAnimationFrame(frame);
 // update a phone can hold a mix; if so, reload once to fetch a matching set.
 function versionMatches() {
   const css = getComputedStyle(document.documentElement).getPropertyValue('--build').replace(/["'\s]/g, '');
-  return css === BUILD && !!document.querySelector('#touch .steer-pad');
+  return css === BUILD && !!document.querySelector('#touch .steer-pad') && !!document.querySelector('#touch .pedal-btn');
 }
 
 function checkVersion() {

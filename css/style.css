@@ -1,7 +1,7 @@
 /* Layout: a pit-wall timing monitor floating over a live race. Left rail on
    wide screens, bottom sheet on phones; pause and results are centred modals. */
 :root {
-  --build: "11"; /* must match BUILD in js/main.js */
+  --build: "12"; /* must match BUILD in js/main.js */
   --asphalt: #0d1016;
   --panel: rgba(13, 16, 23, 0.9);
   --panel-solid: #131822;
@@ -221,7 +221,64 @@ button:focus-visible {
   margin-top: -26px;
 }
 
+/* Tilt mode: turn the phone to steer; brake under the left thumb, gas under
+   the right. The whole half of the screen counts (handled in input.js). */
+.pedal-btn {
+  display: none;
+  position: absolute;
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 16px);
+  width: calc(50% - 21px);
+  height: clamp(96px, 15vh, 150px);
+  box-sizing: border-box;
+  border-radius: 28px;
+  border: 2px solid rgba(255, 255, 255, 0.2);
+  align-items: center;
+  justify-content: center;
+  font: 800 20px/1 var(--font-display);
+  letter-spacing: 0.1em;
+  color: rgba(255, 255, 255, 0.86);
+  pointer-events: none;
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+  transition: background 70ms, border-color 70ms, transform 70ms;
+}
+
+.pedal-btn.brake {
+  left: max(14px, calc(env(safe-area-inset-left, 0px) + 12px));
+  background: rgba(255, 90, 79, 0.17);
+}
+
+.pedal-btn.gas {
+  right: max(14px, calc(env(safe-area-inset-right, 0px) + 12px));
+  background: rgba(49, 214, 123, 0.16);
+}
+
+.pedal-btn.brake.on {
+  background: rgba(255, 90, 79, 0.58);
+  border-color: rgba(255, 120, 110, 0.95);
+  transform: scale(0.97);
+}
+
+.pedal-btn.gas.on {
+  background: rgba(49, 214, 123, 0.52);
+  border-color: rgba(90, 235, 150, 0.95);
+  transform: scale(0.97);
+}
+
+.touch.tilt .steer-pad,
+.touch.tilt .pedal {
+  display: none;
+}
+
+.touch.tilt .pedal-btn {
+  display: flex;
+}
+
 @media (orientation: landscape) and (max-height: 500px) {
+  .pedal-btn {
+    width: min(28vw, 240px);
+    height: min(40vh, 160px);
+  }
   .steer-pad {
     width: min(calc(50% - 36px), 340px);
   }
@@ -633,10 +690,67 @@ kbd {
   padding: 0 0 3px;
 }
 
-.tracks {
+.track-pick {
   display: flex;
   flex-direction: column;
   gap: 8px;
+}
+
+.pick-row {
+  display: grid;
+  grid-template-columns: 44px 1fr 44px;
+  gap: 8px;
+}
+
+.pick-row .step {
+  height: 48px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: var(--raise);
+  font: 700 26px/1 var(--font-ui);
+  padding: 0 0 3px;
+}
+
+#track-select {
+  appearance: none;
+  -webkit-appearance: none;
+  min-width: 0;
+  height: 48px;
+  padding: 0 38px 0 14px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: var(--raise)
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='9' viewBox='0 0 14 9'%3E%3Cpath d='M1 1l6 6 6-6' fill='none' stroke='%23eef2f8' stroke-width='2'/%3E%3C/svg%3E")
+    no-repeat right 14px center;
+  color: var(--text);
+  font: 700 16px/1 var(--font-ui);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color-scheme: dark;
+  cursor: pointer;
+}
+
+#track-select:focus-visible {
+  outline: 2px solid var(--text);
+  outline-offset: 2px;
+}
+
+#track-select option {
+  font: 600 15px var(--font-ui);
+  background: #141925;
+  color: var(--text);
+}
+
+.track-card {
+  display: grid;
+  grid-template-columns: 112px 1fr;
+  gap: 12px;
+  align-items: center;
+  padding: 10px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.05);
+  box-shadow: inset 3px 0 0 var(--lights);
 }
 
 .track {

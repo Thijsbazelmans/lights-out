@@ -12,7 +12,9 @@ function defaults() {
       difficulty: 'normal',
       laps: 3,
       autoGas: false,
-      touchSteer: 'float', // 'float': centre where the thumb lands, 'fixed': centre of the strip
+      phoneControls: 'tilt', // 'tilt': turn the phone to steer, two pedals; 'slider': steering strip and pedal slider
+      tiltSens: 'mid', // tilt for full lock: 'low' 35°, 'mid' 25°, 'high' 17°
+      touchSteer: 'float', // sliders: 'float' centre where the thumb lands, 'fixed' centre of the strip
       brakeHints: true, // red braking zones on the racing line and 3-2-1 boards
       team: null, // id of the team you race for; null until picked
       seat: 1, // which of the team's two drivers you replace (0 or 1)
