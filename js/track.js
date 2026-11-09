@@ -234,6 +234,39 @@ export class Track {
       }
     }
     this.vProfile = v;
+    this.buildBrakeZones();
+  }
+
+  // Braking zones: from where a car at speed has to start braking, to the
+  // slowest point of the corner. Only stops worth at least ~18% of top speed.
+  buildBrakeZones() {
+    const n = this.n;
+    const v = this.vProfile;
+    const TOP = PHYS.TOP;
+    const zones = [];
+    let lastMin = -99;
+    for (let i = 0; i < n; i++) {
+      if (v[i] > 0.85 * TOP || i - lastMin < 12) continue;
+      let isMin = true;
+      for (let k = 1; k <= 8 && isMin; k++) {
+        if (v[(i + k) % n] < v[i] || v[(i - k + n) % n] < v[i]) isMin = false;
+      }
+      if (!isMin) continue;
+      lastMin = i;
+      let j = i;
+      let steps = 0;
+      while (steps < n / 2) {
+        const pj = (j - 1 + n) % n;
+        if (v[pj] < v[j] - 0.5) break;
+        j = pj;
+        steps++;
+        if (v[j] >= TOP * 0.97) break;
+      }
+      const drop = v[j] - v[i];
+      if (drop < 0.18 * TOP || steps < 6) continue;
+      zones.push({ start: j, end: i, len: steps, drop, dir: Math.sign(this.rcurv[i]) || 1 });
+    }
+    this.brakeZones = zones;
   }
 
   buildGrid() {
@@ -525,7 +558,49 @@ export class Track {
     }
     full.closePath();
     rubber.closePath();
+    // Braking zones as a strip of racing line that fades from strong red at the
+    // braking point to faint at the corner.
+    const brakeParts = [];
+    const boards = [];
+    for (const z of this.brakeZones) {
+      const parts = 6;
+      for (let p = 0; p < parts; p++) {
+        const a = z.start + Math.floor((z.len * p) / parts);
+        const b = z.start + Math.floor((z.len * (p + 1)) / parts) + 1;
+        const path = new Path2D();
+        let minX = Infinity;
+        let minY = Infinity;
+        let maxX = -Infinity;
+        let maxY = -Infinity;
+        for (let i = a; i <= b; i++) {
+          const k = i % n;
+          if (i === a) path.moveTo(this.rx[k], this.ry[k]);
+          else path.lineTo(this.rx[k], this.ry[k]);
+          minX = Math.min(minX, this.rx[k]);
+          maxX = Math.max(maxX, this.rx[k]);
+          minY = Math.min(minY, this.ry[k]);
+          maxY = Math.max(maxY, this.ry[k]);
+        }
+        brakeParts.push({ path, alpha: 0.5 - (0.36 * p) / (parts - 1), minX: minX - 30, minY: minY - 30, maxX: maxX + 30, maxY: maxY + 30 });
+      }
+      // 3-2-1 boards on the outside of the big stops, "3" at the braking point.
+      if (z.drop < 0.3 * PHYS.TOP) continue;
+      const side = -z.dir;
+      [3, 2, 1].forEach((num, k) => {
+        const i = (z.start + Math.floor((z.len * k) / 3)) % n;
+        const off = this.half + 26;
+        boards.push({
+          num,
+          x: this.px[i] + this.nx[i] * side * off,
+          y: this.py[i] + this.ny[i] * side * off,
+          angle: Math.atan2(this.ty[i], this.tx[i]),
+        });
+      });
+    }
+
     this.geo = {
+      brakeParts,
+      boards,
       chunks,
       full,
       rubber,
@@ -546,7 +621,7 @@ export class Track {
     ctx.fillRect(view.minX, view.minY, view.maxX - view.minX, view.maxY - view.minY);
   }
 
-  drawSurface(ctx, view) {
+  drawSurface(ctx, view, hints = true) {
     const g = this.ensureGeo();
     const th = this.theme;
     const vis = this.visibleChunks(view);
@@ -582,6 +657,17 @@ export class Track {
     ctx.strokeStyle = 'rgba(0,0,0,0.12)';
     ctx.stroke(g.rubber);
 
+    if (hints) {
+      ctx.lineCap = 'round';
+      ctx.lineWidth = 34;
+      for (const p of g.brakeParts) {
+        if (p.maxX < view.minX || p.minX > view.maxX || p.maxY < view.minY || p.minY > view.maxY) continue;
+        ctx.strokeStyle = `rgba(255,52,40,${p.alpha})`;
+        ctx.stroke(p.path);
+      }
+      ctx.lineCap = 'butt';
+    }
+
     ctx.lineWidth = 3;
     ctx.strokeStyle = th.edge;
     for (const c of vis) {
@@ -594,6 +680,31 @@ export class Track {
     for (const c of vis) ctx.fill(c.kerbB);
 
     this.drawStartLine(ctx);
+    if (hints) this.drawBoards(ctx, view);
+  }
+
+  drawBoards(ctx, view) {
+    const m = 40;
+    for (const b of this.geo.boards) {
+      if (b.x < view.minX - m || b.x > view.maxX + m || b.y < view.minY - m || b.y > view.maxY + m) continue;
+      ctx.save();
+      ctx.translate(b.x, b.y);
+      // Number reads upright for a driver coming toward it.
+      ctx.rotate(b.angle + Math.PI / 2);
+      ctx.fillStyle = 'rgba(0,0,0,0.3)';
+      ctx.fillRect(-10, -12, 24, 28);
+      ctx.fillStyle = '#f4f4f4';
+      ctx.fillRect(-12, -14, 24, 28);
+      ctx.strokeStyle = '#15161a';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(-12, -14, 24, 28);
+      ctx.fillStyle = '#15161a';
+      ctx.font = '900 20px "Saira Condensed", "Arial Narrow", sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(String(b.num), 0, 1);
+      ctx.restore();
+    }
   }
 
   drawStartLine(ctx) {

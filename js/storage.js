@@ -12,6 +12,8 @@ function defaults() {
       difficulty: 'normal',
       laps: 3,
       autoGas: false,
+      touchSteer: 'float', // 'float': centre where the thumb lands, 'fixed': centre of the strip
+      brakeHints: true, // red braking zones on the racing line and 3-2-1 boards
     },
     records: {},
     stats: { races: 0, wins: 0, podiums: 0 },

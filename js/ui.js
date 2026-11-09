@@ -37,7 +37,8 @@ export function createUI(root, h) {
       <section class="howto">
         <h2>How to drive</h2>
         <div class="keys" id="keys"></div>
-        <p><b>Drift:</b> while turning at speed, press and hold brake. The car slides round the corner at full speed. Hold it to fill the meter, then let go of brake for a boost: <span class="t1">blue</span>, <span class="t2">orange</span>, <span class="t3">purple</span>.</p>
+        <p><b>Drift:</b> while turning at speed, press and hold brake (on a phone: slide your right thumb down). The car slides round the corner at full speed. Hold it to fill the meter, then let go of brake for a boost: <span class="t1">blue</span>, <span class="t2">orange</span>, <span class="t3">purple</span>.</p>
+        <p><b>Braking:</b> red on the racing line and the 3-2-1 boards at the side show where to brake.</p>
         <p><b>Launch:</b> wait for the five red lights to go out, then hit the gas. Hold it too early and you'll spin the wheels.</p>
         <p><b>Slipstream:</b> tuck in behind a car on a straight for extra speed.</p>
       </section>
@@ -84,6 +85,16 @@ export function createUI(root, h) {
           <span class="label">Camera</span>
           <div class="seg" data-setting="camera"><button data-val="chase">Chase</button><button data-val="fixed">Fixed</button></div>
           <p class="hint">Chase turns the view with your car, so left is always left. Fixed keeps north at the top.</p>
+        </div>
+        <div class="opt">
+          <span class="label">Braking hints</span>
+          <div class="seg" data-setting="brakeHints"><button data-val="true">On</button><button data-val="false">Off</button></div>
+          <p class="hint">Red braking zones on the racing line and 3-2-1 boards before the big stops.</p>
+        </div>
+        <div class="opt">
+          <span class="label">Touch steering</span>
+          <div class="seg" data-setting="touchSteer"><button data-val="float">From thumb</button><button data-val="fixed">Fixed centre</button></div>
+          <p class="hint">From thumb: wherever you put your thumb down is straight ahead; slide left or right from there. Fixed centre: the middle of the strip is straight ahead.</p>
         </div>
         <div class="opt">
           <span class="label">Auto-gas</span>
@@ -140,8 +151,8 @@ export function createUI(root, h) {
       <div><dt>Podiums</dt><dd>${s.podiums}</dd></div>`;
     const touch = h.isTouch();
     $('#keys').innerHTML = touch
-      ? `<div><kbd>◀</kbd><kbd>▶</kbd><span>steer (left thumb)</span></div>
-         <div><kbd>BRAKE</kbd><kbd>GAS</kbd><span>right thumb</span></div>`
+      ? `<div><kbd>‹ ›</kbd><span>left thumb: slide to steer</span></div>
+         <div><kbd>GAS</kbd><kbd>BRAKE</kbd><span>right thumb: slide up for gas, down for brake</span></div>`
       : `<div><kbd>↑</kbd><kbd>W</kbd><span>gas</span></div>
          <div><kbd>↓</kbd><kbd>S</kbd><kbd>Space</kbd><span>brake</span></div>
          <div><kbd>←</kbd><kbd>→</kbd><kbd>A</kbd><kbd>D</kbd><span>steer</span></div>

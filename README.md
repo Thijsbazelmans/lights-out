@@ -14,16 +14,19 @@ Top-down arcade Formula racing that runs in the browser and installs to a phone'
 
 | | Keyboard | Phone | Controller |
 |---|---|---|---|
-| Gas | ↑ or W | GAS (right thumb) | RT or A |
-| Brake | ↓, S or Space | BRAKE (right thumb) | LT, B or X |
-| Steer | ← → or A D | ◀ ▶ (left thumb) | left stick or d-pad |
+| Gas | ↑ or W | right thumb on the top of the pedal | RT or A |
+| Brake | ↓, S or Space | slide the right thumb down the pedal | LT, B or X |
+| Steer | ← → or A D | left thumb on the steering strip, slide left or right | left stick or d-pad |
 | Pause | Esc or P | ❚❚ top right | Start |
 
-- **Drift:** while turning at speed, press and hold brake. The car slides round the corner without losing much speed. Hold it to fill the meter, then let go of brake for a boost: blue, then orange, then purple. On a phone, slide your right thumb from GAS to BRAKE and back.
+On a phone both thumbs stay on the screen. Steering is proportional: a small slide is a small turn. By default, wherever you put your left thumb down counts as straight ahead; Settings → Touch steering switches to a fixed centre.
+
+- **Drift:** while turning at speed, press and hold brake. The car slides round the corner without losing much speed. Hold it to fill the meter, then let go of brake for a boost: blue, then orange, then purple. On a phone, slide your right thumb from GAS down to BRAKE and back up.
 - **Launch:** wait for the five red lights to go out, then hit the gas. React within 0.3 s for a perfect start. Hold the gas too early and you spin the wheels.
 - **Slipstream:** tuck in behind a car on a straight for extra top speed.
+- **Braking hints:** red on the racing line shows where to brake, and 3-2-1 boards stand before the big stops (board 3 is the braking point). Can be turned off in Settings.
 
-Settings: sound, camera (Chase rotates with the car; Fixed keeps north up), auto-gas for phones, and erasing saved records.
+Settings: sound, camera (Chase rotates with the car; Fixed keeps north up), braking hints, touch steering, auto-gas for phones, and erasing saved records.
 
 ## Put it on GitHub Pages
 
@@ -77,7 +80,7 @@ Then open http://localhost:8642.
 
 Developer extras:
 
-- `tools/track-preview.html` draws every circuit with its racing line coloured by AI target speed.
+- `tools/track-preview.html` draws every circuit with its racing line coloured by AI target speed, plus braking zones and boards.
 - Add `?nopause` to the URL to stop the game pausing when the tab is hidden (for automated testing).
 - `window.lightsOut` in the browser console gives access to the game state.
 

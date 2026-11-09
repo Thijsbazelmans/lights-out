@@ -2,7 +2,7 @@
 // the next time the game is opened online; the cached copy is the fallback
 // when there's no connection.
 
-const CACHE = 'lights-out-v1';
+const CACHE = 'lights-out-v2';
 const CORE = [
   './',
   'index.html',

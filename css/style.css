@@ -82,84 +82,150 @@ button:focus-visible {
   touch-action: none;
 }
 
-.tbtn {
+/* Left thumb: steering strip, about two thirds of the width. */
+.steer-pad {
   position: absolute;
+  left: max(14px, calc(env(safe-area-inset-left, 0px) + 12px));
   bottom: calc(env(safe-area-inset-bottom, 0px) + 18px);
-  width: 78px;
-  height: 78px;
-  border-radius: 22px;
-  display: grid;
-  place-items: center;
+  width: min(calc(66.6% - 36px), 380px);
+  height: 84px;
+  box-sizing: border-box;
+  border-radius: 26px;
   background: rgba(10, 13, 19, 0.42);
-  border: 2px solid rgba(255, 255, 255, 0.2);
-  color: rgba(255, 255, 255, 0.85);
-  font: 800 15px/1 var(--font-display);
-  letter-spacing: 0.08em;
-  transition: transform 60ms, background 60ms;
+  border: 2px solid rgba(255, 255, 255, 0.18);
   backdrop-filter: blur(2px);
   -webkit-backdrop-filter: blur(2px);
 }
 
-.tbtn svg {
-  width: 30px;
-  height: 30px;
+.steer-pad::before {
+  content: "";
+  position: absolute;
+  left: 34px;
+  right: 34px;
+  top: 50%;
+  height: 4px;
+  margin-top: -2px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.14);
 }
 
-.tbtn.on {
-  background: rgba(255, 255, 255, 0.3);
-  transform: scale(0.95);
+.steer-arrow {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-54%);
+  font: 700 30px/1 var(--font-ui);
+  color: rgba(255, 255, 255, 0.42);
 }
 
-.tbtn[data-btn="left"] {
-  left: max(16px, calc(env(safe-area-inset-left, 0px) + 12px));
+.steer-arrow.l { left: 12px; }
+.steer-arrow.r { right: 12px; }
+
+.steer-center {
+  position: absolute;
+  left: 50%;
+  top: 16px;
+  bottom: 16px;
+  width: 2px;
+  margin-left: -1px;
+  border-radius: 1px;
+  background: rgba(255, 255, 255, 0.4);
 }
 
-.tbtn[data-btn="right"] {
-  left: calc(max(16px, calc(env(safe-area-inset-left, 0px) + 12px)) + 90px);
+.steer-knob,
+.pedal-knob {
+  position: absolute;
+  left: 50%;
+  width: 52px;
+  height: 52px;
+  margin-left: -26px;
+  border-radius: 50%;
+  box-sizing: border-box;
+  background: rgba(255, 255, 255, 0.16);
+  border: 2px solid rgba(255, 255, 255, 0.5);
+  transition: left 140ms ease-out, top 140ms ease-out, background 80ms;
+  pointer-events: none;
 }
 
-.tbtn[data-btn="brake"] {
-  right: calc(max(16px, calc(env(safe-area-inset-right, 0px) + 12px)) + 90px);
-  border-color: rgba(255, 90, 79, 0.55);
+.steer-knob {
+  top: 50%;
+  margin-top: -26px;
 }
 
-.tbtn[data-btn="gas"] {
-  right: max(16px, calc(env(safe-area-inset-right, 0px) + 12px));
-  height: 104px;
-  border-color: rgba(49, 214, 123, 0.6);
+.steer-pad.on .steer-knob,
+.pedal.on .pedal-knob {
+  background: rgba(255, 255, 255, 0.85);
+  transition: background 80ms;
 }
 
-/* Narrow phones: smaller buttons so the two thumbs' groups stay well apart. */
-@media (max-width: 400px) {
-  .tbtn {
-    width: 70px;
-    height: 70px;
-    border-radius: 20px;
-  }
-  .tbtn[data-btn="right"] {
-    left: calc(max(14px, calc(env(safe-area-inset-left, 0px) + 12px)) + 78px);
-  }
-  .tbtn[data-btn="brake"] {
-    right: calc(max(14px, calc(env(safe-area-inset-right, 0px) + 12px)) + 78px);
-  }
-  .tbtn[data-btn="gas"] {
-    height: 96px;
-  }
+.steer-pad.on .steer-center {
+  background: rgba(255, 210, 63, 0.9);
 }
 
-@media (min-width: 700px) and (min-height: 500px) {
-  .tbtn {
-    width: 92px;
-    height: 92px;
+/* Right thumb: upright pedal. Gas on top, neutral band, brake at the bottom. */
+.pedal {
+  position: absolute;
+  right: max(14px, calc(env(safe-area-inset-right, 0px) + 12px));
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 18px);
+  width: 84px;
+  height: min(240px, 34vh);
+  box-sizing: border-box;
+  border-radius: 26px;
+  border: 2px solid rgba(255, 255, 255, 0.18);
+  background: linear-gradient(
+    180deg,
+    rgba(49, 214, 123, 0.2) 0 52%,
+    rgba(10, 13, 19, 0.42) 52% 66%,
+    rgba(255, 90, 79, 0.22) 66% 100%
+  );
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+}
+
+.pedal.gas-on {
+  border-color: rgba(49, 214, 123, 0.8);
+  background: linear-gradient(
+    180deg,
+    rgba(49, 214, 123, 0.42) 0 52%,
+    rgba(10, 13, 19, 0.42) 52% 66%,
+    rgba(255, 90, 79, 0.22) 66% 100%
+  );
+}
+
+.pedal.brake-on {
+  border-color: rgba(255, 90, 79, 0.85);
+  background: linear-gradient(
+    180deg,
+    rgba(49, 214, 123, 0.2) 0 52%,
+    rgba(10, 13, 19, 0.42) 52% 66%,
+    rgba(255, 90, 79, 0.48) 66% 100%
+  );
+}
+
+.pedal-label {
+  position: absolute;
+  left: 0;
+  right: 0;
+  text-align: center;
+  font: 800 14px/1 var(--font-display);
+  letter-spacing: 0.08em;
+  color: rgba(255, 255, 255, 0.82);
+  pointer-events: none;
+}
+
+.pedal-label.gas { top: 14%; }
+.pedal-label.brake { bottom: 11%; }
+
+.pedal-knob {
+  top: 30%;
+  margin-top: -26px;
+}
+
+@media (orientation: landscape) and (max-height: 500px) {
+  .steer-pad {
+    width: min(calc(50% - 36px), 340px);
   }
-  .tbtn[data-btn="right"] {
-    left: calc(max(16px, calc(env(safe-area-inset-left, 0px) + 12px)) + 106px);
-  }
-  .tbtn[data-btn="brake"] {
-    right: calc(max(16px, calc(env(safe-area-inset-right, 0px) + 12px)) + 106px);
-  }
-  .tbtn[data-btn="gas"] {
-    height: 120px;
+  .pedal {
+    height: min(220px, 58vh);
   }
 }
 

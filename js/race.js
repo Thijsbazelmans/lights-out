@@ -660,7 +660,7 @@ export class Race {
     cam.apply(ctx, dpr);
     const t = this.track;
     t.drawGround(ctx, view);
-    t.drawSurface(ctx, view);
+    t.drawSurface(ctx, view, this.hints !== false);
     this.skids.draw(ctx, view);
     t.drawDecor(ctx, view);
     const gp = this.ghostPose();

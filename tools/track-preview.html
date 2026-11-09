@@ -14,7 +14,7 @@
 </style>
 </head>
 <body>
-<p>Developer tool: every circuit with its racing line coloured by AI target speed (red = slow, green = flat out). White numbers are control-point indices.</p>
+<p>Developer tool: every circuit with its racing line coloured by AI target speed (red = slow, green = flat out), braking zones in thick red and the 3-2-1 boards. The red dot is the start line.</p>
 <div class="grid" id="grid"></div>
 <script type="module">
 import { Track } from '../js/track.js';
@@ -49,6 +49,20 @@ for (const def of TRACKS) {
     ctx.strokeStyle = `hsl(${f * 120}, 85%, 52%)`;
     ctx.lineWidth = 10;
     ctx.beginPath(); ctx.moveTo(t.rx[i], t.ry[i]); ctx.lineTo(t.rx[j], t.ry[j]); ctx.stroke();
+  }
+  // Braking zones (thick red under the line) and 3-2-1 boards.
+  ctx.strokeStyle = 'rgba(255,52,40,0.9)';
+  ctx.lineWidth = 34;
+  ctx.lineCap = 'round';
+  for (const z of t.brakeZones) {
+    ctx.beginPath();
+    for (let i = z.start; i <= z.start + z.len; i++) { const k = i % t.n; if (i === z.start) ctx.moveTo(t.rx[k], t.ry[k]); else ctx.lineTo(t.rx[k], t.ry[k]); }
+    ctx.stroke();
+  }
+  ctx.lineCap = 'butt';
+  for (const b of g.boards) {
+    ctx.fillStyle = '#fff'; ctx.fillRect(b.x - 22, b.y - 22, 44, 44);
+    ctx.fillStyle = '#000'; ctx.font = `bold 40px sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(String(b.num), b.x, b.y + 2);
   }
   ctx.fillStyle = '#ff2a1f';
   ctx.beginPath(); ctx.arc(t.px[0], t.py[0], 40, 0, Math.PI * 2); ctx.fill();

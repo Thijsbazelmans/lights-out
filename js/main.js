@@ -10,7 +10,7 @@ import { drawHUD } from './hud.js';
 import { createUI } from './ui.js';
 import { save } from './storage.js';
 import * as audio from './audio.js';
-import { bindTouchControls, initInput, isTouchDevice, onFirstTouch, readInput, setGameActive } from './input.js';
+import { bindTouchControls, initInput, isTouchDevice, onFirstTouch, readInput, setGameActive, setSteerMode, touchSnapshot } from './input.js';
 import { clamp, formatTime } from './util.js';
 
 const canvas = document.getElementById('game');
@@ -65,6 +65,7 @@ const ui = createUI(document.getElementById('ui'), {
   },
   onSetting: (key, v) => {
     if (key === 'sound') audio.setSoundEnabled(v);
+    if (key === 'touchSteer') setSteerMode(v);
   },
 });
 
@@ -319,6 +320,7 @@ function render(dt, input) {
       r.shake = 0;
     }
   }
+  r.hints = save.settings.brakeHints;
   r.draw(ctx, cam, W, H, DPR);
 
   ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
@@ -371,6 +373,7 @@ onFirstTouch(() => {
   if (ui.current === 'title') ui.show('title');
 });
 audio.setSoundEnabled(save.settings.sound);
+setSteerMode(save.settings.touchSteer);
 
 if (document.fonts && document.fonts.load) {
   ['900 20px "Saira Condensed"', '700 16px "JetBrains Mono"', '700 16px "Titillium Web"'].forEach((f) =>
@@ -379,7 +382,7 @@ if (document.fonts && document.fonts.load) {
 }
 
 // Handle for poking at the game from the browser console while testing.
-window.lightsOut = { state, startRace, save, getTrack, tick, resume };
+window.lightsOut = { state, startRace, save, getTrack, tick, resume, touchSnapshot };
 
 startAttract();
 ui.show('title');

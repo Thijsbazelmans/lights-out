@@ -152,7 +152,7 @@ export class Car {
     // let go of brake to cash the drift in as a boost.
     const brakeEdge = this.brake > 0.5 && !this.prevBrake;
     this.prevBrake = this.brake > 0.5;
-    const turning = Math.abs(ctl.steer) > 0.5 && this.steer * ctl.steer > 0 && Math.abs(this.steer) > 0.25;
+    const turning = Math.abs(ctl.steer) > 0.4 && this.steer * ctl.steer > 0 && Math.abs(this.steer) > 0.25;
     if (this.canDrift && !this.drifting && brakeEdge && turning && vf > 280 && !off) {
       this.drifting = true;
       this.driftDir = Math.sign(ctl.steer);
