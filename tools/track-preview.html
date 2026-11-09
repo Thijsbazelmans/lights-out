@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Track Preview</title>
+<style>
+  :root { --bg: #0d1016; --fg: #eef2f8; --muted: #8d97ab; color-scheme: dark; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 14px system-ui, sans-serif; padding: 16px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(520px, 1fr)); gap: 16px; }
+  figure { margin: 0; background: #151a23; border-radius: 12px; padding: 12px; }
+  figcaption { color: var(--muted); font: 12px ui-monospace, monospace; margin-top: 6px; white-space: pre-wrap; }
+  canvas { width: 100%; height: auto; display: block; }
+</style>
+</head>
+<body>
+<p>Developer tool: every circuit with its racing line coloured by AI target speed (red = slow, green = flat out). White numbers are control-point indices.</p>
+<div class="grid" id="grid"></div>
+<script type="module">
+import { Track } from '../js/track.js';
+import { TRACKS } from '../js/data/tracks.js';
+import { PHYS } from '../js/car.js';
+
+const grid = document.getElementById('grid');
+for (const def of TRACKS) {
+  const t = new Track(def);
+  const fig = document.createElement('figure');
+  const c = document.createElement('canvas');
+  c.width = 1040; c.height = 760;
+  fig.appendChild(c);
+  const cap = document.createElement('figcaption');
+  let lap = 0, vmin = 1e9;
+  for (let i = 0; i < t.n; i++) { lap += t.ds / Math.max(60, t.vProfile[i]); vmin = Math.min(vmin, t.vProfile[i]); }
+  cap.textContent = `${def.name}  length ${(t.length / 1000).toFixed(1)}k px  corners ${t.corners}  slowest ${vmin.toFixed(0)} px/s  ideal lap ≈ ${lap.toFixed(1)} s`;
+  fig.appendChild(cap);
+  grid.appendChild(fig);
+  const ctx = c.getContext('2d');
+  const b = t.bounds, pad = 60;
+  const s = Math.min((c.width - pad * 2) / (b.maxX - b.minX), (c.height - pad * 2) / (b.maxY - b.minY));
+  ctx.translate(pad - b.minX * s + ((c.width - pad * 2) - (b.maxX - b.minX) * s) / 2, pad - b.minY * s + ((c.height - pad * 2) - (b.maxY - b.minY) * s) / 2);
+  ctx.scale(s, s);
+  const g = t.ensureGeo();
+  ctx.lineJoin = 'round';
+  ctx.strokeStyle = '#26402a'; ctx.lineWidth = t.wallDist * 2; ctx.stroke(g.full);
+  ctx.strokeStyle = '#3a3d45'; ctx.lineWidth = t.half * 2; ctx.stroke(g.full);
+  for (let i = 0; i < t.n; i++) {
+    const j = (i + 1) % t.n;
+    const f = Math.min(1, t.vProfile[i] / PHYS.TOP);
+    ctx.strokeStyle = `hsl(${f * 120}, 85%, 52%)`;
+    ctx.lineWidth = 10;
+    ctx.beginPath(); ctx.moveTo(t.rx[i], t.ry[i]); ctx.lineTo(t.rx[j], t.ry[j]); ctx.stroke();
+  }
+  ctx.fillStyle = '#ff2a1f';
+  ctx.beginPath(); ctx.arc(t.px[0], t.py[0], 40, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#fff';
+  ctx.font = `${14 / s}px ui-monospace, monospace`;
+  if (def.points.length < 60) def.points.forEach(([x, y], k) => ctx.fillText(String(k), x * def.scale + 30, y * def.scale - 30));
+}
+</script>
+</body>
+</html>

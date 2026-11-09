@@ -1,0 +1,76 @@
+// Everything the game remembers lives in one localStorage entry on this device.
+// Reads and writes are wrapped in try/catch: private browsing or blocked storage
+// must never break the game, it just won't remember anything.
+
+const KEY = 'lightsout.save.v1';
+
+function defaults() {
+  return {
+    settings: {
+      sound: true,
+      camera: 'chase', // 'chase' rotates with the car, 'fixed' keeps north up
+      difficulty: 'normal',
+      laps: 3,
+      autoGas: false,
+    },
+    records: {},
+    stats: { races: 0, wins: 0, podiums: 0 },
+  };
+}
+
+function load() {
+  const def = defaults();
+  try {
+    const raw = localStorage.getItem(KEY);
+    if (!raw) return def;
+    const d = JSON.parse(raw);
+    return {
+      settings: { ...def.settings, ...(d.settings || {}) },
+      records: d.records || {},
+      stats: { ...def.stats, ...(d.stats || {}) },
+    };
+  } catch (e) {
+    return def;
+  }
+}
+
+let data = load();
+
+export const save = {
+  get settings() {
+    return data.settings;
+  },
+  get stats() {
+    return data.stats;
+  },
+  // Record for one circuit; created on first use.
+  record(trackId) {
+    if (!data.records[trackId]) {
+      data.records[trackId] = {
+        bestLap: null, // seconds
+        ghost: null, // { dt, frames: [x, y, angle, ...] } of the best lap
+        splits: null, // time into the best lap at each timing point
+        bestPos: null,
+        bestRace: null,
+        races: 0,
+        wins: 0,
+      };
+    }
+    return data.records[trackId];
+  },
+  peek(trackId) {
+    return data.records[trackId] || null;
+  },
+  write() {
+    try {
+      localStorage.setItem(KEY, JSON.stringify(data));
+    } catch (e) {
+      /* storage full or blocked: keep playing without saving */
+    }
+  },
+  resetRecords() {
+    data.records = {};
+    data.stats = defaults().stats;
+    this.write();
+  },
+};

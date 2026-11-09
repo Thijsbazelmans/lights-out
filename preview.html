@@ -1,0 +1,25 @@
+<title>Lights Out</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;700&family=Saira+Condensed:wght@600;800;900&family=Titillium+Web:wght@400;600;700&display=swap">
+<link rel="stylesheet" href="css/style.css">
+
+<canvas id="game" aria-label="Race view"></canvas>
+<div id="insets" aria-hidden="true"></div>
+
+<div id="touch" class="touch" hidden>
+  <div class="tbtn" data-btn="left" aria-label="Steer left">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg>
+  </div>
+  <div class="tbtn" data-btn="right" aria-label="Steer right">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5l7 7-7 7"/></svg>
+  </div>
+  <div class="tbtn" data-btn="brake" aria-label="Brake">BRAKE</div>
+  <div class="tbtn" data-btn="gas" aria-label="Gas">GAS</div>
+</div>
+<button id="pauseBtn" class="pause-btn" aria-label="Pause" hidden><i></i></button>
+
+<div id="ui"></div>
+
+<script type="module" src="js/main.js"></script>
