@@ -22,6 +22,11 @@ const LIGHT_GAP = 0.8;
 // seconds early (time to react), assuming `brake` × full braking.
 export const PACE_NOTE = { slowest: 0.6, minDrop: 0.28, minSpeed: 0.7, warn: 1.7, now: 0.35, brake: 0.75 };
 
+// Tilt steering help: works while |steer| is under `zone`, lines the car up
+// with the road (`gain` steer per radian off, at most `max`), fading out as
+// the road bends (gone at a radius of 1/`bend` px).
+export const STEER_HELP = { zone: 0.34, gain: 2.8, max: 0.32, bend: 700 };
+
 // How often a chasing car boosts out of a corner: base + more × how hard it chases.
 export const CHASE_BOOST = { base: 0.4, more: 0.6, tier2: 0.6 };
 
@@ -206,6 +211,7 @@ export class Race {
     for (const car of this.cars) {
       const ai = this.ai.get(car);
       let ctl = input;
+      if (input.assist && car === this.player && !ai) ctl = this.steerAssist(car, input);
       if (ai) {
         if (car.racePace != null && !car.finished && car !== this.player) {
           // Bunched off the line, own race pace from about mid-lap 1, plus a
@@ -331,6 +337,33 @@ export class Race {
       }
     } else note = null;
     this.paceNote = note;
+  }
+
+  // Tilt steering help: with the phone close to level, the car lines itself
+  // up with the road on straights and gentle bends, so small wobbles of the
+  // hands don't make it weave. Tilt a bit more and the help fades out, so
+  // lane changes and corners are all yours.
+  steerAssist(car, ctl) {
+    const out = (this.assisted ??= { gas: 0, brake: 0, steer: 0, analog: true });
+    out.gas = ctl.gas;
+    out.brake = ctl.brake;
+    out.analog = ctl.analog;
+    out.steer = ctl.steer;
+    const near = clamp(1 - Math.abs(ctl.steer) / STEER_HELP.zone, 0, 1);
+    if (near <= 0 || car.drifting || car.frozen || car.forwardSpeed < 120) return out;
+    const t = this.track;
+    const n = t.n;
+    const i = car.trackIdx;
+    let bend = 0;
+    for (let k = 0; k <= 24; k += 3) bend = Math.max(bend, Math.abs(t.rcurv[(i + k) % n]));
+    const straight = clamp(1 - bend * STEER_HELP.bend, 0, 1);
+    if (straight <= 0) return out;
+    const j = (i + Math.round(50 / t.ds)) % n;
+    const err = wrapAngle(Math.atan2(t.ty[j], t.tx[j]) - car.angle);
+    if (Math.abs(err) > 0.6) return out; // pointing somewhere else on purpose (or spun)
+    const help = clamp(err * STEER_HELP.gain, -STEER_HELP.max, STEER_HELP.max) * near * straight;
+    out.steer = clamp(ctl.steer + help, -1, 1);
+    return out;
   }
 
   // Where another part of the circuit runs right beside yours, fade it down

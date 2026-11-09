@@ -120,7 +120,12 @@ export function createUI(root, h) {
         <div class="opt">
           <span class="label">Tilt sensitivity</span>
           <div class="seg" data-setting="tiltSens"><button data-val="low">Low</button><button data-val="mid">Medium</button><button data-val="high">High</button></div>
-          <p class="hint">How far you turn the phone for full lock: about 35°, 25° or 17°.</p>
+          <p class="hint">How far you turn the phone for full lock: about 26°, 18° or 12°.</p>
+        </div>
+        <div class="opt">
+          <span class="label">Straight-line help</span>
+          <div class="seg" data-setting="tiltHelp"><button data-val="true">On</button><button data-val="false">Off</button></div>
+          <p class="hint">With tilt: while you hold the phone close to level, the car lines itself up with the road on straights, so it doesn't weave. Tilt a little more and it's all you.</p>
         </div>
         <div class="opt">
           <span class="label">Slider steering</span>

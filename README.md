@@ -23,7 +23,7 @@ Top-down arcade Formula racing that runs in the browser and installs to a phone'
 
 On a phone you steer by tilting: hold it in both hands and turn it like a steering wheel, upright or sideways. Straight ahead is however you hold it when the lights go out (and when you resume after a pause). Let go of both buttons to coast. The bars around the speed readout show how far you're steering (yellow, above) and how much brake (red, left) and gas (green, right) you're using. On iPhone the game asks for motion access on the first race; if it's refused, or the phone has no motion sensor, it switches to the sliders.
 
-Settings → Phone controls → Sliders brings back the touch layout: a steering strip under the left thumb and one pedal under the right (slide up for gas, down for brake). Tilt sensitivity sets how far you turn the phone for full lock.
+Settings → Phone controls → Sliders brings back the touch layout: a steering strip under the left thumb and one pedal under the right (slide up for gas, down for brake). Tilt sensitivity sets how far you turn the phone for full lock (about 26°, 18° or 12°); it reads the turn the same whether you hold the phone upright or tilted back. Straight-line help (on by default) lines the car up with the road on straights while you hold the phone close to level, so small wobbles of your hands don't make it weave; tilt a little more and it fades out, and it never acts in real corners. Tilt only ever applies on a touch device: on a computer, steering is the keyboard or a controller as before.
 
 - **Drift:** while turning at speed, press and hold brake. The car slides round the corner without losing much speed. Hold it to fill the meter, then let go of brake for a boost: blue, then orange, then purple. On a phone, slide your right thumb from GAS down to BRAKE and back up.
 - **Launch:** wait for the five red lights to go out, then hit the gas. React within 0.3 s for a perfect start. Hold the gas too early and you spin the wheels.
@@ -104,7 +104,7 @@ Options (JSON): `reverse` if the file runs the wrong way round, `startShift` (me
 
 The game handles the rest: where two parts of a circuit run closer than the (extra-wide) road allows, it pushes them apart and puts a shared barrier halfway between them; while you drive past, the road beside yours is dimmed. Where a circuit crosses itself (Suzuka) it builds a bridge, with the later part of the lap on top.
 
-Tuning knobs live at the top of their files: `WALL` in `js/car.js` (what barrier hits cost), `DIFFICULTY` (AI pace and how hard they chase a leader), `CHASE_BOOST` and `PACE_NOTE` in `js/race.js`.
+Tuning knobs live at the top of their files: `WALL` in `js/car.js` (what barrier hits cost), `DIFFICULTY` (AI pace and how hard they chase a leader), `CHASE_BOOST`, `PACE_NOTE` and `STEER_HELP` (tilt straight-line help) in `js/race.js`.
 
 ## Roadmap
 

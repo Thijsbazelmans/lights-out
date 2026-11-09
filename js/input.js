@@ -22,7 +22,8 @@ const tilt = {
   screen: 0, // screen rotation (radians) steering is measured against
   zero: 0, // degrees of turn that count as straight ahead
   following: false, // before the start: keep straight ahead = however it's held
-  range: 25, // degrees of turn for full lock
+  range: 18, // degrees of turn for full lock
+  help: true, // straight-line help (see Race.steerAssist)
 };
 let pauseCb = null;
 let padPausePrev = false;
@@ -101,11 +102,14 @@ function onOrientation(e) {
   if (tilt.state !== 'ok') setTiltState('ok'); // readings arriving is what counts
 }
 
-// Degrees the screen is turned from level (clockwise positive).
+// Degrees the phone is turned like a steering wheel (clockwise positive),
+// whether it's held upright or tilted back. Flatter than about 60° back it
+// falls back to how far it's tipped sideways, a bit amplified.
 function tiltDegrees() {
   const a = tilt.screen;
-  const sx = Math.cos(a) * tilt.gx - Math.sin(a) * tilt.gy;
-  return Math.asin(clamp(sx, -1, 1)) / D2R;
+  const sx = Math.cos(a) * tilt.gx - Math.sin(a) * tilt.gy; // down, along the screen's left-right
+  const sy = Math.sin(a) * tilt.gx + Math.cos(a) * tilt.gy; // down, along the screen's up
+  return Math.atan2(sx, Math.max(-sy, 0.5)) / D2R;
 }
 
 function setTiltState(st) {
@@ -177,8 +181,12 @@ export function followTilt(on) {
   tilt.following = on;
 }
 
+export function setTiltHelp(on) {
+  tilt.help = on !== false;
+}
+
 export function setTiltRange(level) {
-  tilt.range = level === 'high' ? 17 : level === 'low' ? 35 : 25;
+  tilt.range = level === 'high' ? 12 : level === 'low' ? 26 : 18;
 }
 
 export function setControlMode(mode) {
@@ -334,6 +342,7 @@ export function readInput(autoGas) {
   let brake = 0;
   let steer = 0;
   let analog = false;
+  let assist = false;
 
   if (keys.has('ArrowUp') || keys.has('KeyW')) gas = 1;
   if (keys.has('ArrowDown') || keys.has('KeyS') || keys.has('Space')) brake = 1;
@@ -351,10 +360,12 @@ export function readInput(autoGas) {
       tilt.zero = tiltDegrees();
     } else if (gameActive) {
       const d = tiltDegrees() - tilt.zero;
-      const dead = 1.5;
+      const dead = 1;
       const u = clamp((Math.abs(d) - dead) / (tilt.range - dead), 0, 1);
-      steer += Math.sign(d) * Math.pow(u, 1.15);
+      // Gentle around level, full lock at the same turn as before.
+      steer += Math.sign(d) * Math.pow(u, 1.4);
       analog = true;
+      assist = tilt.help;
     }
   }
 
@@ -383,5 +394,5 @@ export function readInput(autoGas) {
 
   if (autoGas && brake < 0.1) gas = 1;
 
-  return { gas: clamp(gas, 0, 1), brake: clamp(brake, 0, 1), steer: clamp(steer, -1, 1), analog };
+  return { gas: clamp(gas, 0, 1), brake: clamp(brake, 0, 1), steer: clamp(steer, -1, 1), analog, assist };
 }

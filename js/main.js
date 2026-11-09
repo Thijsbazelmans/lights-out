@@ -22,6 +22,7 @@ import {
   setControlMode,
   setGameActive,
   setSteerMode,
+  setTiltHelp,
   setTiltRange,
   tiltStatus,
   touchSnapshot,
@@ -30,7 +31,7 @@ import { clamp, formatTime } from './util.js';
 import { POINTS, ROUNDS, abandonSeason, currentSeason, isComplete, nextTrack, playerStanding, recordRound, standings, startSeason, teamStanding } from './season.js';
 
 // Bump together with --build in css/style.css and CACHE in sw.js.
-const BUILD = '12';
+const BUILD = '13';
 
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d', { alpha: false });
@@ -104,9 +105,10 @@ const ui = createUI(document.getElementById('ui'), {
     if (key === 'sound') audio.setSoundEnabled(v);
     if (key === 'touchSteer') setSteerMode(v);
     if (key === 'tiltSens') setTiltRange(v);
+    if (key === 'tiltHelp') setTiltHelp(v);
     if (key === 'phoneControls') {
       setControlMode(v);
-      if (v === 'tilt') enableTilt(); // inside the tap, so iPhone can ask for motion access
+      if (v === 'tilt' && isTouchDevice()) enableTilt(); // inside the tap, so iPhone can ask for motion access
     }
   },
 });
@@ -518,6 +520,7 @@ audio.setSoundEnabled(save.settings.sound);
 setSteerMode(save.settings.touchSteer);
 setControlMode(save.settings.phoneControls);
 setTiltRange(save.settings.tiltSens);
+setTiltHelp(save.settings.tiltHelp);
 
 if (document.fonts && document.fonts.load) {
   ['900 20px "Saira Condensed"', '700 16px "JetBrains Mono"', '700 16px "Titillium Web"'].forEach((f) =>
