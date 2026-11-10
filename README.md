@@ -8,7 +8,7 @@ Top-down arcade Formula racing that runs in the browser and installs to a phone'
 - **25 real circuits**, built from GPS centre lines: the 2026 calendar plus Malaysia (Sepang). Street circuits have walls close to the track, Suzuka has its bridge, and each circuit has its own look (night races in Singapore, Las Vegas and Jeddah, dunes at Zandvoort, forest at Spa and Monza, water round Montréal).
 - **Season:** the whole calendar as a championship with a Drivers' and a Constructors' table, F1 points for the top ten (25-18-15-12-10-8-6-4-2-1). Choose laps per race and rival difficulty; standings are kept on the device until the season ends.
 - A single **race** on any circuit, or a solo **time trial** against your own ghost.
-- Arcade handling: drifting with boosts, slipstream, start-light launches, bumping, skid marks, sparks and synthesised engine sounds.
+- Arcade handling: drifting, a strong slipstream, start-light launches, bumping, tyre smoke, dust off the road, skid marks, sparks and synthesised engine sounds.
 - Lap records, ghosts, best finishes and race stats are saved on the device (browser `localStorage`).
 - Works offline once it has been opened online.
 
@@ -25,15 +25,16 @@ On a phone the game is played sideways; held upright, it asks you to turn the ph
 
 With the phone sideways the middle of the screen stays clear for the road: position, lap times, gaps and messages sit in the column above the steering controls, the speed sits right next to GAS, the map sits next to the pause button above the pedals, and only the start lights appear in the middle.
 
-- **Drift:** while turning at speed, press and hold brake. The car slides round the corner without losing much speed. Hold it to fill the meter, then let go of brake for a boost: blue, then orange, then purple. On a phone, rock your pedal thumb from GAS down to BRAKE and back up.
-- **Launch:** wait for the five red lights to go out, then hit the gas. React within 0.3 s for a perfect start. Hold the gas too early and you spin the wheels.
-- **Slipstream:** tuck in behind a car on a straight for extra top speed.
+- **Drift:** while turning at speed, press and hold brake. The car slides round the corner on a tighter line without losing much speed, with tyre smoke and speed lines; let go of brake to grip again. A DRIFTING! tag under your car fills up the longer you hold it: white, blue, orange, purple. On a phone, rock your pedal thumb from GAS down to BRAKE and back up.
+- **Launch:** wait for the five red lights to go out, then hit the gas. React within 0.3 s for a perfect start and a launch boost (within 0.5 s, a smaller one). Hold the gas too early and you spin the wheels.
+- **Slipstream:** up to about eight car lengths behind another car you're in its tow: extra pull and up to 18% more top speed, shown by a SLIPSTREAM! tag under your car, light-blue speed lines and air streaming past. Pull out and pass.
 - **Corners:** long bends are flat out; quicker ones need a lift off the gas (coasting scrubs off speed); hairpins and hard corners need proper braking; chicanes need a big stop. The yellow-and-black sausage kerbs in a chicane are solid, so it can't be cut.
-- **Braking boards:** 3-2-1 boards on both sides of the road count down to every big stop; brake at the red **1** (that's for the speed you'd arrive with, with a little in hand). Can be turned off in Settings.
+- **Corner calls:** a card under the timer calls the next corner you need to slow for: LEFT/RIGHT (a lift), HARD LEFT/RIGHT (brake), HAIRPIN or CHICANE, with a bar running down to where to slow; at the braking point it flashes BRAKE! with a beep.
+- **Braking boards:** 3-2-1 boards on both sides of the road count down to every big stop; brake at the red **1** (that's for the speed you'd arrive with, with a little in hand). Calls and boards can be turned off in Settings → Corner hints.
 - **Barriers:** a light scrape costs little; using a wall as a brake costs a lot of speed and makes the engine stutter for a moment, so it's slower than braking.
-- **Leading:** once you're out in front, the cars behind chase: the further you pull away, the harder they push, and they fire boosts out of the corners like your drifts do. A lead has to be kept, not just built.
+- **Leading:** once you're out in front, the cars behind chase: the further you pull away, the harder they push, and up close they use your slipstream. A lead has to be kept, not just built.
 
-Settings: sound, camera (Chase rotates with the car; Fixed keeps north up), braking boards, phone layout (steer left or right), auto-gas for phones, and erasing saved records.
+Settings: sound, camera (Chase rotates with the car; Fixed keeps north up), corner hints (calls and boards), phone layout (steer left or right), auto-gas for phones, and erasing saved records.
 
 ## Put it on GitHub Pages
 
@@ -90,6 +91,7 @@ Developer extras:
 
 - `tools/track-preview.html` draws every circuit with its racing line coloured by the speed the car can carry, the stops that get braking boards, and every corner numbered with its slowest speed (`?ids=monaco,spa` for just a few).
 - `tools/chicanes.html` shows a close-up of every chicane as drawn in the game.
+- `tools/snapshot.html` sets up moments in a race (a corner call, BRAKE!, slipstream, a drift, off the road, hard braking) and draws one frame of each with the game's own code (`?w=740&h=360` for a phone held sideways, `?zoom=2` to look closer).
 - `tools/convert-circuit.mjs` turns a GeoJSON centre line into a circuit file (see below).
 - Add `?nopause` to the URL to stop the game pausing when the tab is hidden (for automated testing).
 - `window.lightsOut` in the browser console gives access to the game state.
@@ -110,7 +112,7 @@ The road is drawn about three times wider than a real one (so cars can race side
 
 The racing line is an elastic band pulled as straight as the road allows (it uses the inside of tight corners like a player can). The AI drives it, and the braking boards come from the speeds along it, so they match what the car can really do.
 
-Tuning knobs live at the top of their files: `WALL` and `LIFT` in `js/car.js` (what barrier hits cost; how much a lift off the gas slows you), `LINE`, `CHICANE` and `HINTS` in `js/track.js` (racing line clearances, chicane shapes and kerbs, braking boards), `AI_KERB` in `js/ai.js`, `DIFFICULTY` (AI pace and how hard they chase a leader) and `CHASE_BOOST` in `js/race.js`.
+Tuning knobs live at the top of their files: `WALL`, `LIFT` and `SLIP_TOP`/`SLIP_ACC` in `js/car.js` (what barrier hits cost; how much a lift off the gas slows you; what a full slipstream gives), `LINE`, `CHICANE`, `HINTS` and `CALLS` in `js/track.js` (racing line clearances, chicane shapes and kerbs, braking boards, corner calls), `AI_KERB` in `js/ai.js`, `DIFFICULTY` (AI pace and how hard they chase a leader) and `SLIPSTREAM` (tow range) in `js/race.js`.
 
 ## Roadmap
 

@@ -43,10 +43,10 @@ export function createUI(root, h) {
       <section class="howto">
         <h2>How to drive</h2>
         <div class="keys" id="keys"></div>
-        <p><b>Drift:</b> while turning at speed, press and hold brake (on a phone: rock your thumb from GAS down to BRAKE). The car slides round the corner at full speed. Hold it to fill the meter, then let go of brake for a boost: <span class="t1">blue</span>, <span class="t2">orange</span>, <span class="t3">purple</span>.</p>
-        <p><b>Braking:</b> 3-2-1 boards count down to every big stop; brake at the red <b>1</b>. Long bends are flat out, quicker ones need a lift off the gas, hairpins and chicanes a proper stop. The yellow-and-black kerbs in a chicane are solid: go round them, not over them.</p>
+        <p><b>Drift:</b> while turning at speed, press and hold brake (on a phone: rock your thumb from GAS down to BRAKE). The car slides round the corner on a tighter line without slowing much; let go of brake to grip again. The longer you hold it, the more <b>DRIFTING!</b> fills up: <span class="t1">blue</span>, <span class="t2">orange</span>, <span class="t3">purple</span>.</p>
+        <p><b>Corners:</b> a call tells you what's coming (LEFT, HARD RIGHT, HAIRPIN, CHICANE) and flashes BRAKE! where you need to; 3-2-1 boards count down to every big stop, brake at the red <b>1</b>. Long bends are flat out, quicker ones need a lift off the gas. The yellow-and-black kerbs in a chicane are solid: go round them, not over them.</p>
         <p><b>Launch:</b> wait for the five red lights to go out, then hit the gas. Hold it too early and you'll spin the wheels.</p>
-        <p><b>Slipstream:</b> tuck in behind a car on a straight for extra speed.</p>
+        <p><b>Slipstream:</b> tuck in behind a car on a straight. <b>SLIPSTREAM!</b> shows up under your car and you get extra pull and top speed, so you can pull out and pass.</p>
       </section>
     </div>
   </section>
@@ -108,9 +108,9 @@ export function createUI(root, h) {
           <p class="hint">Chase turns the view with your car, so left is always left. Fixed keeps north at the top.</p>
         </div>
         <div class="opt">
-          <span class="label">Braking boards</span>
+          <span class="label">Corner hints</span>
           <div class="seg" data-setting="brakeHints"><button data-val="true">On</button><button data-val="false">Off</button></div>
-          <p class="hint">3-2-1 boards on both sides of the road before every big stop. Brake at the red 1.</p>
+          <p class="hint">A call for every corner you need to slow for (LEFT, HARD RIGHT, HAIRPIN, CHICANE, then BRAKE!), and 3-2-1 boards before every big stop: brake at the red 1.</p>
         </div>
         <div class="opt">
           <span class="label">Phone layout</span>

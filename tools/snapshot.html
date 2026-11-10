@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Snapshots</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;700&family=Saira+Condensed:wght@600;800;900&family=Titillium+Web:wght@400;600;700&display=swap">
+<style>
+  :root { --bg: #0d1016; --fg: #eef2f8; --muted: #8d97ab; color-scheme: dark; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 14px system-ui, sans-serif; padding: 12px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(380px, 1fr)); gap: 12px; }
+  figure { margin: 0; }
+  figcaption { color: var(--muted); font: 12px ui-monospace, monospace; margin-top: 4px; }
+  canvas { width: 100%; height: auto; display: block; border-radius: 8px; }
+</style>
+</head>
+<body>
+<p>Developer tool: single frames of a race, set up and drawn with the game's own code, to check effects and the HUD without playing. <code>?w=740&amp;h=360</code> for a phone held sideways, <code>?zoom=2</code> to look closer, <code>?only=spa</code> for one circuit's scene.</p>
+<div class="grid" id="grid"></div>
+<script type="module">
+import { Track } from '../js/track.js';
+import { ALL_REAL } from '../js/data/tracks.js';
+import { Race } from '../js/race.js';
+import { AIDriver } from '../js/ai.js';
+import { Camera } from '../js/camera.js';
+import { PHYS } from '../js/car.js';
+import { drawHUD } from '../js/hud.js';
+import { playerFor, rivalsFor } from '../js/data/teams.js';
+
+const q = new URLSearchParams(location.search);
+const W = Number(q.get('w') || 800);
+const H = Number(q.get('h') || 500);
+const phone = W < 768;
+const ZOOM = Number(q.get('zoom') || 1);
+const ONLY = q.get('only');
+const grid = document.getElementById('grid');
+await document.fonts.load('900 20px "Saira Condensed"').catch(() => {});
+
+// Each scene: a circuit, then a script that sets up the moment.
+const scenes = [
+  ['monza', 'corner call: chicane ahead', (r, t, p, run) => { place(r, t, p, 0.06, 740); run(30, () => ({ gas: 1 })); }],
+  ['monza', 'BRAKE! at the 1 board', (r, t, p, run) => { place(r, t, p, 0.07, 740); run(400, (k) => ({ gas: 1, stop: r.call && r.call.stage === 'brake' })); }],
+  ['silverstone', 'slipstream behind a car', (r, t, p, run) => {
+    const o = r.cars.find((c) => c !== p);
+    place(r, t, p, 0.08, 700); placeCar(t, o, 0.08, 700, 140);
+    run(40, () => ({ gas: 1 }), (dt) => { o.vx = Math.cos(o.angle) * 700; o.vy = Math.sin(o.angle) * 700; });
+  }],
+  ['suzuka', 'drifting', (r, t, p, run) => {
+    place(r, t, p, 0.06, 600);
+    // Brake while turning into turn 1 to start the drift, then hold it.
+    run(85, (k) => {
+      const turning = Math.abs(t.rcurv[(p.trackIdx + 20) % t.n]) > 1 / 400;
+      return turning && k > 5 ? { brake: 1, steer: 1 } : { gas: 1 };
+    });
+  }],
+  ['bahrain', 'off the road', (r, t, p, run) => { place(r, t, p, 0.2, 600, 100); run(25, () => ({ gas: 1 })); }],
+  ['spa', 'hard braking', (r, t, p, run) => { place(r, t, p, 0.37, 720); run(18, () => ({ brake: 1 })); }],
+];
+
+function place(r, t, p, frac, speed, lat = 0) {
+  r.phase = 'race';
+  r.time = 20;
+  for (const c of r.cars) { c.frozen = false; if (c !== p) { c.x = -1e6; c.y = -1e6; } }
+  placeCar(t, p, frac, speed, 0, lat);
+}
+
+function placeCar(t, c, frac, speed, ahead = 0, lat = 0) {
+  const i0 = Math.round(frac * t.n);
+  const i = (i0 + Math.round(ahead / t.ds)) % t.n;
+  const a = Math.atan2(t.ty[i], t.tx[i]);
+  c.x = t.px[i] + t.nx[i] * (t.roff[i] + lat);
+  c.y = t.py[i] + t.ny[i] * (t.roff[i] + lat);
+  c.angle = a;
+  c.vx = Math.cos(a) * speed;
+  c.vy = Math.sin(a) * speed;
+  c.trackIdx = i;
+  c.frozen = false;
+  c.launchPenalty = 0;
+}
+
+for (const [id, label, script] of scenes) {
+  if (ONLY && !ONLY.split(',').includes(id)) continue;
+  const t = new Track(ALL_REAL.find((d) => d.id === id));
+  const r = new Race({ track: t, mode: 'race', laps: 3, player: playerFor('ferrari', 1), rivals: rivalsFor('ferrari', 1) });
+  r.ai.clear();
+  const p = r.player;
+  p.lap = 0;
+  const cam = new Camera();
+  const cv = document.createElement('canvas');
+  cv.width = W; cv.height = H;
+  const ctx = cv.getContext('2d');
+  const bot = new AIDriver(p, t, { pace: 1 });
+  const run = (frames, ctl, each) => {
+    for (let k = 0; k < frames; k++) {
+      const c = ctl(k);
+      if (c.stop) break;
+      const steer = c.steer ?? bot.control(1 / 60, r.cars, 1, r.time).steer;
+      r.update(1 / 60, { gas: c.gas || 0, brake: c.brake || 0, steer, analog: true });
+      each?.(1 / 60);
+      cam.update(1 / 60, p, { w: W, h: H, mode: 'chase', touchUI: phone, speedFrac: Math.max(0, p.forwardSpeed) / PHYS.TOP, boost: p.boost > 0, zoomMul: ZOOM });
+    }
+  };
+  script(r, t, p, run);
+  r.focus = p;
+  r.draw(ctx, cam, W, H, 1);
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  const ctl = phone ? { steer: new DOMRect(16, H - 108, 196, 92), pedal: new DOMRect(W - 120, H - 204, 104, 188), gas: new DOMRect(W - 120, H - 204, 104, 84) } : null;
+  drawHUD(ctx, r, cam, W, H, { top: 0, left: 0, right: 0, bottom: 0 }, { touchUI: phone, ctl, dt: 1 / 60 });
+  const fig = document.createElement('figure');
+  fig.appendChild(cv);
+  const cap = document.createElement('figcaption');
+  cap.textContent = `${t.name}: ${label}  (${Math.round(p.forwardSpeed * 0.447)} km/h, slipstream ${p.slipstream.toFixed(2)}, ${p.drifting ? 'drifting' : 'gripping'}${p.offTrack ? ', off track' : ''}${r.call ? `, call ${r.call.c.kind} ${r.call.stage}` : ''})`;
+  fig.appendChild(cap);
+  grid.appendChild(fig);
+}
+</script>
+</body>
+</html>

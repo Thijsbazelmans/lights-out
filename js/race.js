@@ -11,8 +11,12 @@ const SPLITS = 40; // timing points per lap (gaps and live delta)
 const GHOST_DT = 0.05;
 const LIGHT_GAP = 0.8;
 
-// How often a chasing car boosts out of a corner: base + more × how hard it chases.
-export const CHASE_BOOST = { base: 0.4, more: 0.6, tier2: 0.6 };
+// Slipstream: you're in a car's tow up to `range` px behind it, within a
+// narrow cone; strongest right on its gearbox (see PHYS.SLIP_TOP / SLIP_ACC).
+export const SLIPSTREAM = { range: 380, cone: 0.955 };
+
+// A corner call shows up this many seconds before you need to slow down.
+const CALL_WARN = 1.8;
 
 // AI speed per difficulty. `top` is the corner pace of the fastest cars (a
 // share of the racing line's own speeds) and `spread` how much slower the
@@ -157,6 +161,7 @@ export class Race {
     if (steps >= 10) this.acc = 0;
     this.particles.update(scaled);
     this.updateBeside(dt);
+    this.updateCall(dt);
     for (const m of this.messages) m.t += dt;
     this.messages = this.messages.filter((m) => m.t < m.dur);
   }
@@ -213,7 +218,6 @@ export class Race {
         const rub = this.rubberFor(car);
         car.power = car.basePower * (1 + (rub - 1) * 0.6);
         ctl = ai.control(h, this.cars, rub, racing ? this.time : -1);
-        if (rub > 1 && car !== this.player) this.chaseBoost(car, rub);
         if (car.launchBoostAt != null && racing && this.time >= car.launchBoostAt) {
           car.startBoost(1, this.events, 'launch');
           car.launchBoostAt = null;
@@ -277,6 +281,58 @@ export class Race {
     return 1;
   }
 
+  // Corner calls: a heads-up for the next corner you need to lift or brake
+  // for ("HARD LEFT", "CHICANE"), timed from your actual speed, so it comes
+  // sooner when you're quicker. For a braking corner it turns into BRAKE! at
+  // the braking point (the red 1 board), with a beep.
+  updateCall(dt) {
+    const p = this.player;
+    const t = this.track;
+    let note = this.call;
+    if (!p || this.hints === false || this.phase !== 'race' || p.finished || p.frozen || !t.calls.length) {
+      this.call = null;
+      return;
+    }
+    const n = t.n;
+    const TOP = PHYS.TOP;
+    const v = Math.max(0, p.forwardSpeed);
+    const ahead = (i) => (i - p.trackIdx + n) % n;
+    // The next corner whose slowest point we haven't passed yet.
+    let c = null;
+    for (const k of t.calls) {
+      const a = ahead(k.at);
+      if (a < n / 2 && (!c || a < ahead(c.at))) c = k;
+    }
+    if (note && (note.c !== c || ahead(note.c.at) > n / 2)) {
+      if (note.stage !== 'done') note.stage = 'done';
+    }
+    // Each corner is called once (not again after you've slowed for it).
+    if (c && c !== this.calledLast && (!note || (note.c !== c && note.stage === 'done' && note.fade < 0.6))) {
+      const toStart = ahead(c.start) > ahead(c.at) ? 0 : ahead(c.start) * t.ds;
+      const tt = toStart / Math.max(v, 60);
+      if (tt < CALL_WARN && v > c.vOut + 0.05 * TOP) {
+        note = { c, stage: 'warn', t: 0, fade: 1, tt, warnAt: Math.max(0.6, tt) };
+        this.calledLast = c;
+      }
+    }
+    if (note) {
+      note.t += dt;
+      if (note.c === c && note.stage !== 'done') {
+        const toStart = ahead(c.start) > ahead(c.at) ? 0 : ahead(c.start) * t.ds;
+        note.tt = toStart / Math.max(v, 60);
+        if (note.stage === 'warn' && c.brake && note.tt < 0.12 && v > c.vOut + 0.12 * TOP) {
+          note.stage = 'brake';
+          this.out.push({ t: 'brakeCue' });
+        }
+        // Slowed down enough: job done.
+        if (v < c.vOut + 0.03 * TOP) note.stage = 'done';
+      }
+      if (note.stage === 'done') note.fade -= dt / 0.35;
+      if (note.fade <= 0) note = null;
+    }
+    this.call = note;
+  }
+
   // Where another part of the circuit runs right beside yours, fade it down
   // while you're there so your own road stands out.
   updateBeside(dt) {
@@ -288,19 +344,6 @@ export class Race {
     for (let k = 0; k < f.length; k++) {
       const want = on.includes(k) ? 1 : 0;
       f[k] = clamp(f[k] + (want ? 3 : -3) * dt, 0, 1);
-    }
-  }
-
-  // Cars chasing you use corner-exit boosts too, the way you do with drifts.
-  chaseBoost(car, rub) {
-    const z = this.track.apexAt[car.trackIdx];
-    if (z < 0 || car.lastApex === z) return;
-    car.lastApex = z;
-    if (car.offTrack || car.launchPenalty > 0) return;
-    const chase = (DIFFICULTY[this.difficulty] || DIFFICULTY.normal).chase;
-    const want = clamp((rub - 1) / chase, 0, 1);
-    if (Math.random() < CHASE_BOOST.base + CHASE_BOOST.more * want) {
-      car.startBoost(want > 0.6 && Math.random() < CHASE_BOOST.tier2 ? 2 : 1, this.events, 'chase');
     }
   }
 
@@ -400,9 +443,9 @@ export class Race {
           const dx = b.x - a.x;
           const dy = b.y - a.y;
           const d = Math.hypot(dx, dy);
-          if (d < 36 || d > 290) continue;
-          if ((dx * fx + dy * fy) / d < 0.965) continue;
-          best = Math.max(best, 1 - (d - 36) / 254);
+          if (d < 36 || d > SLIPSTREAM.range) continue;
+          if ((dx * fx + dy * fy) / d < SLIPSTREAM.cone) continue;
+          best = Math.max(best, Math.pow(1 - (d - 36) / (SLIPSTREAM.range - 36), 0.7));
         }
       }
       a.slipstream = damp(a.slipstream, best, best > a.slipstream ? 2.2 : 3.5, h);
@@ -603,7 +646,9 @@ export class Race {
         c.skidOn = true;
       } else c.skidOn = false;
 
-      if (c.drifting || c.slide > 120 || spinning) {
+      // Tyre smoke: billowing in a drift or a slide, a light puff from the
+      // locked-up front tyres under hard braking.
+      if (!c.offTrack && (c.drifting || c.slide > 120 || spinning)) {
         for (const [x, y] of [
           [wx1, wy1],
           [wx2, wy2],
@@ -614,29 +659,95 @@ export class Race {
             y: y + rand(-3, 3),
             vx: c.vx * 0.25 + rand(-30, 30),
             vy: c.vy * 0.25 + rand(-30, 30),
-            life: rand(0.5, 0.95),
-            size: rand(5, 8),
-            grow: 28,
+            life: rand(0.6, 1.1),
+            size: rand(6, 9),
+            grow: 32,
             drag: 2.4,
-            rgb: [228, 228, 232],
-            alpha: 0.32,
+            rgb: [230, 230, 234],
+            alpha: c.drifting ? 0.42 : 0.32,
+          });
+        }
+      } else if (!c.offTrack && hardBrake) {
+        for (const side of [-1, 1]) {
+          if (Math.random() < 0.2) continue;
+          this.particles.spawn({
+            kind: 'smoke',
+            x: c.x + fx * 11 + rx * 9 * side + rand(-2, 2),
+            y: c.y + fy * 11 + ry * 9 * side + rand(-2, 2),
+            vx: c.vx * 0.3 + rand(-20, 20),
+            vy: c.vy * 0.3 + rand(-20, 20),
+            life: rand(0.45, 0.75),
+            size: rand(4, 6.5),
+            grow: 26,
+            drag: 2.6,
+            rgb: [238, 238, 242],
+            alpha: 0.38,
           });
         }
       }
+      // Off the road: a spray of dust and bits of grass, sand or grit.
       if (c.offTrack && sp > 90) {
-        this.particles.spawn({
-          kind: 'dust',
-          x: c.x - fx * 18 + rand(-6, 6),
-          y: c.y - fy * 18 + rand(-6, 6),
-          vx: c.vx * 0.2 + rand(-40, 40),
-          vy: c.vy * 0.2 + rand(-40, 40),
-          life: rand(0.5, 0.8),
-          size: rand(6, 9),
-          grow: 34,
-          drag: 2,
-          rgb: this.track.theme.dust,
-          alpha: 0.45,
-        });
+        const th = this.track.theme;
+        const kick = Math.min(1, sp / 400);
+        for (const [x, y] of [
+          [wx1, wy1],
+          [wx2, wy2],
+        ]) {
+          this.particles.spawn({
+            kind: 'dust',
+            x: x + rand(-4, 4),
+            y: y + rand(-4, 4),
+            vx: c.vx * 0.3 + rx * rand(-90, 90) * kick,
+            vy: c.vy * 0.3 + ry * rand(-90, 90) * kick,
+            life: rand(0.6, 1.0),
+            size: rand(7, 11),
+            grow: 40,
+            drag: 2,
+            rgb: th.dust.map((v) => Math.min(255, v + 45)), // a shade lighter than the ground, so it shows
+            alpha: 0.55,
+          });
+          for (let k = 0; k < 2; k++) {
+            const grass = th.runoffKind === 'grass' && Math.random() < 0.6;
+            this.particles.spawn({
+              kind: 'bit',
+              x,
+              y,
+              vx: c.vx * 0.45 + rx * rand(-160, 160) * kick - fx * rand(20, 90),
+              vy: c.vy * 0.45 + ry * rand(-160, 160) * kick - fy * rand(20, 90),
+              life: rand(0.25, 0.5),
+              size: rand(2, 3.5),
+              drag: 3,
+              color: grass ? (Math.random() < 0.5 ? th.runoff : th.runoff2) : `rgb(${th.dust.map((v) => Math.round(v * rand(0.6, 0.95))).join(',')})`,
+            });
+          }
+        }
+      }
+      // Air streaming past you in a tow or a drift.
+      if (c === this.player && sp > 260 && (c.slipstream > 0.25 || c.drifting)) {
+        const amount = c.drifting ? 0.8 : c.slipstream;
+        const vl = Math.hypot(c.vx, c.vy) || 1;
+        const dx = -c.vx / vl;
+        const dy = -c.vy / vl;
+        for (let k = 0; k < 2; k++) {
+          if (Math.random() > amount) continue;
+          const side = Math.random() < 0.5 ? -1 : 1;
+          const lat = side * rand(18, 40);
+          const ahead = rand(-10, 60);
+          this.particles.spawn({
+            kind: 'wind',
+            x: c.x + fx * ahead + rx * lat,
+            y: c.y + fy * ahead + ry * lat,
+            vx: c.vx * 0.35,
+            vy: c.vy * 0.35,
+            dx,
+            dy,
+            len: 26 + sp * 0.05,
+            life: rand(0.2, 0.32),
+            size: 1.6,
+            drag: 0,
+            alpha: c.drifting ? 0.45 : 0.6,
+          });
+        }
       }
       if (c.drifting && c.driftTier > 0) {
         const col = TIER_COLORS[c.driftTier];
@@ -730,9 +841,10 @@ export class Race {
         if (mine) this.shake += e.power / (e.t === 'wall' ? 55 : 75);
       } else if (e.t === 'boost' && e.car === this.player) {
         this.out.push({ t: 'boost', tier: e.tier });
-        if (e.why === 'drift') this.msg(['', 'BOOST', 'SUPER BOOST', 'ULTRA BOOST'][e.tier], TIER_COLORS[e.tier], 0.9, 0.95);
       } else if (e.t === 'driftTier' && e.car === this.player) {
         this.out.push({ t: 'tier', tier: e.tier });
+      } else if (e.t === 'driftEnd' && e.car === this.player && e.clean && e.tier > 0) {
+        this.msg(['', 'NICE DRIFT', 'GREAT DRIFT', 'MEGA DRIFT'][e.tier], TIER_COLORS[e.tier], 0.8, 0.8);
       }
     }
     this.events.length = 0;

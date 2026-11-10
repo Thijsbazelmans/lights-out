@@ -7,6 +7,7 @@ import { POINTS } from './season.js';
 
 const F_DISPLAY = '"Saira Condensed", "Arial Narrow", system-ui, sans-serif';
 const F_DATA = '"JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace';
+const SLIP_COL = '#7fd8ff';
 const F_UI = '"Titillium Web", system-ui, -apple-system, sans-serif';
 
 const C = {
@@ -139,8 +140,13 @@ export function drawHUD(ctx, race, cam, w, h, ins, opts) {
   const below = gauges && shortLandscape ? 18 : 0; // steering bar goes under the panel when sideways
   if (gauges) drawInputs(ctx, p, sx, sy, sw, sh, shortLandscape ? sy + sh + 6 : sy - 18);
 
-  if (p.slipstream > 0.35) {
-    text(ctx, 'SLIPSTREAM', cx, shortLandscape ? sy + sh + below + 14 : sy - (gauges ? 26 : 8), `800 12px ${F_DISPLAY}`, '#7fd8ff', 'center');
+  drawCarTags(ctx, race, cam, w, h);
+
+  // ---- corner call: under the timer (under the speed panel when sideways) ----
+  if (race.call) {
+    const callY = shortLandscape ? sy + sh + 8 + below : T + 62;
+    const room = Math.min(cx - (L + pw) - 8, mx - 6 - cx - 8) * 2;
+    drawCall(ctx, race.call, cx, callY, Math.min(narrow ? 172 : 214, room), race.time);
   }
 
   // ---- "YOU" marker before the start ----
@@ -164,7 +170,7 @@ export function drawHUD(ctx, race, cam, w, h, ins, opts) {
   }
 
   // ---- what we're racing: title card before the start ----
-  if (ev && (race.phase === 'intro' || race.phase === 'lights' || (race.phase === 'race' && race.time < 2))) {
+  if (ev && (race.phase === 'intro' || race.phase === 'lights' || (race.phase === 'race' && race.time < 2 && !race.call))) {
     const fade = race.phase === 'race' ? clamp(1 - race.time / 2, 0, 1) : clamp(race.phaseT / 0.4 + (race.phase === 'lights' ? 1 : 0), 0, 1);
     const lightsH = isRace ? (narrow ? 58 : 78) + 10 : 0;
     const cw = Math.min(w - 32, 440);
@@ -218,7 +224,7 @@ function drawInputs(ctx, p, sx, sy, sw, sh, gy) {
   bar(sx + sw + 4, p.gas, C.green);
 }
 
-// Gear, speed and the drift-charge / boost bar.
+// Gear, speed and the drift / boost / slipstream bar.
 function drawSpeedPanel(ctx, p, sx, sy, sw, sh) {
   const sp = Math.max(0, p.forwardSpeed);
   const kmh = Math.round(sp * 0.447);
@@ -237,26 +243,10 @@ function drawSpeedPanel(ctx, p, sx, sy, sw, sh) {
   ctx.fillStyle = 'rgba(255,255,255,0.08)';
   roundRect(ctx, bx, by, bw, 5, 2.5);
   ctx.fill();
-  let fill = 0;
-  let col = '#fff';
-  if (p.drifting) {
-    fill = clamp(p.driftCharge / 2.2, 0, 1);
-    col = TIER_COLORS[Math.max(1, p.driftTier)];
-    if (p.driftTier === 0) col = 'rgba(255,255,255,0.6)';
-  } else if (p.boost > 0) {
-    fill = clamp(p.boost / 1.5, 0, 1);
-    col = TIER_COLORS[p.boostLevel] || TIER_COLORS[2];
-  }
-  if (fill > 0) {
-    ctx.fillStyle = col;
-    roundRect(ctx, bx, by, Math.max(5, bw * fill), 5, 2.5);
-    ctx.fill();
-  }
-  ctx.fillStyle = 'rgba(11,14,20,0.9)';
-  for (const tick of [0.6, 1.3]) ctx.fillRect(bx + bw * (tick / 2.2) - 1, by, 2, 5);
+  drawMeter(ctx, p, bx, by, bw);
 }
 
-// Speed as a compact tile: gear, km/h and the drift-charge / boost bar.
+// Speed as a compact tile: gear, km/h and the drift / boost / slipstream bar.
 function drawSpeedTile(ctx, p, x, y, w, h) {
   const sp = Math.max(0, p.forwardSpeed);
   const kmh = Math.round(sp * 0.447);
@@ -274,29 +264,172 @@ function drawSpeedTile(ctx, p, x, y, w, h) {
   ctx.fillStyle = 'rgba(255,255,255,0.08)';
   roundRect(ctx, bx, by, bw, 5, 2.5);
   ctx.fill();
-  let fill = 0;
-  let col = '#fff';
-  if (p.drifting) {
-    fill = clamp(p.driftCharge / 2.2, 0, 1);
-    col = p.driftTier === 0 ? 'rgba(255,255,255,0.6)' : TIER_COLORS[p.driftTier];
-  } else if (p.boost > 0) {
-    fill = clamp(p.boost / 1.5, 0, 1);
-    col = TIER_COLORS[p.boostLevel] || TIER_COLORS[2];
+  drawMeter(ctx, p, bx, by, bw);
+}
+
+// The call for the corner ahead: an arrow (a hook for a corner, a U for a
+// hairpin, a zig-zag for a chicane), its name, and a bar running down to
+// where you need to slow down; then a flashing BRAKE! there.
+const CALL_LOOK = {
+  lift: { col: '#ffd23f', name: (d) => d },
+  hard: { col: '#ff8a2f', name: (d) => `HARD ${d}` },
+  hairpin: { col: '#ff5a3c', name: (d) => `HAIRPIN ${d}` },
+  chicane: { col: '#ff5a3c', name: () => 'CHICANE' },
+};
+
+function drawCall(ctx, note, cx, y, pw, time) {
+  const c = note.c;
+  const look = CALL_LOOK[c.kind] || CALL_LOOK.hard;
+  const dir = c.dir > 0 ? 'RIGHT' : 'LEFT';
+  const ph = 42;
+  const x = cx - pw / 2;
+  ctx.save();
+  ctx.globalAlpha = clamp(note.fade, 0, 1) * clamp(note.t / 0.12, 0, 1);
+  if (note.stage === 'brake' || (note.stage === 'done' && note.tt < 0.3 && c.brake)) {
+    const on = Math.floor(time * 10) % 2 === 0;
+    ctx.fillStyle = on ? '#e8261c' : '#9d1a13';
+    roundRect(ctx, x, y, pw, ph, 10);
+    ctx.fill();
+    drawBanner(ctx, 'BRAKE!', '#fff', cx, y + ph / 2 + 1, 28);
+    ctx.restore();
+    return;
   }
-  if (fill > 0) {
-    ctx.fillStyle = col;
-    roundRect(ctx, bx, by, Math.max(5, bw * fill), 5, 2.5);
+  panel(ctx, x, y, pw, ph, 10);
+  const urgency = 1 - clamp(note.tt / note.warnAt, 0, 1);
+  const col = look.col;
+  ctx.strokeStyle = col;
+  ctx.lineWidth = 2;
+  roundRect(ctx, x + 1, y + 1, pw - 2, ph - 2, 9);
+  ctx.stroke();
+  ctx.save();
+  ctx.translate(x + 22, y + 19);
+  if (c.dir < 0) ctx.scale(-1, 1);
+  ctx.strokeStyle = col;
+  ctx.fillStyle = col;
+  ctx.lineWidth = 3;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  ctx.beginPath();
+  if (c.kind === 'hairpin') {
+    ctx.moveTo(-5, 10);
+    ctx.lineTo(-5, -2);
+    ctx.arc(1, -2, 6, Math.PI, 0);
+    ctx.lineTo(7, 3);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(2, 2);
+    ctx.lineTo(7, 9);
+    ctx.lineTo(12, 2);
+    ctx.closePath();
+  } else if (c.kind === 'chicane') {
+    ctx.moveTo(-6, 11);
+    ctx.lineTo(-6, 4);
+    ctx.lineTo(4, -2);
+    ctx.lineTo(4, -6);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(-1, -5);
+    ctx.lineTo(4, -12);
+    ctx.lineTo(9, -5);
+    ctx.closePath();
+  } else {
+    ctx.moveTo(-6, 10);
+    ctx.lineTo(-6, 0);
+    ctx.quadraticCurveTo(-6, -6, 0, -6);
+    ctx.lineTo(3, -6);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(3, -11);
+    ctx.lineTo(10, -6);
+    ctx.lineTo(3, -1);
+    ctx.closePath();
+  }
+  ctx.fill();
+  ctx.restore();
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(x + 38, y, pw - 44, ph);
+  ctx.clip();
+  const big = pw > 190 ? 21 : 18;
+  text(ctx, look.name(dir), x + 40, y + 24, `900 italic ${big}px ${F_DISPLAY}`, C.text);
+  ctx.restore();
+  // Countdown to where you need to slow down.
+  const bx = x + 40;
+  const bw = pw - 50;
+  ctx.fillStyle = 'rgba(255,255,255,0.1)';
+  roundRect(ctx, bx, y + 31, bw, 4, 2);
+  ctx.fill();
+  ctx.fillStyle = col;
+  roundRect(ctx, bx, y + 31, Math.max(4, bw * (1 - urgency)), 4, 2);
+  ctx.fill();
+  ctx.restore();
+}
+
+// What the bar under the speed shows: how long you've been drifting (its
+// colour steps up white, blue, orange, purple), the launch boost, or how
+// strong your slipstream is.
+function meterOf(p) {
+  if (p.drifting) return { fill: clamp(p.driftCharge / 2.2, 0, 1), col: p.driftTier === 0 ? '#ffffff' : TIER_COLORS[p.driftTier], ticks: true };
+  if (p.boost > 0) return { fill: clamp(p.boost / 1.5, 0, 1), col: TIER_COLORS[p.boostLevel] || TIER_COLORS[2] };
+  if (p.slipstream > 0.12) return { fill: clamp(p.slipstream, 0, 1), col: SLIP_COL };
+  return null;
+}
+
+function drawMeter(ctx, p, bx, by, bw) {
+  const m = meterOf(p);
+  if (m && m.fill > 0) {
+    ctx.fillStyle = m.col;
+    roundRect(ctx, bx, by, Math.max(5, bw * m.fill), 5, 2.5);
     ctx.fill();
   }
-  ctx.fillStyle = 'rgba(11,14,20,0.9)';
-  for (const tick of [0.6, 1.3]) ctx.fillRect(bx + bw * (tick / 2.2) - 1, by, 2, 5);
+  if (!m || m.ticks) {
+    ctx.fillStyle = 'rgba(11,14,20,0.9)';
+    for (const tick of [0.6, 1.3]) ctx.fillRect(bx + bw * (tick / 2.2) - 1, by, 2, 5);
+  }
+}
+
+// DRIFTING! and SLIPSTREAM! tags just behind your car, where your eyes are,
+// each with a bar: how long you've held the drift, how strong the tow is.
+function drawCarTags(ctx, race, cam, w, h) {
+  const p = race.player;
+  if (!p || race.phase !== 'race' || p.finished) return;
+  const tags = [];
+  if (p.drifting) {
+    tags.push({ label: 'DRIFTING!', col: p.driftTier === 0 ? '#ffffff' : TIER_COLORS[p.driftTier], fill: clamp(p.driftCharge / 2.2, 0, 1), a: 1 });
+  }
+  const sa = clamp((p.slipstream - 0.25) / 0.12, 0, 1);
+  if (sa > 0) tags.push({ label: 'SLIPSTREAM!', col: SLIP_COL, fill: clamp(p.slipstream, 0, 1), a: sa });
+  if (!tags.length) return;
+  const [px, py] = cam.toScreen(p.x, p.y);
+  let y = clamp(py + 40, 60, h - 70);
+  const pulse = 1 + 0.04 * Math.sin(race.time * 14);
+  for (const t of tags) {
+    ctx.save();
+    ctx.globalAlpha = t.a;
+    ctx.font = `900 italic ${15 * pulse}px ${F_DISPLAY}`;
+    const tw = ctx.measureText(t.label).width + 26;
+    const x = clamp(px - tw / 2, 8, w - tw - 8);
+    ctx.fillStyle = 'rgba(11,14,20,0.78)';
+    roundRect(ctx, x, y, tw, 28, 9);
+    ctx.fill();
+    ctx.strokeStyle = t.col;
+    ctx.lineWidth = 2;
+    roundRect(ctx, x + 1, y + 1, tw - 2, 26, 8);
+    ctx.stroke();
+    text(ctx, t.label, x + tw / 2, y + 18, `900 italic ${15 * pulse}px ${F_DISPLAY}`, t.col, 'center');
+    ctx.fillStyle = t.col;
+    roundRect(ctx, x + 6, y + 22, Math.max(3, (tw - 12) * t.fill), 3, 1.5);
+    ctx.fill();
+    ctx.restore();
+    y += 34;
+  }
 }
 
 // Phone held sideways. The column above the steering controls holds
 // position, lap times, gaps and messages; the speed sits right next to the
 // gas, and the map in the corner above the pedals, next to the pause
-// button. Only the start lights and the title card before the start use
-// the middle.
+// button. Only the start lights, the title card before the start and the
+// corner calls use the middle.
 function drawSideHUD(ctx, race, cam, w, h, ins, opts) {
   const p = race.player;
   const T = ins.top + 10;
@@ -343,7 +476,7 @@ function drawSideHUD(ctx, race, cam, w, h, ins, opts) {
   const tileX = pedalRight ? pr.left - 10 - tileW : pr.right + 10;
   const tileY = clamp(g.top + (Math.min(g.height, tileH * 1.4) - tileH) / 2, T + 130, h - tileH - 8);
   drawSpeedTile(ctx, p, tileX, tileY, tileW, tileH);
-  if (p.slipstream > 0.35) text(ctx, 'SLIPSTREAM', tileX + tileW / 2, tileY - 7, `800 12px ${F_DISPLAY}`, '#7fd8ff', 'center');
+  drawCarTags(ctx, race, cam, w, h);
 
   // ---- map, in the corner above the pedal, beside the pause button ----
   const ms = 92;
@@ -361,7 +494,7 @@ function drawSideHUD(ctx, race, cam, w, h, ins, opts) {
     ctx.restore();
   }
 
-  // ---- the middle: lights and the title card before the start ----
+  // ---- the middle: lights and the title card before the start, corner calls ----
   const gapL = steerLeft ? colX + colW + 10 : mx + ms + 16;
   const gapR = steerLeft ? mx - 16 : colX - 10;
   const mid = clamp(cx, gapL + 60, gapR - 60);
@@ -371,6 +504,7 @@ function drawSideHUD(ctx, race, cam, w, h, ins, opts) {
     const cw = Math.min(gapR - gapL, 440);
     drawEventCard(ctx, ev, (gapL + gapR) / 2, T + (isRace ? 68 : 0), cw, fade, true);
   }
+  if (race.call && !before) drawCall(ctx, race.call, mid, T, Math.min(214, gapR - gapL), race.time);
   if (before && isRace) {
     const [px, py] = cam.toScreen(p.x, p.y);
     const yy = py - 46;
@@ -580,17 +714,21 @@ function drawLapList(ctx, race, x, y, w, p) {
   return laps.length ? laps.length * 18 + 8 : 0;
 }
 
+// Lines streaking past the edges of the screen: with a boost, in a tow
+// (light blue) and in a drift (stronger as the drift goes on).
 function drawSpeedLines(ctx, p, w, h) {
-  const k = p.boost > 0 ? 1 : p.slipstream > 0.4 ? (p.slipstream - 0.4) * 1.2 : 0;
+  const slip = p.slipstream > 0.25 ? (p.slipstream - 0.25) / 0.75 : 0;
+  const drift = p.drifting ? 0.45 + 0.15 * p.driftTier : 0;
+  const k = p.boost > 0 ? 1 : Math.max(slip, drift);
   if (k <= 0) return;
   ctx.save();
-  ctx.strokeStyle = `rgba(255,255,255,${0.16 * k})`;
+  ctx.strokeStyle = slip > drift && p.boost <= 0 ? `rgba(160,225,255,${0.22 * k})` : `rgba(255,255,255,${0.18 * k})`;
   ctx.lineWidth = 2;
   const cx = w / 2;
   const cy = h / 2;
   const R = Math.hypot(w, h) / 2;
   ctx.beginPath();
-  for (let i = 0; i < 22; i++) {
+  for (let i = 0; i < 18 + Math.round(10 * k); i++) {
     const a = Math.random() * Math.PI * 2;
     const r0 = R * (0.55 + Math.random() * 0.25);
     const r1 = r0 + R * (0.12 + Math.random() * 0.2);

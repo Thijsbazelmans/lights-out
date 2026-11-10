@@ -38,6 +38,12 @@ export const CHICANE = {
 // `gap` seconds apart at the speed you arrive with; "1" is where to brake.
 export const HINTS = { brake: 0.7, minDrop: 0.2, gap: 0.2 };
 
+// Corner calls ("HARD LEFT", "CHICANE"...): every corner that costs at least
+// `lift` × top speed gets one; a stop of HINTS.minDrop or more is a braking
+// corner, and a braking corner that turns `hairpin` degrees or more and is
+// taken below `slow` × top speed is a hairpin.
+export const CALLS = { lift: 0.06, hairpin: 135, slow: 0.5 };
+
 function catmull(p0, p1, p2, p3, t) {
   // Centripetal Catmull-Rom: no loops or cusps when points are unevenly spaced.
   const d01 = Math.max(1e-4, Math.sqrt(Math.hypot(p1.x - p0.x, p1.y - p0.y)));
@@ -646,6 +652,7 @@ export class Track {
         }
       }
     }
+    this.findCalls(zones, v);
     this.brakeZones = [];
     for (const z of zones) {
       const vIn = v[z.qs];
@@ -667,12 +674,54 @@ export class Track {
         dir: Math.sign(kk) || 1,
       });
     }
-    // Which zone's corner each sample is at (a few samples wide so a car
-    // can't skip over it), for corner-exit boosts.
-    this.apexAt = new Int16Array(n).fill(-1);
-    this.brakeZones.forEach((zz, k2) => {
-      for (let s = 0; s < 4; s++) this.apexAt[(zz.end + s) % n] = k2;
-    });
+  }
+
+  // One call per corner you need to lift or brake for, from the same speeds
+  // as the boards: where to start slowing (`start`), the slowest point
+  // (`at`), which way it turns and what kind of corner it is.
+  findCalls(zones, v) {
+    const { idx: H, m, k } = this.band;
+    const n = this.n;
+    const TOP = PHYS.TOP;
+    const chicanes = (this.def.chicanes || []).map((c) => Math.round(c.at * n));
+    const near = (i, j, w) => Math.min(Math.abs(i - j), n - Math.abs(i - j)) <= w;
+    const calls = [];
+    for (const z of zones) {
+      const vIn = v[z.qs];
+      const vOut = v[z.qe];
+      if (vIn - vOut < CALLS.lift * TOP) continue;
+      let kk = 0;
+      for (let s = -4; s < 12; s++) {
+        const c = k[(z.qe + s + m) % m];
+        if (Math.abs(c) > Math.abs(kk)) kk = c;
+      }
+      const dir = Math.sign(kk) || 1;
+      const at = H[z.qe];
+      // How far the corner turns: the centre line's bend around its slowest point.
+      let ang = 0;
+      for (const step of [-1, 1]) {
+        for (let s = step > 0 ? 0 : -1, gap = 0; Math.abs(s) < 90 && gap < 6; s += step) {
+          const c = this.curv[(at + s + n) % n];
+          if (Math.sign(c) === dir && Math.abs(c) > 1 / 1400) {
+            ang += Math.abs(c) * this.ds;
+            gap = 0;
+          } else gap++;
+        }
+      }
+      const deg = (ang * 180) / Math.PI;
+      const chicane = chicanes.find((c) => near(at, c, 45));
+      const big = vIn - vOut >= HINTS.minDrop * TOP;
+      const kind = chicane != null ? 'chicane' : !big ? 'lift' : deg >= CALLS.hairpin && vOut < CALLS.slow * TOP ? 'hairpin' : 'hard';
+      const last = calls[calls.length - 1];
+      // Both turns of a chicane are one call.
+      if (kind === 'chicane' && last && last.kind === 'chicane' && last.chicane === chicane) {
+        last.at = at;
+        last.vOut = Math.min(last.vOut, vOut);
+        continue;
+      }
+      calls.push({ start: H[z.qs], at, dir, kind, vIn, vOut, brake: big, chicane });
+    }
+    this.calls = calls;
   }
 
   buildGrid() {

@@ -1,4 +1,5 @@
-// Smoke, dust, sparks and boost flames, plus skid marks that stay on the track.
+// Smoke, dust, flying bits of grass and gravel, wind streaks, sparks and
+// boost flames, plus skid marks that stay on the track.
 
 export class Particles {
   constructor(max = 900) {
@@ -45,6 +46,28 @@ export class Particles {
       ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
       ctx.fill();
     }
+    // Bits kicked up off the road, and air streaming past a car.
+    ctx.save();
+    ctx.lineCap = 'round';
+    for (const p of this.list) {
+      if (p.kind !== 'bit' && p.kind !== 'wind') continue;
+      if (!inView(p)) continue;
+      const f = p.life / p.max;
+      if (p.kind === 'bit') {
+        ctx.fillStyle = p.color;
+        ctx.globalAlpha = Math.min(1, f * 2);
+        ctx.fillRect(p.x - p.size / 2, p.y - p.size / 2, p.size, p.size);
+      } else {
+        ctx.strokeStyle = '#ffffff';
+        ctx.globalAlpha = (p.alpha ?? 0.5) * Math.sin(Math.PI * f);
+        ctx.lineWidth = p.size;
+        ctx.beginPath();
+        ctx.moveTo(p.x, p.y);
+        ctx.lineTo(p.x + p.dx * p.len, p.y + p.dy * p.len);
+        ctx.stroke();
+      }
+    }
+    ctx.restore();
     ctx.save();
     ctx.globalCompositeOperation = 'lighter';
     ctx.lineCap = 'round';

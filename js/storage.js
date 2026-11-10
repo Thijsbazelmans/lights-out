@@ -13,7 +13,7 @@ function defaults() {
       laps: 3,
       autoGas: false,
       steerSide: 'left', // phone: ‹ › under the 'left' or 'right' thumb, GAS and BRAKE under the other
-      brakeHints: true, // 3-2-1 boards before the big stops
+      brakeHints: true, // corner calls and 3-2-1 boards before the big stops
       team: null, // id of the team you race for; null until picked
       seat: 1, // which of the team's two drivers you replace (0 or 1)
     },

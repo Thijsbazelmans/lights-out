@@ -3,8 +3,9 @@
 // World units are pixels: the car is 44 long, 1 px/s is shown as ~0.45 km/h.
 // Handling model: the engine pushes along the car's heading, steering turns the
 // heading (less at high speed), and "grip" bleeds off sideways velocity.
-// While turning at speed, press and hold brake to drift; release brake to cash
-// the drift in as a boost.
+// While turning at speed, press and hold brake to drift: the car slides round
+// at speed on a tighter line; let go of brake to grip again. A great start
+// off the line gives a short boost.
 
 import { approach, clamp, damp, roundRect, wrapAngle } from './util.js';
 
@@ -25,7 +26,8 @@ export const PHYS = {
   LIFT: 0.32, // off the gas and off the brake: extra drag × speed, so a lift scrubs speed
   BOOST_TOP: 1.3,
   BOOST_ACC: 1.9,
-  SLIP_TOP: 0.1,
+  SLIP_TOP: 0.18, // full slipstream: this much more top speed...
+  SLIP_ACC: 0.6, // ...and this much more pull
   LEN: 44,
   R: 10, // each car is two collision circles of this radius
 };
@@ -159,6 +161,7 @@ export class Car {
       acc *= P.BOOST_ACC;
     }
     top *= 1 + P.SLIP_TOP * this.slipstream;
+    acc *= 1 + P.SLIP_ACC * this.slipstream;
     if (this.launchPenalty > 0) acc *= 0.35;
 
     // Drift: while turning at speed, press brake. Hold it to keep sliding;
@@ -296,7 +299,7 @@ export class Car {
     this.driftOffT = off ? (this.driftOffT || 0) + dt : 0;
     const released = this.brake < 0.5;
     if (released || sp < 170 || this.driftOffT > 0.3) {
-      if (released && this.driftTier > 0 && !off) this.startBoost(this.driftTier, events, 'drift');
+      events.push({ t: 'driftEnd', car: this, tier: this.driftTier, clean: released && !off });
       // Drift lost while the brake is still held: ignore the brake until it's
       // released, so the car coasts instead of slamming to a stop.
       if (!released) this.brakeLock = true;
