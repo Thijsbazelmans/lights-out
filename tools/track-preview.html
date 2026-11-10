@@ -14,26 +14,60 @@
 </style>
 </head>
 <body>
-<p>Developer tool: every circuit with its racing line coloured by AI target speed (red = slow, green = flat out), braking zones in thick red and the 3-2-1 boards. The red dot is the start line.</p>
+<p>Developer tool: every circuit with its racing line coloured by the speed the car can carry (red = slow, green = flat out), the braking zones that get 3-2-1 boards (white, "1" is where to brake), and each corner numbered with its slowest speed as a share of top speed. The red dot is the start line; the arrow shows the way round. <code>?ids=monza,spa</code> shows only those.</p>
 <div class="grid" id="grid"></div>
 <script type="module">
 import { Track } from '../js/track.js';
-import { ALL_REAL, TRACKS } from '../js/data/tracks.js';
+import { ALL_REAL } from '../js/data/tracks.js';
 import { PHYS } from '../js/car.js';
+
+// Corners on the centre line: stretches turning the same way.
+function corners(t) {
+  const n = t.n, c = t.curv, on = new Int8Array(n);
+  for (let i = 0; i < n; i++) on[i] = Math.abs(c[i]) > 1 / 1400 ? Math.sign(c[i]) : 0;
+  let s0 = 0;
+  while (on[s0] !== 0 && s0 < n) s0++;
+  const segs = [];
+  let cur = null;
+  for (let q = 0; q < n; q++) {
+    const i = (s0 + q) % n;
+    if (!on[i]) continue;
+    if (cur && cur.dir === on[i] && q - cur.last <= 10) { cur.end = q; cur.last = q; }
+    else { cur = { dir: on[i], start: q, end: q, last: q }; segs.push(cur); }
+  }
+  const out = [];
+  for (const g of segs) {
+    let ang = 0, v = Infinity, apex = 0, kmax = 0;
+    for (let q = g.start; q <= g.end; q++) {
+      const i = (s0 + q) % n;
+      ang += c[i] * t.ds;
+      if (Math.abs(c[i]) > kmax) { kmax = Math.abs(c[i]); apex = i; }
+    }
+    if (Math.abs(ang) < (14 * Math.PI) / 180) continue;
+    for (let q = g.start - 4; q <= g.end + 4; q++) v = Math.min(v, t.vCorner[((s0 + q) % n + n) % n]);
+    out.push({ apex, dir: g.dir, deg: Math.round((Math.abs(ang) * 180) / Math.PI), v: v / PHYS.TOP, at: ((s0 + g.start) % n) / n });
+  }
+  return out.sort((a, b) => a.at - b.at);
+}
 
 const grid = document.getElementById('grid');
 const want = new URLSearchParams(location.search).get('ids');
-const defs = want ? ALL_REAL.filter((d) => want.split(',').includes(d.id)) : [...ALL_REAL, ...TRACKS.filter((t) => !t.real)];
+const defs = want ? ALL_REAL.filter((d) => want.split(',').includes(d.id)) : ALL_REAL;
 for (const def of defs) {
   const t = new Track(def);
+  const cs = corners(t);
   const fig = document.createElement('figure');
   const c = document.createElement('canvas');
   c.width = 1040; c.height = 760;
   fig.appendChild(c);
   const cap = document.createElement('figcaption');
-  let lap = 0, vmin = 1e9;
-  for (let i = 0; i < t.n; i++) { lap += t.ds / Math.max(60, t.vProfile[i]); vmin = Math.min(vmin, t.vProfile[i]); }
-  cap.textContent = `${def.name}  length ${(t.length / 1000).toFixed(1)}k px  corners ${t.corners}  slowest ${vmin.toFixed(0)} px/s  ideal lap ≈ ${lap.toFixed(1)} s`;
+  let lap = 0;
+  for (let q = 0; q < t.band.m; q++) {
+    const j = (q + 1) % t.band.m;
+    lap += Math.hypot(t.band.x[j] - t.band.x[q], t.band.y[j] - t.band.y[q]) / Math.max(60, t.band.v[q]);
+  }
+  cap.textContent = `${def.name}  length ${(t.length / 1000).toFixed(1)}k px  half ${t.half}  stops with boards ${t.brakeZones.length}  ideal lap ≈ ${lap.toFixed(1)} s\n` +
+    cs.map((k, i) => `${i}:${k.dir > 0 ? 'R' : 'L'}${k.deg}° ${Math.round(k.v * 100)}%`).join('  ');
   fig.appendChild(cap);
   grid.appendChild(fig);
   const ctx = c.getContext('2d');
@@ -45,32 +79,49 @@ for (const def of defs) {
   ctx.lineJoin = 'round';
   ctx.strokeStyle = '#26402a'; ctx.lineWidth = t.wallDist * 2; ctx.stroke(g.full);
   ctx.strokeStyle = '#3a3d45'; ctx.lineWidth = t.half * 2; ctx.stroke(g.full);
-  for (let i = 0; i < t.n; i++) {
-    const j = (i + 1) % t.n;
-    const f = Math.min(1, t.vProfile[i] / PHYS.TOP);
-    ctx.strokeStyle = `hsl(${f * 120}, 85%, 52%)`;
-    ctx.lineWidth = 10;
-    ctx.beginPath(); ctx.moveTo(t.rx[i], t.ry[i]); ctx.lineTo(t.rx[j], t.ry[j]); ctx.stroke();
-  }
-  // Braking zones (thick red under the line) and 3-2-1 boards.
-  ctx.strokeStyle = 'rgba(255,52,40,0.9)';
-  ctx.lineWidth = 34;
+  // Braking zones under the line.
+  ctx.strokeStyle = 'rgba(255,255,255,0.35)';
+  ctx.lineWidth = 40;
   ctx.lineCap = 'round';
   for (const z of t.brakeZones) {
     ctx.beginPath();
-    for (let i = z.start; i <= z.start + z.len; i++) { const k = i % t.n; if (i === z.start) ctx.moveTo(t.rx[k], t.ry[k]); else ctx.lineTo(t.rx[k], t.ry[k]); }
+    for (let i = z.start, first = true; ; i = (i + 1) % t.n) {
+      if (first) ctx.moveTo(t.rx[i], t.ry[i]); else ctx.lineTo(t.rx[i], t.ry[i]);
+      first = false;
+      if (i === z.end) break;
+    }
     ctx.stroke();
   }
   ctx.lineCap = 'butt';
-  for (const b of g.boards) {
-    ctx.fillStyle = '#fff'; ctx.fillRect(b.x - 22, b.y - 22, 44, 44);
-    ctx.fillStyle = '#000'; ctx.font = `bold 40px sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(String(b.num), b.x, b.y + 2);
+  // The band, coloured by speed.
+  const B = t.band;
+  for (let q = 0; q < B.m; q++) {
+    const j = (q + 1) % B.m;
+    const f = Math.min(1, B.v[q] / PHYS.TOP);
+    ctx.strokeStyle = `hsl(${f * f * 120}, 90%, 52%)`;
+    ctx.lineWidth = 12;
+    ctx.beginPath(); ctx.moveTo(B.x[q], B.y[q]); ctx.lineTo(B.x[j], B.y[j]); ctx.stroke();
+  }
+  for (const bd of g.boards) {
+    ctx.fillStyle = bd.num === 1 ? '#ff3a2a' : '#fff';
+    ctx.fillRect(bd.x - 14, bd.y - 14, 28, 28);
   }
   ctx.fillStyle = '#ff2a1f';
   ctx.beginPath(); ctx.arc(t.px[0], t.py[0], 40, 0, Math.PI * 2); ctx.fill();
-  ctx.fillStyle = '#fff';
-  ctx.font = `${14 / s}px ui-monospace, monospace`;
-  if (def.points.length < 60) def.points.forEach(([x, y], k) => ctx.fillText(String(k), x * def.scale + 30, y * def.scale - 30));
+  // direction arrow
+  const k = 30, ax = t.px[k], ay = t.py[k], an = Math.atan2(t.ty[k], t.tx[k]);
+  ctx.save(); ctx.translate(ax, ay); ctx.rotate(an);
+  ctx.fillStyle = '#ffd23f'; ctx.beginPath(); ctx.moveTo(90, 0); ctx.lineTo(0, -45); ctx.lineTo(0, 45); ctx.closePath(); ctx.fill();
+  ctx.restore();
+  // corner numbers on the outside
+  ctx.font = `bold ${15 / s}px ui-monospace, monospace`;
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  cs.forEach((k2, i) => {
+    const a = k2.apex, side = -k2.dir, off = t.half + 150;
+    const x = t.px[a] + t.nx[a] * side * off, y = t.py[a] + t.ny[a] * side * off;
+    ctx.fillStyle = `hsl(${k2.v * k2.v * 120}, 90%, 62%)`;
+    ctx.fillText(`${i}`, x, y);
+  });
 }
 </script>
 </body>

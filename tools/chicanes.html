@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Chicanes</title>
+<style>
+  :root { --bg: #0d1016; --fg: #eef2f8; --muted: #8d97ab; color-scheme: dark; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 14px system-ui, sans-serif; padding: 16px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)); gap: 12px; }
+  figure { margin: 0; background: #151a23; border-radius: 12px; padding: 8px; }
+  figcaption { color: var(--muted); font: 12px ui-monospace, monospace; margin-top: 4px; }
+  canvas { width: 100%; height: auto; display: block; border-radius: 8px; }
+</style>
+</head>
+<body>
+<p>Developer tool: a close-up of every chicane listed in <code>js/data/tracks.js</code>, as drawn in the game, with the racing line in yellow, driving upward. <code>?ids=monza</code> shows only those circuits.</p>
+<div class="grid" id="grid"></div>
+<script type="module">
+import { Track } from '../js/track.js';
+import { ALL_REAL } from '../js/data/tracks.js';
+import { PHYS } from '../js/car.js';
+
+const grid = document.getElementById('grid');
+const want = new URLSearchParams(location.search).get('ids');
+const defs = ALL_REAL.filter((d) => d.chicanes && (!want || want.split(',').includes(d.id)));
+for (const def of defs) {
+  const t = new Track(def);
+  for (const c of def.chicanes) {
+    const fig = document.createElement('figure');
+    const cv = document.createElement('canvas');
+    cv.width = 720; cv.height = 720;
+    fig.appendChild(cv);
+    const mid = Math.round(c.at * t.n);
+    let vmin = Infinity;
+    for (let d = -40; d <= 40; d++) vmin = Math.min(vmin, t.vCorner[(mid + d + t.n) % t.n]);
+    const cap = document.createElement('figcaption');
+    cap.textContent = `${def.name} @ ${c.at}  ${c.kind}${c.rebuild === false ? ' (kerbs only)' : ''}  slowest ${Math.round((vmin / PHYS.TOP) * 100)}% of top speed`;
+    fig.appendChild(cap);
+    grid.appendChild(fig);
+    const ctx = cv.getContext('2d');
+    // Look at the chicane from a little before it, heading up the screen.
+    const i0 = (mid - 6 + t.n) % t.n;
+    const ang = Math.atan2(t.ty[i0], t.tx[i0]);
+    const zoom = 0.62;
+    ctx.translate(cv.width / 2, cv.height / 2);
+    ctx.scale(zoom, zoom);
+    ctx.rotate(-ang - Math.PI / 2);
+    ctx.translate(-t.px[mid], -t.py[mid]);
+    const R = cv.width / zoom;
+    const view = { minX: t.px[mid] - R, maxX: t.px[mid] + R, minY: t.py[mid] - R, maxY: t.py[mid] + R };
+    t.drawGround(ctx, view);
+    t.drawSurface(ctx, view, true);
+    ctx.strokeStyle = 'rgba(255,214,40,0.85)';
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    for (let d = -90; d <= 90; d++) {
+      const i = (mid + d + t.n) % t.n;
+      if (d === -90) ctx.moveTo(t.rx[i], t.ry[i]); else ctx.lineTo(t.rx[i], t.ry[i]);
+    }
+    ctx.stroke();
+    t.drawDecor?.(ctx, view);
+  }
+}
+</script>
+</body>
+</html>

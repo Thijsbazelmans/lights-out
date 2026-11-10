@@ -13,6 +13,31 @@ const DS = 8; // centerline sample spacing in px
 const CHUNK = 96; // samples per drawing chunk (only visible chunks are drawn)
 const KERB_CURV = 1 / 560; // corners tighter than this get kerbs
 
+// Racing line: how far it keeps from the road edge, from a barrier and from
+// a sausage kerb, and the coarse-to-fine passes (band spacing in samples,
+// iterations).
+export const LINE = { edge: 24, wall: 72, kerb: 44, levels: [[8, 260], [4, 140], [2, 100]] };
+
+// Chicanes rebuilt at game scale (see Track.shapeChicanes): how sharp each
+// kind turns (degrees) and how far it steps sideways (× the road's
+// half-width); the radius of its two turns (× half-width) and how much
+// straight (px) either side eases the sideways step back out.
+// `kerb`: how far (× half-width) the sausage kerb on the inside of each
+// turn stands into the road; `span`: how long it is (samples either side).
+export const CHICANE = {
+  slow: { angle: 60, shift: 2.2, kerb: 0.7 },
+  medium: { angle: 48, shift: 2.0, kerb: 0.55 },
+  fast: { angle: 38, shift: 1.8, kerb: 0.4 },
+  radius: 1.7,
+  ease: 650,
+  span: 14,
+};
+
+// 3-2-1 boards: braking at `brake` × full braking (a little in hand), only
+// for stops that lose at least `minDrop` × top speed. The boards stand
+// `gap` seconds apart at the speed you arrive with; "1" is where to brake.
+export const HINTS = { brake: 0.7, minDrop: 0.2, gap: 0.2 };
+
 function catmull(p0, p1, p2, p3, t) {
   // Centripetal Catmull-Rom: no loops or cusps when points are unevenly spaced.
   const d01 = Math.max(1e-4, Math.sqrt(Math.hypot(p1.x - p0.x, p1.y - p0.y)));
@@ -33,6 +58,45 @@ function catmull(p0, p1, p2, p3, t) {
   const B1 = mix(A1, A2, t0, t2);
   const B2 = mix(A2, A3, t1, t3);
   return mix(B1, B2, t1, t2);
+}
+
+// Is sample i within the lap stretch a..b (going forward, wrapping)?
+function inLapRange(i, a, b, n) {
+  const span = (((b - a) % n) + n) % n;
+  return (((i - a) % n) + n) % n <= span;
+}
+
+function roundRectPath(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+}
+
+// Re-space the points of a closed polyline evenly along its length.
+function resampleLoop(X, Y, m) {
+  const k = X.length;
+  const cum = new Float64Array(k + 1);
+  for (let i = 0; i < k; i++) {
+    const j = (i + 1) % k;
+    cum[i + 1] = cum[i] + Math.hypot(X[j] - X[i], Y[j] - Y[i]);
+  }
+  const L = cum[k];
+  const nx = new Float64Array(m);
+  const ny = new Float64Array(m);
+  let j = 0;
+  for (let q = 0; q < m; q++) {
+    const s = (q * L) / m;
+    while (j < k - 1 && cum[j + 1] < s) j++;
+    const f = (s - cum[j]) / (cum[j + 1] - cum[j] || 1);
+    const b = (j + 1) % k;
+    nx[q] = X[j] + (X[b] - X[j]) * f;
+    ny[q] = Y[j] + (Y[b] - Y[j]) * f;
+  }
+  return [nx, ny];
 }
 
 function smoothCircular(arr, passes) {
@@ -56,6 +120,7 @@ export class Track {
     const s = def.scale;
     const ctrl = def.points.map(([x, y]) => ({ x: x * s, y: y * s }));
     this.buildCenterline(ctrl);
+    if (def.chicanes?.some((c) => c.rebuild !== false)) this.shapeChicanes(def.chicanes.filter((c) => c.rebuild !== false));
     this.findCrossings();
     if (this.separateStretches()) {
       // Rebuild from the moved points so spacing and directions stay even.
@@ -65,6 +130,7 @@ export class Track {
       this.findCrossings();
     }
     this.buildWalls();
+    this.placeSausages(def.chicanes || []);
     this.findNeighbours();
     this.buildRacingLine();
     this.buildSpeedProfile();
@@ -73,6 +139,177 @@ export class Track {
     this.countCorners();
     this.buildDecor();
     this.geo = null; // drawing paths, built on first draw
+  }
+
+  // Real chicanes are tight zig-zags on a narrow road. At our road width
+  // and scale they flatten into a wiggle you can drive straight through, so
+  // each listed one ({ at: lap fraction, kind, before/after: px }) is
+  // rebuilt as a proper Z: two sharp turns joined by a short diagonal,
+  // stepping sideways further than the road is wide, with that step eased
+  // back out along the straight either side. The rest of the lap stays put.
+  shapeChicanes(list) {
+    const n = this.n;
+    const jobs = list
+      .map((c) => {
+        const mid = Math.round(c.at * n);
+        const a = Math.max(1, mid - Math.round((c.before ?? CHICANE.ease) / this.ds));
+        const b = Math.min(n - 2, mid + Math.round((c.after ?? CHICANE.ease) / this.ds));
+        // It steps the way its first sharp turn goes.
+        let dir = c.dir ?? 0;
+        for (let i = mid - 50; !dir && i <= mid + 50; i++) {
+          const k = this.curv[(i + n) % n];
+          if (Math.abs(k) > 1 / 320) dir = Math.sign(k);
+        }
+        return { a, b, mid, kind: CHICANE[c.kind] || CHICANE.slow, dir: dir || 1 };
+      })
+      .sort((p, q) => p.a - q.a);
+    const out = [];
+    let i = 0;
+    for (const job of jobs) {
+      for (; i < job.a; i++) out.push({ x: this.px[i], y: this.py[i] });
+      out.push(...this.chicanePoints(job));
+      i = job.b + 1;
+    }
+    for (; i < n; i++) out.push({ x: this.px[i], y: this.py[i] });
+    this.buildCenterline(out);
+  }
+
+  // Sausage kerbs: raised blocks on the inside of each chicane turn that
+  // stand out into the road. The car treats them as a barrier, so the
+  // chicane can't be straight-lined. Barriers are still drawn where they were.
+  placeSausages(list) {
+    const n = this.n;
+    // Drawn barriers: on the inside of a turn tighter than the barrier is far
+    // away, the line would fold over itself, so pull it in (drawing only).
+    this.fenceL = Float32Array.from(this.wallL);
+    this.fenceR = Float32Array.from(this.wallR);
+    this.kerbL = new Float32Array(n).fill(Infinity);
+    this.kerbR = new Float32Array(n).fill(Infinity);
+    this.barrierL = Float32Array.from(this.wallL);
+    this.barrierR = Float32Array.from(this.wallR);
+    for (let i = 0; i < n; i++) {
+      const c = this.curv[i];
+      if (Math.abs(c) < 1e-6) continue;
+      const fit = Math.max(this.half + 12, 0.9 / Math.abs(c));
+      if (c > 0) this.barrierR[i] = Math.min(this.barrierR[i], fit);
+      else this.barrierL[i] = Math.min(this.barrierL[i], fit);
+    }
+    this.sausages = [];
+    for (const c of list) {
+      const kind = CHICANE[c.kind] || CHICANE.slow;
+      const mid = Math.round(c.at * n);
+      // The chicane's turns: the sharpest bends near `at` (two by default).
+      const peaks = [];
+      const W = c.window ?? 34;
+      for (let i = mid - W; i <= mid + W; i++) {
+        const k = this.curv[(i + n) % n];
+        if (Math.abs(k) < 1 / 330) continue;
+        if (Math.abs(k) < Math.abs(this.curv[(i - 1 + n) % n]) || Math.abs(k) < Math.abs(this.curv[(i + 1) % n])) continue;
+        const last = peaks[peaks.length - 1];
+        if (last && Math.sign(last.k) === Math.sign(k) && i - last.i < 14) {
+          if (Math.abs(k) > Math.abs(last.k)) Object.assign(last, { i, k });
+          continue;
+        }
+        peaks.push({ i, k });
+      }
+      const turns = peaks
+        .slice()
+        .sort((p, q) => Math.abs(q.k) - Math.abs(p.k))
+        .slice(0, c.turns ?? 2)
+        .sort((p, q) => p.i - q.i);
+      for (const p of turns) {
+        const side = Math.sign(p.k); // inside of the turn
+        const wall = side > 0 ? this.wallR : this.wallL;
+        const kerb = side > 0 ? this.kerbR : this.kerbL;
+        const depth = kind.kerb * this.half;
+        const S = CHICANE.span;
+        for (let d = -S; d <= S; d++) {
+          const j = (((p.i + d) % n) + n) % n;
+          const bump = 0.5 + 0.5 * Math.cos((Math.PI * d) / (S + 1));
+          const at = this.half + 4 - (depth + 4) * bump;
+          kerb[j] = Math.min(kerb[j], at);
+          wall[j] = Math.min(wall[j], at);
+        }
+        this.sausages.push({ i: (p.i + n) % n, side, depth, span: S });
+      }
+    }
+  }
+
+  // Room either side of the centre line at sample i (side +1 right, -1
+  // left): at most `lim`, keeping `wallGap` from a barrier and `kerbGap`
+  // from a sausage kerb. Can be negative where a kerb covers the middle.
+  roomAt(i, side, lim, wallGap, kerbGap) {
+    const fence = side > 0 ? this.fenceR[i] : this.fenceL[i];
+    const kerb = side > 0 ? this.kerbR[i] : this.kerbL[i];
+    return Math.min(lim, fence - wallGap, kerb - kerbGap);
+  }
+
+  chicanePoints({ a, b, mid, kind, dir }) {
+    const { px, py, tx, ty } = this;
+    const chord = Math.hypot(px[b] - px[a], py[b] - py[a]);
+    // The stretch without its old wiggle: a smooth curve from end to end
+    // that leaves and joins the track in the same direction.
+    const N = Math.max(60, Math.ceil(chord / 2));
+    const bx = new Float64Array(N + 1);
+    const by = new Float64Array(N + 1);
+    for (let k = 0; k <= N; k++) {
+      const t = k / N;
+      const h00 = 2 * t ** 3 - 3 * t * t + 1;
+      const h10 = t ** 3 - 2 * t * t + t;
+      const h01 = -2 * t ** 3 + 3 * t * t;
+      const h11 = t ** 3 - t * t;
+      bx[k] = h00 * px[a] + h10 * chord * tx[a] + h01 * px[b] + h11 * chord * tx[b];
+      by[k] = h00 * py[a] + h10 * chord * ty[a] + h01 * py[b] + h11 * chord * ty[b];
+    }
+    const cum = new Float64Array(N + 1);
+    for (let k = 1; k <= N; k++) cum[k] = cum[k - 1] + Math.hypot(bx[k] - bx[k - 1], by[k] - by[k - 1]);
+    const Lb = cum[N];
+    const xc = (Lb * (mid - a)) / (b - a);
+    // The Z: turn by `angle` on radius r, a diagonal, turn back; it steps D sideways.
+    const th = (kind.angle * Math.PI) / 180;
+    const r = CHICANE.radius * this.half;
+    const D = kind.shift * this.half;
+    const S = Math.max(0, (D - 2 * r * (1 - Math.cos(th))) / Math.sin(th));
+    const zx = [0];
+    const zy = [0];
+    let x = 0;
+    let y = 0;
+    const len = 2 * r * th + S;
+    for (let u = 0; u < len; u += 1) {
+      const head = u < r * th ? u / r : u < r * th + S ? th : th - (u - r * th - S) / r;
+      x += Math.cos(head);
+      y += Math.sin(head);
+      zx.push(x);
+      zy.push(y);
+    }
+    const Lx = x;
+    const Dz = y;
+    const x0 = xc - Lx / 2;
+    let zj = 0;
+    const zAt = (xx) => {
+      const u = xx - x0;
+      if (u <= 0) return 0;
+      if (u >= Lx) return Dz;
+      while (zj > 0 && zx[zj] > u) zj--;
+      while (zj < zx.length - 2 && zx[zj + 1] < u) zj++;
+      const f = (u - zx[zj]) / (zx[zj + 1] - zx[zj] || 1);
+      return zy[zj] + (zy[zj + 1] - zy[zj]) * f;
+    };
+    const pts = [];
+    for (let k = 0; k <= N; k++) {
+      const p = Math.max(0, k - 1);
+      const q = Math.min(N, k + 1);
+      let nx = -(by[q] - by[p]);
+      let ny = bx[q] - bx[p];
+      const l = Math.hypot(nx, ny) || 1;
+      nx /= l;
+      ny /= l;
+      const t = cum[k] / Lb;
+      const ease = t * t * (3 - 2 * t);
+      const lat = dir * (zAt(cum[k]) - Dz * ease);
+      pts.push({ x: bx[k] + nx * lat, y: by[k] + ny * lat });
+    }
+    return pts;
   }
 
   buildCenterline(ctrl) {
@@ -150,149 +387,291 @@ export class Track {
     this.outsideSign = area > 0 ? -1 : 1;
   }
 
+  // The racing line is an elastic band laid around the lap. Its points stay
+  // evenly spaced and are pushed sideways to make the line as straight as it
+  // can be: wide entry, apex, wide exit, and straight through an S-bend when
+  // there's room. It stays on the road the way the car physics sees it
+  // (within reach of the nearest centre-line point), so like a player it can
+  // cut across the inside of a tight corner. Worked coarse to fine.
   buildRacingLine() {
     const n = this.n;
-    const step = 4;
-    const m = Math.floor(n / step);
-    const Cx = new Float64Array(m);
-    const Cy = new Float64Array(m);
-    const Nx = new Float64Array(m);
-    const Ny = new Float64Array(m);
-    for (let k = 0; k < m; k++) {
-      const i = k * step;
-      Cx[k] = this.px[i];
-      Cy[k] = this.py[i];
-      Nx[k] = this.nx[i];
-      Ny[k] = this.ny[i];
-    }
-    const lim = this.half - 26;
-    // Keep the line away from a barrier that sits close to the track.
-    const limR = new Float64Array(m);
-    const limL = new Float64Array(m);
-    for (let k = 0; k < m; k++) {
-      limR[k] = Math.min(lim, this.wallR[k * step] - 78);
-      limL[k] = Math.min(lim, this.wallL[k * step] - 78);
-    }
-    const off = new Float64Array(m);
-    const X = (k) => Cx[k] + Nx[k] * off[k];
-    const Y = (k) => Cy[k] + Ny[k] * off[k];
-    // Pull the line tight (cuts corners), then smooth its curvature (wide entry, apex, wide exit).
-    for (let it = 0; it < 250; it++) {
-      for (let k = 0; k < m; k++) {
-        const a = (k - 1 + m) % m;
-        const b = (k + 1) % m;
-        const gx = (X(a) + X(b)) / 2;
-        const gy = (Y(a) + Y(b)) / 2;
-        off[k] = clamp((gx - Cx[k]) * Nx[k] + (gy - Cy[k]) * Ny[k], -limL[k], limR[k]);
+    const px = this.px;
+    const py = this.py;
+    const lim = this.half - LINE.edge;
+    const room = (i, side) => this.roomAt(i, side, lim, LINE.wall, LINE.kerb);
+    // Nearest centre sample, searched around `from` in lap order, so band
+    // points always move on around the lap and never jump to a stretch nearby.
+    const nearest = (x, y, from, back, ahead) => {
+      let best = from;
+      let bd = Infinity;
+      for (let k = -back; k <= ahead; k++) {
+        const i = (from + k + n) % n;
+        const dx = x - px[i];
+        const dy = y - py[i];
+        const d = dx * dx + dy * dy;
+        if (d < bd) {
+          bd = d;
+          best = i;
+        }
       }
-    }
-    for (let it = 0; it < 1500; it++) {
-      for (let k = 0; k < m; k++) {
-        const a1 = (k - 1 + m) % m;
-        const b1 = (k + 1) % m;
-        const a2 = (k - 2 + m) % m;
-        const b2 = (k + 2) % m;
-        const gx = (4 * (X(a1) + X(b1)) - (X(a2) + X(b2))) / 6;
-        const gy = (4 * (Y(a1) + Y(b1)) - (Y(a2) + Y(b2))) / 6;
-        off[k] = clamp((gx - Cx[k]) * Nx[k] + (gy - Cy[k]) * Ny[k], -limL[k], limR[k]);
+      return best;
+    };
+    let X = null;
+    let Y = null;
+    let H = null;
+    for (const [stride, iters] of LINE.levels) {
+      const m = Math.round(n / stride);
+      if (!X) {
+        X = new Float64Array(m);
+        Y = new Float64Array(m);
+        // Start in the middle of the free road (a sausage kerb can cover the centre).
+        for (let k = 0; k < m; k++) {
+          const i = Math.round((k * n) / m) % n;
+          const mid = (room(i, 1) - room(i, -1)) / 2;
+          X[k] = px[i] + this.nx[i] * mid;
+          Y[k] = py[i] + this.ny[i] * mid;
+        }
+      } else [X, Y] = resampleLoop(X, Y, m);
+      H = new Int32Array(m);
+      const track = () => {
+        H[0] = nearest(X[0], Y[0], 0, 30, 30);
+        for (let k = 1; k < m; k++) H[k] = nearest(X[k], Y[k], H[k - 1], 2, stride * 4 + 8);
+      };
+      track();
+      const w = stride * 2 + 4;
+      for (let it = 0; it < iters; it++) {
+        for (let k = 0; k < m; k++) {
+          const a1 = (k - 1 + m) % m;
+          const b1 = (k + 1) % m;
+          const a2 = (k - 2 + m) % m;
+          const b2 = (k + 2) % m;
+          // Where the neighbours would like this point (least bending)...
+          const gx = (4 * (X[a1] + X[b1]) - (X[a2] + X[b2])) / 6;
+          const gy = (4 * (Y[a1] + Y[b1]) - (Y[a2] + Y[b2])) / 6;
+          // ...but only move sideways to the band, so spacing stays even.
+          let tx = X[b1] - X[a1];
+          let ty = Y[b1] - Y[a1];
+          const tl = Math.hypot(tx, ty) || 1;
+          tx /= tl;
+          ty /= tl;
+          const d = (gx - X[k]) * -ty + (gy - Y[k]) * tx;
+          const onRoad = (f) => {
+            const x = X[k] - ty * d * f;
+            const y = Y[k] + tx * d * f;
+            const i = nearest(x, y, H[k], w, w);
+            const ex = x - px[i];
+            const ey = y - py[i];
+            // Signed distance to the side of the centre line; a sausage kerb can
+            // push the allowed band past the middle (negative room).
+            const lat = (ex * this.nx[i] + ey * this.ny[i] >= 0 ? 1 : -1) * Math.hypot(ex, ey);
+            return lat <= room(i, 1) && lat >= -room(i, -1) ? i : -1;
+          };
+          // Somehow off the road (pushed by its neighbours): put it back on.
+          if (onRoad(0) < 0) {
+            const i = nearest(X[k], Y[k], H[k], w, w);
+            const lat = (X[k] - px[i]) * this.nx[i] + (Y[k] - py[i]) * this.ny[i];
+            const want = clamp(lat, -room(i, -1), room(i, 1));
+            X[k] += this.nx[i] * (want - lat);
+            Y[k] += this.ny[i] * (want - lat);
+          }
+          // If the whole step leaves the road, take as much of it as fits.
+          let f = 1;
+          let i = onRoad(1);
+          if (i < 0) {
+            let lo = 0;
+            let hi = 1;
+            for (let b = 0; b < 7; b++) {
+              const mid = (lo + hi) / 2;
+              if (onRoad(mid) >= 0) lo = mid;
+              else hi = mid;
+            }
+            f = lo;
+            i = onRoad(f);
+          }
+          X[k] -= ty * d * f;
+          Y[k] += tx * d * f;
+          if (i >= 0) H[k] = i;
+        }
+        if (it % 10 === 9) {
+          [X, Y] = resampleLoop(X, Y, m);
+          track();
+        }
       }
+      track();
     }
-    const roff = new Float64Array(n);
-    for (let i = 0; i < n; i++) {
-      const kf = i / step;
-      const k0 = Math.floor(kf);
-      const f = kf - k0;
-      const a = off[k0 % m];
-      const b = off[(k0 + 1) % m];
-      roff[i] = a + (b - a) * f;
+    const m = X.length;
+    this.band = { x: X, y: Y, idx: H, m };
+
+    // Where each band point sits along the lap (a fractional sample index,
+    // always increasing), so per-sample values can be read off the band.
+    const at = new Float64Array(m);
+    let prev = -Infinity;
+    for (let q = 0; q < m; q++) {
+      const i = H[q];
+      let s = i + clamp(((X[q] - px[i]) * this.tx[i] + (Y[q] - py[i]) * this.ty[i]) / this.ds, -0.5, 0.5);
+      if (q === 0 && s > n / 2) s -= n;
+      while (s < prev - n / 2) s += n;
+      if (s <= prev) s = prev + 1e-3;
+      at[q] = s;
+      prev = s;
     }
-    smoothCircular(roff, 4);
+    this.band.at = at;
+    // For sample i: band point q and blend f, so value = a[q] + (a[q+1] - a[q]) * f.
+    const bq = new Int32Array(n);
+    const bf = new Float32Array(n);
+    let q = 0;
+    const first = Math.ceil(at[0]);
+    for (let s = first; s < first + n; s++) {
+      while (q < m - 1 && at[q + 1] <= s) q++;
+      const a0 = at[q];
+      const a1 = q + 1 < m ? at[q + 1] : at[0] + n;
+      const i = ((s % n) + n) % n;
+      bq[i] = q;
+      bf[i] = clamp((s - a0) / (a1 - a0 || 1), 0, 1);
+    }
+    this.band.bq = bq;
+    this.band.bf = bf;
     this.roff = new Float32Array(n);
     this.rx = new Float32Array(n);
     this.ry = new Float32Array(n);
     for (let i = 0; i < n; i++) {
-      const o = clamp(roff[i], -Math.min(lim, this.wallL[i] - 78), Math.min(lim, this.wallR[i] - 78));
-      this.roff[i] = o;
-      this.rx[i] = this.px[i] + this.nx[i] * o;
-      this.ry[i] = this.py[i] + this.ny[i] * o;
+      const x = this.fromBand(X, i);
+      const y = this.fromBand(Y, i);
+      this.rx[i] = x;
+      this.ry[i] = y;
+      this.roff[i] = clamp((x - px[i]) * this.nx[i] + (y - py[i]) * this.ny[i], -this.half, this.half);
     }
   }
 
+  // A per-band-point value, read at centre-line sample i.
+  fromBand(arr, i) {
+    const q = this.band.bq[i];
+    const a = arr[q];
+    return a + (arr[(q + 1) % this.band.m] - a) * this.band.bf[i];
+  }
+
+  // Speeds along the band: how fast the curve can be taken, then braking
+  // before it and the engine after it. Two versions: the AI's (a little
+  // margin, gentle braking) and the one the braking boards come from (the
+  // car's real limit, braking hard but not flat out).
   buildSpeedProfile() {
-    const n = this.n;
-    const rx = this.rx;
-    const ry = this.ry;
-    const k = new Float64Array(n);
-    for (let i = 0; i < n; i++) {
-      const a = (i - 4 + n) % n;
-      const b = (i + 4) % n;
-      const x1 = rx[a];
-      const y1 = ry[a];
-      const x2 = rx[i];
-      const y2 = ry[i];
-      const x3 = rx[b];
-      const y3 = ry[b];
-      const cr = (x2 - x1) * (y3 - y1) - (y2 - y1) * (x3 - x1);
-      const d = Math.hypot(x2 - x1, y2 - y1) * Math.hypot(x3 - x2, y3 - y2) * Math.hypot(x3 - x1, y3 - y1);
-      k[i] = d > 1e-6 ? (2 * cr) / d : 0;
+    const { x: X, y: Y, idx: H, m } = this.band;
+    const k = new Float64Array(m);
+    const d = new Float64Array(m);
+    for (let q = 0; q < m; q++) {
+      const a = (q - 3 + m) % m;
+      const b = (q + 3) % m;
+      const cr = (X[q] - X[a]) * (Y[b] - Y[a]) - (Y[q] - Y[a]) * (X[b] - X[a]);
+      const dd = Math.hypot(X[q] - X[a], Y[q] - Y[a]) * Math.hypot(X[b] - X[q], Y[b] - Y[q]) * Math.hypot(X[b] - X[a], Y[b] - Y[a]);
+      k[q] = dd > 1e-6 ? (2 * cr) / dd : 0;
+      const j = (q + 1) % m;
+      d[q] = Math.hypot(X[j] - X[q], Y[j] - Y[q]);
     }
-    smoothCircular(k, 4);
-    this.rcurv = k;
-    const v = new Float32Array(n);
-    for (let i = 0; i < n; i++) {
+    smoothCircular(k, 3);
+    const TOP = PHYS.TOP;
+    const vAI = new Float64Array(m);
+    const vCar = new Float64Array(m);
+    for (let q = 0; q < m; q++) {
+      const i = H[q];
       // Less margin for error where a barrier sits close: carry a bit less speed.
-      const room = clamp((Math.min(this.wallL[i], this.wallR[i]) - this.half) / 72, 0, 1);
-      v[i] = maxCornerSpeed(Math.abs(k[i]), 0.9) * (0.88 + 0.12 * room);
+      const roomy = clamp((Math.min(this.fenceL[i], this.fenceR[i]) - this.half) / 72, 0, 1);
+      vAI[q] = maxCornerSpeed(Math.abs(k[q]), 0.9) * (0.88 + 0.12 * roomy);
+      vCar[q] = maxCornerSpeed(Math.abs(k[q]), 1);
     }
-    // Work backwards so the AI brakes before a corner, not in it.
-    const B = PHYS.BRAKE * 0.72;
-    for (let pass = 0; pass < 2; pass++) {
-      for (let i = n - 1; i >= 0; i--) {
-        const j = (i + 1) % n;
-        const d = Math.hypot(rx[j] - rx[i], ry[j] - ry[i]);
-        const lim = Math.sqrt(v[j] * v[j] + 2 * B * d);
-        if (lim < v[i]) v[i] = lim;
+    const brakeBack = (v, B) => {
+      for (let pass = 0; pass < 2; pass++) {
+        for (let q = m - 1; q >= 0; q--) {
+          const j = (q + 1) % m;
+          const lim = Math.sqrt(v[j] * v[j] + 2 * B * d[q]);
+          if (lim < v[q]) v[q] = lim;
+        }
       }
+    };
+    const engineOn = (v) => {
+      for (let pass = 0; pass < 2; pass++) {
+        for (let q = 0; q < m; q++) {
+          const j = (q + 1) % m;
+          const a = Math.max(0, PHYS.ACCEL * (1 - v[q] / TOP) - v[q] * PHYS.DRAG);
+          const lim = Math.sqrt(v[q] * v[q] + 2 * a * d[q]);
+          if (lim < v[j]) v[j] = lim;
+        }
+      }
+    };
+    // AI: brake before a corner, not in it.
+    brakeBack(vAI, PHYS.BRAKE * 0.72);
+    // Boards: the speed you'd actually arrive with, and where to brake.
+    const vMax = Float64Array.from(vCar);
+    engineOn(vMax);
+    const vB = Float64Array.from(vMax);
+    brakeBack(vB, PHYS.BRAKE * HINTS.brake);
+    engineOn(vB);
+    this.band.k = k;
+    this.band.v = vB;
+
+    const n = this.n;
+    this.vProfile = new Float32Array(n);
+    this.rcurv = new Float64Array(n);
+    this.vCorner = new Float32Array(n);
+    for (let i = 0; i < n; i++) {
+      this.vProfile[i] = this.fromBand(vAI, i);
+      this.rcurv[i] = this.fromBand(k, i);
+      this.vCorner[i] = this.fromBand(vB, i);
     }
-    this.vProfile = v;
-    this.buildBrakeZones();
+    this.findBrakeZones(vB, d);
   }
 
-  // Braking zones: from where a car at speed has to start braking, to the
-  // slowest point of the corner. Only stops worth at least ~18% of top speed.
-  buildBrakeZones() {
+  // Braking zones: where the speed on the band falls because of braking,
+  // from the braking point to the slowest point of the corner. Only stops
+  // worth HINTS.minDrop of top speed get 3-2-1 boards.
+  findBrakeZones(v, d) {
+    const { idx: H, m, k } = this.band;
     const n = this.n;
-    const v = this.vProfile;
     const TOP = PHYS.TOP;
     const zones = [];
-    let lastMin = -99;
-    for (let i = 0; i < n; i++) {
-      if (v[i] > 0.85 * TOP || i - lastMin < 12) continue;
-      let isMin = true;
-      for (let k = 1; k <= 8 && isMin; k++) {
-        if (v[(i + k) % n] < v[i] || v[(i - k + n) % n] < v[i]) isMin = false;
+    // Start somewhere the car isn't braking, then walk the lap once.
+    let q0 = 0;
+    while (q0 < m && v[(q0 + 1) % m] < v[q0] - 0.5) q0++;
+    let z = null;
+    for (let s = 1; s <= m; s++) {
+      const q = (q0 + s) % m;
+      const j = (q + 1) % m;
+      const falling = v[j] < v[q] - 0.5;
+      if (falling && !z) z = { qs: q, len: 0 };
+      if (z) {
+        if (falling) z.len += d[q];
+        else {
+          z.qe = q;
+          zones.push(z);
+          z = null;
+        }
       }
-      if (!isMin) continue;
-      lastMin = i;
-      let j = i;
-      let steps = 0;
-      while (steps < n / 2) {
-        const pj = (j - 1 + n) % n;
-        if (v[pj] < v[j] - 0.5) break;
-        j = pj;
-        steps++;
-        if (v[j] >= TOP * 0.97) break;
-      }
-      const drop = v[j] - v[i];
-      if (drop < 0.18 * TOP || steps < 6) continue;
-      zones.push({ start: j, end: i, len: steps, drop, dir: Math.sign(this.rcurv[i]) || 1 });
     }
-    this.brakeZones = zones;
+    this.brakeZones = [];
+    for (const z of zones) {
+      const vIn = v[z.qs];
+      const vOut = v[z.qe];
+      if (vIn - vOut < HINTS.minDrop * TOP) continue;
+      // Which way the corner turns: the tightest bend just after.
+      let kk = 0;
+      for (let s = 0; s < 12; s++) {
+        const c = k[(z.qe + s) % m];
+        if (Math.abs(c) > Math.abs(kk)) kk = c;
+      }
+      this.brakeZones.push({
+        start: H[z.qs],
+        end: H[z.qe],
+        len: Math.round(z.len / this.ds),
+        vIn,
+        vOut,
+        drop: vIn - vOut,
+        dir: Math.sign(kk) || 1,
+      });
+    }
     // Which zone's corner each sample is at (a few samples wide so a car
     // can't skip over it), for corner-exit boosts.
     this.apexAt = new Int16Array(n).fill(-1);
-    zones.forEach((z, k) => {
-      for (let d = 0; d < 4; d++) this.apexAt[(z.end + d) % n] = k;
+    this.brakeZones.forEach((zz, k2) => {
+      for (let s = 0; s < 4; s++) this.apexAt[(zz.end + s) % n] = k2;
     });
   }
 
@@ -813,10 +1192,10 @@ export class Track {
         const ly = y - this.ny[k] * edge;
         const rx = x + this.nx[k] * edge;
         const ry = y + this.ny[k] * edge;
-        const wlx = x - this.nx[k] * (this.wallL[k] + 3);
-        const wly = y - this.ny[k] * (this.wallL[k] + 3);
-        const wrx = x + this.nx[k] * (this.wallR[k] + 3);
-        const wry = y + this.ny[k] * (this.wallR[k] + 3);
+        const wlx = x - this.nx[k] * (this.barrierL[k] + 3);
+        const wly = y - this.ny[k] * (this.barrierL[k] + 3);
+        const wrx = x + this.nx[k] * (this.barrierR[k] + 3);
+        const wry = y + this.ny[k] * (this.barrierR[k] + 3);
         if (i === s - 2) {
           path.moveTo(x, y);
           left.moveTo(lx, ly);
@@ -867,66 +1246,68 @@ export class Track {
         p.closePath();
       }
     }
+    // Sausage kerbs: a yellow block with black stripes and a shadow.
+    const sausages = this.sausages.map((sg) => {
+      const base = new Path2D();
+      const stripes = new Path2D();
+      const shadow = new Path2D();
+      const off = (d) => this.half + 4 - (sg.depth + 4) * (0.5 + 0.5 * Math.cos((Math.PI * d) / (sg.span + 1)));
+      const pt = (d, o) => {
+        const j = (((sg.i + d) % n) + n) % n;
+        return [this.px[j] + this.nx[j] * sg.side * o, this.py[j] + this.ny[j] * sg.side * o];
+      };
+      const outer = this.half + 10;
+      const S = sg.span;
+      for (let d = -S; d <= S; d++) base[d === -S ? 'moveTo' : 'lineTo'](...pt(d, outer));
+      for (let d = S; d >= -S; d--) base.lineTo(...pt(d, off(d)));
+      base.closePath();
+      for (let d = -S; d <= S; d++) shadow[d === -S ? 'moveTo' : 'lineTo'](...pt(d, off(d) - 5));
+      for (let d = -S; d < S; d += 4) {
+        stripes.moveTo(...pt(d, outer));
+        stripes.lineTo(...pt(d + 2, outer));
+        stripes.lineTo(...pt(d + 2, off(d + 2)));
+        stripes.lineTo(...pt(d, off(d)));
+        stripes.closePath();
+      }
+      const [x, y] = pt(0, this.half);
+      return { base, stripes, shadow, x, y, r: S * this.ds + 40 };
+    });
     const full = new Path2D();
-    const rubber = new Path2D();
     for (let i = 0; i <= n; i++) {
       const k = i % n;
-      if (i === 0) {
-        full.moveTo(this.px[k], this.py[k]);
-        rubber.moveTo(this.rx[k], this.ry[k]);
-      } else {
-        full.lineTo(this.px[k], this.py[k]);
-        rubber.lineTo(this.rx[k], this.ry[k]);
-      }
+      if (i === 0) full.moveTo(this.px[k], this.py[k]);
+      else full.lineTo(this.px[k], this.py[k]);
     }
     full.closePath();
-    rubber.closePath();
-    // Braking zones as a strip of racing line that fades from strong red at the
-    // braking point to faint at the corner.
-    const brakeParts = [];
+    // 3-2-1 boards before each real stop, both sides of the road: "1" stands
+    // at the braking point (for the speed you'd arrive with), "2" and "3"
+    // count down to it. None inside the corner before.
     const boards = [];
-    for (const z of this.brakeZones) {
-      const parts = 6;
-      for (let p = 0; p < parts; p++) {
-        const a = z.start + Math.floor((z.len * p) / parts);
-        const b = z.start + Math.floor((z.len * (p + 1)) / parts) + 1;
-        const path = new Path2D();
-        let minX = Infinity;
-        let minY = Infinity;
-        let maxX = -Infinity;
-        let maxY = -Infinity;
-        for (let i = a; i <= b; i++) {
-          const k = i % n;
-          if (i === a) path.moveTo(this.rx[k], this.ry[k]);
-          else path.lineTo(this.rx[k], this.ry[k]);
-          minX = Math.min(minX, this.rx[k]);
-          maxX = Math.max(maxX, this.rx[k]);
-          minY = Math.min(minY, this.ry[k]);
-          maxY = Math.max(maxY, this.ry[k]);
+    const zs = this.brakeZones;
+    zs.forEach((z, k) => {
+      const prev = zs[(k - 1 + zs.length) % zs.length];
+      const step = clamp(z.vIn * HINTS.gap, 70, 170) / this.ds;
+      for (const num of [1, 2, 3]) {
+        const i = (((Math.round(z.start - step * (num - 1))) % n) + n) % n;
+        if (zs.length > 1 && inLapRange(i, prev.start, prev.end + 8, n)) continue;
+        for (const side of [-1, 1]) {
+          const wall = side > 0 ? this.fenceR[i] : this.fenceL[i];
+          const off = Math.max(this.half + 16, Math.min(this.half + 34, wall - 16));
+          boards.push({
+            num,
+            x: this.px[i] + this.nx[i] * side * off,
+            y: this.py[i] + this.ny[i] * side * off,
+            angle: Math.atan2(this.ty[i], this.tx[i]),
+          });
         }
-        brakeParts.push({ path, alpha: 0.5 - (0.36 * p) / (parts - 1), minX: minX - 30, minY: minY - 30, maxX: maxX + 30, maxY: maxY + 30 });
       }
-      // 3-2-1 boards on the outside of the big stops, "3" at the braking point.
-      if (z.drop < 0.3 * PHYS.TOP) continue;
-      const side = -z.dir;
-      [3, 2, 1].forEach((num, k) => {
-        const i = (z.start + Math.floor((z.len * k) / 3)) % n;
-        const off = this.half + 26;
-        boards.push({
-          num,
-          x: this.px[i] + this.nx[i] * side * off,
-          y: this.py[i] + this.ny[i] * side * off,
-          angle: Math.atan2(this.ty[i], this.tx[i]),
-        });
-      });
-    }
+    });
 
     this.geo = {
-      brakeParts,
       boards,
+      sausages,
       chunks,
       full,
-      rubber,
       groundPat: makePattern(th.groundKind || 'ground', th),
       runoffPat: makePattern(th.runoffKind || 'grass', th),
     };
@@ -978,22 +1359,6 @@ export class Track {
     ctx.strokeStyle = th.asphalt;
     for (const c of vis) ctx.stroke(c.path);
 
-    // Rubbered-in racing line: a faint hint of where the fast way round is.
-    ctx.lineWidth = 44;
-    ctx.strokeStyle = 'rgba(0,0,0,0.12)';
-    ctx.stroke(g.rubber);
-
-    if (hints) {
-      ctx.lineCap = 'round';
-      ctx.lineWidth = 34;
-      for (const p of g.brakeParts) {
-        if (p.maxX < view.minX || p.minX > view.maxX || p.maxY < view.minY || p.minY > view.maxY) continue;
-        ctx.strokeStyle = `rgba(255,52,40,${p.alpha})`;
-        ctx.stroke(p.path);
-      }
-      ctx.lineCap = 'butt';
-    }
-
     ctx.lineWidth = 3;
     ctx.strokeStyle = th.edge;
     for (const c of vis) {
@@ -1004,6 +1369,21 @@ export class Track {
     for (const c of vis) ctx.fill(c.kerbA);
     ctx.fillStyle = th.kerbB;
     for (const c of vis) ctx.fill(c.kerbB);
+    for (const sg of g.sausages) {
+      if (sg.x + sg.r < view.minX || sg.x - sg.r > view.maxX || sg.y + sg.r < view.minY || sg.y - sg.r > view.maxY) continue;
+      ctx.lineCap = 'round';
+      ctx.lineWidth = 10;
+      ctx.strokeStyle = 'rgba(0,0,0,0.28)';
+      ctx.stroke(sg.shadow);
+      ctx.lineCap = 'butt';
+      ctx.fillStyle = '#ffd21f';
+      ctx.fill(sg.base);
+      ctx.fillStyle = '#1b1c20';
+      ctx.fill(sg.stripes);
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = '#1b1c20';
+      ctx.stroke(sg.base);
+    }
 
     this.drawStartLine(ctx);
     if (hints) this.drawBoards(ctx, view);
@@ -1089,26 +1469,32 @@ export class Track {
     return Math.min(d, this.n - d);
   }
 
+  // Big distance boards: white "3" and "2", red "1" where you brake.
   drawBoards(ctx, view) {
-    const m = 40;
+    const m = 60;
+    const W = 40;
+    const Hh = 48;
     for (const b of this.geo.boards) {
       if (b.x < view.minX - m || b.x > view.maxX + m || b.y < view.minY - m || b.y > view.maxY + m) continue;
+      const one = b.num === 1;
       ctx.save();
       ctx.translate(b.x, b.y);
       // Number reads upright for a driver coming toward it.
       ctx.rotate(b.angle + Math.PI / 2);
-      ctx.fillStyle = 'rgba(0,0,0,0.3)';
-      ctx.fillRect(-10, -12, 24, 28);
-      ctx.fillStyle = '#f4f4f4';
-      ctx.fillRect(-12, -14, 24, 28);
-      ctx.strokeStyle = '#15161a';
-      ctx.lineWidth = 2;
-      ctx.strokeRect(-12, -14, 24, 28);
-      ctx.fillStyle = '#15161a';
-      ctx.font = '900 20px "Saira Condensed", "Arial Narrow", sans-serif';
+      ctx.fillStyle = 'rgba(0,0,0,0.32)';
+      roundRectPath(ctx, -W / 2 + 4, -Hh / 2 + 5, W, Hh, 6);
+      ctx.fill();
+      ctx.fillStyle = one ? '#e8241b' : '#f6f6f2';
+      roundRectPath(ctx, -W / 2, -Hh / 2, W, Hh, 6);
+      ctx.fill();
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = one ? '#fff3f0' : '#15161a';
+      ctx.stroke();
+      ctx.fillStyle = one ? '#ffffff' : '#15161a';
+      ctx.font = '900 36px "Saira Condensed", "Arial Narrow", sans-serif';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.fillText(String(b.num), 0, 1);
+      ctx.fillText(String(b.num), 0, 2);
       ctx.restore();
     }
   }

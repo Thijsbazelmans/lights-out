@@ -42,7 +42,7 @@ export function drawHUD(ctx, race, cam, w, h, ins, opts) {
     drawFinish(ctx, race, w, h, ins, opts);
     return;
   }
-  // Phone held sideways with the sliders on screen: keep the middle clear.
+  // Phone held sideways with the buttons on screen: keep the middle clear.
   if (opts.touchUI && opts.ctl && h < 500 && w > h) {
     drawSideHUD(ctx, race, cam, w, h, ins, opts);
     return;
@@ -139,15 +139,8 @@ export function drawHUD(ctx, race, cam, w, h, ins, opts) {
   const below = gauges && shortLandscape ? 18 : 0; // steering bar goes under the panel when sideways
   if (gauges) drawInputs(ctx, p, sx, sy, sw, sh, shortLandscape ? sy + sh + 6 : sy - 18);
 
-  // ---- braking pace note: under the timer (under the speed panel when sideways) ----
-  const note = race.paceNote;
-  const noteY = shortLandscape ? sy + sh + 8 + below : T + 62;
-  if (note) {
-    const room = Math.min(cx - (L + pw) - 8, mx - 6 - cx - 8) * 2;
-    drawPaceNote(ctx, note, cx, noteY, Math.min(narrow ? 172 : 214, room), race.time);
-  }
   if (p.slipstream > 0.35) {
-    text(ctx, 'SLIPSTREAM', cx, shortLandscape ? sy + sh + below + (note ? 62 : 14) : sy - (gauges ? 26 : 8), `800 12px ${F_DISPLAY}`, '#7fd8ff', 'center');
+    text(ctx, 'SLIPSTREAM', cx, shortLandscape ? sy + sh + below + 14 : sy - (gauges ? 26 : 8), `800 12px ${F_DISPLAY}`, '#7fd8ff', 'center');
   }
 
   // ---- "YOU" marker before the start ----
@@ -171,7 +164,7 @@ export function drawHUD(ctx, race, cam, w, h, ins, opts) {
   }
 
   // ---- what we're racing: title card before the start ----
-  if (ev && (race.phase === 'intro' || race.phase === 'lights' || (race.phase === 'race' && race.time < 2 && !race.paceNote))) {
+  if (ev && (race.phase === 'intro' || race.phase === 'lights' || (race.phase === 'race' && race.time < 2))) {
     const fade = race.phase === 'race' ? clamp(1 - race.time / 2, 0, 1) : clamp(race.phaseT / 0.4 + (race.phase === 'lights' ? 1 : 0), 0, 1);
     const lightsH = isRace ? (narrow ? 58 : 78) + 10 : 0;
     const cw = Math.min(w - 32, 440);
@@ -223,84 +216,6 @@ function drawInputs(ctx, p, sx, sy, sw, sh, gy) {
   };
   bar(sx - 14, p.brake, C.red);
   bar(sx + sw + 4, p.gas, C.green);
-}
-
-// "HAIRPIN RIGHT" with a bar running down to the braking point, then a
-// flashing BRAKE.
-function drawPaceNote(ctx, note, cx, y, pw, time) {
-  const ph = 42;
-  const x = cx - pw / 2;
-  const braking = note.stage === 'brake' || (note.stage === 'done' && note.tt < 0.3);
-  ctx.save();
-  ctx.globalAlpha = clamp(note.fade, 0, 1) * clamp(note.t / 0.12, 0, 1);
-  if (braking) {
-    const on = Math.floor(time * 10) % 2 === 0;
-    ctx.fillStyle = on ? '#e8261c' : '#9d1a13';
-    roundRect(ctx, x, y, pw, ph, 10);
-    ctx.fill();
-    drawBanner(ctx, 'BRAKE!', '#fff', cx, y + ph / 2 + 1, 28);
-    ctx.restore();
-    return;
-  }
-  panel(ctx, x, y, pw, ph, 10);
-  const urgency = 1 - clamp(note.tt / note.warnAt, 0, 1);
-  const col = urgency > 0.6 ? '#ff7a2f' : C.yellow;
-  ctx.strokeStyle = col;
-  ctx.lineWidth = 2;
-  roundRect(ctx, x + 1, y + 1, pw - 2, ph - 2, 9);
-  ctx.stroke();
-  // Turn arrow: a U for a hairpin, a hook otherwise; mirrored for left.
-  ctx.save();
-  ctx.translate(x + 22, y + 19);
-  if (note.dir === 'LEFT') ctx.scale(-1, 1);
-  ctx.strokeStyle = col;
-  ctx.fillStyle = col;
-  ctx.lineWidth = 3;
-  ctx.lineCap = 'round';
-  ctx.lineJoin = 'round';
-  ctx.beginPath();
-  if (note.kind === 'HAIRPIN') {
-    ctx.moveTo(-5, 10);
-    ctx.lineTo(-5, -2);
-    ctx.arc(1, -2, 6, Math.PI, 0);
-    ctx.lineTo(7, 3);
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.moveTo(2, 2);
-    ctx.lineTo(7, 9);
-    ctx.lineTo(12, 2);
-    ctx.closePath();
-  } else {
-    ctx.moveTo(-6, 10);
-    ctx.lineTo(-6, 0);
-    ctx.quadraticCurveTo(-6, -6, 0, -6);
-    ctx.lineTo(3, -6);
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.moveTo(3, -11);
-    ctx.lineTo(10, -6);
-    ctx.lineTo(3, -1);
-    ctx.closePath();
-  }
-  ctx.fill();
-  ctx.restore();
-  ctx.save();
-  ctx.beginPath();
-  ctx.rect(x + 38, y, pw - 44, ph);
-  ctx.clip();
-  const big = pw > 190 ? 21 : 18;
-  text(ctx, `${note.kind} ${note.dir}`, x + 40, y + 24, `900 italic ${big}px ${F_DISPLAY}`, C.text);
-  ctx.restore();
-  // Countdown to the braking point.
-  const bx = x + 40;
-  const bw = pw - 50;
-  ctx.fillStyle = 'rgba(255,255,255,0.1)';
-  roundRect(ctx, bx, y + 31, bw, 4, 2);
-  ctx.fill();
-  ctx.fillStyle = col;
-  roundRect(ctx, bx, y + 31, Math.max(4, bw * (1 - urgency)), 4, 2);
-  ctx.fill();
-  ctx.restore();
 }
 
 // Gear, speed and the drift-charge / boost bar.
@@ -380,8 +295,8 @@ function drawSpeedTile(ctx, p, x, y, w, h) {
 // Phone held sideways. The column above the steering controls holds
 // position, lap times, gaps and messages; the speed sits right next to the
 // gas, and the map in the corner above the pedals, next to the pause
-// button. Only the start lights, the title card before the start and the
-// corner warnings use the middle.
+// button. Only the start lights and the title card before the start use
+// the middle.
 function drawSideHUD(ctx, race, cam, w, h, ins, opts) {
   const p = race.player;
   const T = ins.top + 10;
@@ -424,7 +339,7 @@ function drawSideHUD(ctx, race, cam, w, h, ins, opts) {
   const pedalRight = pr.left + pr.width / 2 > w / 2;
   const tileW = 96;
   const tileH = 84;
-  const g = gr || pr; // the gas button, or the top of the slider pedal
+  const g = gr || pr; // the gas button
   const tileX = pedalRight ? pr.left - 10 - tileW : pr.right + 10;
   const tileY = clamp(g.top + (Math.min(g.height, tileH * 1.4) - tileH) / 2, T + 130, h - tileH - 8);
   drawSpeedTile(ctx, p, tileX, tileY, tileW, tileH);
@@ -446,7 +361,7 @@ function drawSideHUD(ctx, race, cam, w, h, ins, opts) {
     ctx.restore();
   }
 
-  // ---- the middle: lights, title card before the start, corner warnings ----
+  // ---- the middle: lights and the title card before the start ----
   const gapL = steerLeft ? colX + colW + 10 : mx + ms + 16;
   const gapR = steerLeft ? mx - 16 : colX - 10;
   const mid = clamp(cx, gapL + 60, gapR - 60);
@@ -456,7 +371,6 @@ function drawSideHUD(ctx, race, cam, w, h, ins, opts) {
     const cw = Math.min(gapR - gapL, 440);
     drawEventCard(ctx, ev, (gapL + gapR) / 2, T + (isRace ? 68 : 0), cw, fade, true);
   }
-  if (race.paceNote) drawPaceNote(ctx, race.paceNote, mid, T, Math.min(214, gapR - gapL), race.time);
   if (before && isRace) {
     const [px, py] = cam.toScreen(p.x, p.y);
     const yy = py - 46;

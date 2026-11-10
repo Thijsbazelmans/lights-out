@@ -12,10 +12,8 @@ function defaults() {
       difficulty: 'normal',
       laps: 3,
       autoGas: false,
-      touchControls: 'buttons', // phone: 'buttons' (‹ › and BRAKE GAS, like the arrow keys) or 'sliders'
-      steerSide: 'left', // phone: steering strip under the 'left' or 'right' thumb, pedal under the other
-      touchSteer: 'float', // sliders: 'float' centre where the thumb lands, 'fixed' centre of the strip
-      brakeHints: true, // red braking zones on the racing line and 3-2-1 boards
+      steerSide: 'left', // phone: ‹ › under the 'left' or 'right' thumb, GAS and BRAKE under the other
+      brakeHints: true, // 3-2-1 boards before the big stops
       team: null, // id of the team you race for; null until picked
       seat: 1, // which of the team's two drivers you replace (0 or 1)
     },
@@ -43,6 +41,7 @@ function load() {
 }
 
 let data = load();
+let layouts = {};
 
 export const save = {
   get settings() {
@@ -68,12 +67,26 @@ export const save = {
         bestRace: null,
         races: 0,
         wins: 0,
+        layout: layouts[trackId] ?? 1,
       };
     }
     return data.records[trackId];
   },
   peek(trackId) {
     return data.records[trackId] || null;
+  },
+  // A circuit whose layout changed: its lap records, ghost and best race
+  // time no longer compare, so they go (wins and best finishes stay).
+  checkLayouts(current) {
+    layouts = current;
+    let changed = false;
+    for (const [id, layout] of Object.entries(current)) {
+      const r = data.records[id];
+      if (!r || (r.layout ?? 1) === layout) continue;
+      Object.assign(r, { bestLap: null, ghost: null, splits: null, bestRace: null, layout });
+      changed = true;
+    }
+    if (changed) this.write();
   },
   write() {
     try {

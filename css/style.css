@@ -1,7 +1,7 @@
 /* Layout: a pit-wall timing monitor floating over a live race. Left rail on
    wide screens, bottom sheet on phones; pause and results are centred modals. */
 :root {
-  --build: "15"; /* must match BUILD in js/main.js */
+  --build: "16"; /* must match BUILD in js/main.js */
   --asphalt: #0d1016;
   --panel: rgba(13, 16, 23, 0.9);
   --panel-solid: #131822;
@@ -83,161 +83,11 @@ button:focus-visible {
   touch-action: none;
 }
 
-/* Left thumb: steering strip, about two thirds of the width. */
-.steer-pad {
-  position: absolute;
-  left: max(14px, calc(env(safe-area-inset-left, 0px) + 12px));
-  bottom: calc(env(safe-area-inset-bottom, 0px) + 18px);
-  width: min(calc(66.6% - 36px), 380px);
-  height: 84px;
-  box-sizing: border-box;
-  border-radius: 26px;
-  background: rgba(10, 13, 19, 0.42);
-  border: 2px solid rgba(255, 255, 255, 0.18);
-  backdrop-filter: blur(2px);
-  -webkit-backdrop-filter: blur(2px);
-}
-
-.steer-pad::before {
-  content: "";
-  position: absolute;
-  left: 34px;
-  right: 34px;
-  top: 50%;
-  height: 4px;
-  margin-top: -2px;
-  border-radius: 2px;
-  background: rgba(255, 255, 255, 0.14);
-}
-
-.steer-arrow {
-  position: absolute;
-  top: 50%;
-  transform: translateY(-54%);
-  font: 700 30px/1 var(--font-ui);
-  color: rgba(255, 255, 255, 0.42);
-}
-
-.steer-arrow.l { left: 12px; }
-.steer-arrow.r { right: 12px; }
-
-.steer-center {
-  position: absolute;
-  left: 50%;
-  top: 16px;
-  bottom: 16px;
-  width: 2px;
-  margin-left: -1px;
-  border-radius: 1px;
-  background: rgba(255, 255, 255, 0.4);
-}
-
-.steer-knob,
-.pedal-knob {
-  position: absolute;
-  left: 50%;
-  width: 52px;
-  height: 52px;
-  margin-left: -26px;
-  border-radius: 50%;
-  box-sizing: border-box;
-  background: rgba(255, 255, 255, 0.16);
-  border: 2px solid rgba(255, 255, 255, 0.5);
-  transition: left 140ms ease-out, top 140ms ease-out, background 80ms;
-  pointer-events: none;
-}
-
-.steer-knob {
-  top: 50%;
-  margin-top: -26px;
-}
-
-.steer-pad.on .steer-knob,
-.pedal.on .pedal-knob {
-  background: rgba(255, 255, 255, 0.85);
-  transition: background 80ms;
-}
-
-.steer-pad.on .steer-center {
-  background: rgba(255, 210, 63, 0.9);
-}
-
-/* Right thumb: upright pedal. Gas on top, neutral band, brake at the bottom. */
-.pedal {
-  position: absolute;
-  right: max(14px, calc(env(safe-area-inset-right, 0px) + 12px));
-  bottom: calc(env(safe-area-inset-bottom, 0px) + 18px);
-  width: 84px;
-  height: min(240px, 34vh);
-  box-sizing: border-box;
-  border-radius: 26px;
-  border: 2px solid rgba(255, 255, 255, 0.18);
-  background: linear-gradient(
-    180deg,
-    rgba(49, 214, 123, 0.2) 0 52%,
-    rgba(10, 13, 19, 0.42) 52% 66%,
-    rgba(255, 90, 79, 0.22) 66% 100%
-  );
-  backdrop-filter: blur(2px);
-  -webkit-backdrop-filter: blur(2px);
-}
-
-.pedal.gas-on {
-  border-color: rgba(49, 214, 123, 0.8);
-  background: linear-gradient(
-    180deg,
-    rgba(49, 214, 123, 0.42) 0 52%,
-    rgba(10, 13, 19, 0.42) 52% 66%,
-    rgba(255, 90, 79, 0.22) 66% 100%
-  );
-}
-
-.pedal.brake-on {
-  border-color: rgba(255, 90, 79, 0.85);
-  background: linear-gradient(
-    180deg,
-    rgba(49, 214, 123, 0.2) 0 52%,
-    rgba(10, 13, 19, 0.42) 52% 66%,
-    rgba(255, 90, 79, 0.48) 66% 100%
-  );
-}
-
-.pedal-label {
-  position: absolute;
-  left: 0;
-  right: 0;
-  text-align: center;
-  font: 800 14px/1 var(--font-display);
-  letter-spacing: 0.08em;
-  color: rgba(255, 255, 255, 0.82);
-  pointer-events: none;
-}
-
-.pedal-label.gas { top: 14%; }
-.pedal-label.brake { bottom: 11%; }
-
-.pedal-knob {
-  top: 30%;
-  margin-top: -26px;
-}
-
-/* Phone held sideways: the strip stays out of the middle, the pedal is tall. */
-@media (orientation: landscape) and (max-height: 500px) {
-  .steer-pad {
-    width: min(32vw, 290px);
-    height: 88px;
-  }
-  .pedal {
-    width: 96px;
-    height: min(52vh, 200px);
-  }
-}
-
 /* Buttons: ‹ › under one thumb, GAS above BRAKE under the other, like the
    arrow keys on a computer. A thumb can rock from one button to its
    neighbour without lifting (handled in input.js). */
 .tbtns {
-  display: none;
+  display: flex;
   position: absolute;
   bottom: calc(env(safe-area-inset-bottom, 0px) + 16px);
   gap: 12px;
@@ -252,15 +102,6 @@ button:focus-visible {
   right: max(14px, calc(env(safe-area-inset-right, 0px) + 12px));
   flex-direction: column; /* GAS on top, BRAKE below, like the pedal */
   gap: 10px;
-}
-
-.touch.buttons .steer-pad,
-.touch.buttons .pedal {
-  display: none;
-}
-
-.touch.buttons .tbtns {
-  display: flex;
 }
 
 .tbtn {
@@ -329,16 +170,6 @@ button:focus-visible {
 
 /* Swapped sides: steering under the right thumb, gas and brake under the
    left (and the pause button moves over with the pedal). */
-.touch.swap .steer-pad {
-  left: auto;
-  right: max(14px, calc(env(safe-area-inset-right, 0px) + 12px));
-}
-
-.touch.swap .pedal {
-  right: auto;
-  left: max(14px, calc(env(safe-area-inset-left, 0px) + 12px));
-}
-
 .touch.swap .steer-btns {
   left: auto;
   right: max(14px, calc(env(safe-area-inset-right, 0px) + 12px));

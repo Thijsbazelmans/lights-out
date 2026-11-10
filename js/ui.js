@@ -43,8 +43,8 @@ export function createUI(root, h) {
       <section class="howto">
         <h2>How to drive</h2>
         <div class="keys" id="keys"></div>
-        <p><b>Drift:</b> while turning at speed, press and hold brake (on a phone: slide your right thumb down). The car slides round the corner at full speed. Hold it to fill the meter, then let go of brake for a boost: <span class="t1">blue</span>, <span class="t2">orange</span>, <span class="t3">purple</span>.</p>
-        <p><b>Braking:</b> red on the racing line and the 3-2-1 boards at the side show where to brake.</p>
+        <p><b>Drift:</b> while turning at speed, press and hold brake (on a phone: rock your thumb from GAS down to BRAKE). The car slides round the corner at full speed. Hold it to fill the meter, then let go of brake for a boost: <span class="t1">blue</span>, <span class="t2">orange</span>, <span class="t3">purple</span>.</p>
+        <p><b>Braking:</b> 3-2-1 boards count down to every big stop; brake at the red <b>1</b>. Long bends are flat out, quicker ones need a lift off the gas, hairpins and chicanes a proper stop. The yellow-and-black kerbs in a chicane are solid: go round them, not over them.</p>
         <p><b>Launch:</b> wait for the five red lights to go out, then hit the gas. Hold it too early and you'll spin the wheels.</p>
         <p><b>Slipstream:</b> tuck in behind a car on a straight for extra speed.</p>
       </section>
@@ -108,24 +108,14 @@ export function createUI(root, h) {
           <p class="hint">Chase turns the view with your car, so left is always left. Fixed keeps north at the top.</p>
         </div>
         <div class="opt">
-          <span class="label">Braking hints</span>
+          <span class="label">Braking boards</span>
           <div class="seg" data-setting="brakeHints"><button data-val="true">On</button><button data-val="false">Off</button></div>
-          <p class="hint">Red braking zones on the racing line and 3-2-1 boards before the big stops.</p>
-        </div>
-        <div class="opt">
-          <span class="label">Phone controls</span>
-          <div class="seg" data-setting="touchControls"><button data-val="buttons">Buttons</button><button data-val="sliders">Sliders</button></div>
-          <p class="hint">Buttons: ‹ and › to steer, GAS above BRAKE, like the arrow keys on a computer; rock your thumb from one to the other, or lift it to coast. Sliders: slide to steer as much as you like, and one pedal for gas (up) and brake (down).</p>
+          <p class="hint">3-2-1 boards on both sides of the road before every big stop. Brake at the red 1.</p>
         </div>
         <div class="opt">
           <span class="label">Phone layout</span>
           <div class="seg" data-setting="steerSide"><button data-val="left">Steer left</button><button data-val="right">Steer right</button></div>
-          <p class="hint">Steer left: steering under your left thumb, gas and brake under your right. Steer right: the other way round.</p>
-        </div>
-        <div class="opt">
-          <span class="label">Slider steering</span>
-          <div class="seg" data-setting="touchSteer"><button data-val="float">From thumb</button><button data-val="fixed">Fixed centre</button></div>
-          <p class="hint">With the sliders. From thumb: wherever you put your thumb down is straight ahead; slide left or right from there. Fixed centre: the middle of the strip is straight ahead.</p>
+          <p class="hint">Steer left: ‹ and › under your left thumb, GAS above BRAKE under your right. Steer right: the other way round. Rock your thumb from one button to the other, or lift it to coast.</p>
         </div>
         <div class="opt">
           <span class="label">Auto-gas</span>

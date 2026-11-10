@@ -21,20 +21,19 @@ Top-down arcade Formula racing that runs in the browser and installs to a phone'
 | Steer | ← → or A D | ‹ and › | left stick or d-pad |
 | Pause | Esc or P | ❚❚ in the top corner | Start |
 
-On a phone the game is played sideways; held upright, it asks you to turn the phone (and pauses a race). An installed home-screen app on Android opens in landscape by itself. By default the controls are buttons, like the arrow keys on a computer: ‹ and › under one thumb, GAS above BRAKE under the other. A thumb can rock from one button to its neighbour without lifting; the gap between GAS and BRAKE, or lifting off, is coasting. Each half of the screen belongs to one pair of buttons, so a thumb doesn't need to land exactly. Settings → Phone layout puts steering under the left thumb (default) or the right.
+On a phone the game is played sideways; held upright, it asks you to turn the phone (and pauses a race). An installed home-screen app on Android opens in landscape by itself. The controls are buttons, like the arrow keys on a computer: ‹ and › under one thumb, GAS above BRAKE under the other. A thumb can rock from one button to its neighbour without lifting; the gap between GAS and BRAKE, or lifting off, is coasting. Each half of the screen belongs to one pair of buttons, so a thumb doesn't need to land exactly. Settings → Phone layout puts steering under the left thumb (default) or the right.
 
-Settings → Phone controls → Sliders swaps the buttons for proportional sliders: a steering strip (a small slide is a small turn; by default wherever you put your thumb down counts as straight ahead, or Settings → Slider steering → Fixed centre) and one pedal (gas at the top, a neutral band to coast, brake at the bottom).
-
-With the phone sideways the middle of the screen stays clear for the road: position, lap times, gaps and messages sit in the column above the steering controls, the speed sits right next to GAS, the map sits next to the pause button above the pedals, and only the start lights and the corner warnings appear in the middle.
+With the phone sideways the middle of the screen stays clear for the road: position, lap times, gaps and messages sit in the column above the steering controls, the speed sits right next to GAS, the map sits next to the pause button above the pedals, and only the start lights appear in the middle.
 
 - **Drift:** while turning at speed, press and hold brake. The car slides round the corner without losing much speed. Hold it to fill the meter, then let go of brake for a boost: blue, then orange, then purple. On a phone, rock your pedal thumb from GAS down to BRAKE and back up.
 - **Launch:** wait for the five red lights to go out, then hit the gas. React within 0.3 s for a perfect start. Hold the gas too early and you spin the wheels.
 - **Slipstream:** tuck in behind a car on a straight for extra top speed.
-- **Braking hints:** red on the racing line shows where to brake, and 3-2-1 boards stand before the big stops (board 3 is the braking point). When you're flat out towards a slow corner, a pace note under the timer warns you early ("HAIRPIN RIGHT", timed from your actual speed, so a boost brings it sooner) and turns into a flashing BRAKE! with a beep when it's time. Can be turned off in Settings.
+- **Corners:** long bends are flat out; quicker ones need a lift off the gas (coasting scrubs off speed); hairpins and hard corners need proper braking; chicanes need a big stop. The yellow-and-black sausage kerbs in a chicane are solid, so it can't be cut.
+- **Braking boards:** 3-2-1 boards on both sides of the road count down to every big stop; brake at the red **1** (that's for the speed you'd arrive with, with a little in hand). Can be turned off in Settings.
 - **Barriers:** a light scrape costs little; using a wall as a brake costs a lot of speed and makes the engine stutter for a moment, so it's slower than braking.
 - **Leading:** once you're out in front, the cars behind chase: the further you pull away, the harder they push, and they fire boosts out of the corners like your drifts do. A lead has to be kept, not just built.
 
-Settings: sound, camera (Chase rotates with the car; Fixed keeps north up), braking hints, phone controls (buttons or sliders), phone layout (steer left or right), slider steering, auto-gas for phones, and erasing saved records.
+Settings: sound, camera (Chase rotates with the car; Fixed keeps north up), braking boards, phone layout (steer left or right), auto-gas for phones, and erasing saved records.
 
 ## Put it on GitHub Pages
 
@@ -74,8 +73,8 @@ Then open http://localhost:8642.
 | `js/main.js` | Boot, game loop, screen flow, saving results |
 | `js/race.js` | A session: start lights, laps, positions, collisions, slipstream, ghosts, results |
 | `js/car.js` | Car physics (grip, drift, boost, barriers) and the car drawing |
-| `js/ai.js` | Computer drivers: racing line, braking points, overtaking, recovery |
-| `js/track.js` | Circuit geometry, racing line, AI speed targets, kerbs, scenery, minimap |
+| `js/ai.js` | Computer drivers: following the racing line, braking points, overtaking, recovery |
+| `js/track.js` | Circuit geometry, chicanes, racing line and corner speeds, braking boards, kerbs, scenery, minimap |
 | `js/data/tracks.js` | The circuits, their looks and the season calendar |
 | `js/data/circuits/` | Each real circuit as game coordinates |
 | `js/season.js` | Championship: points, standings, rounds |
@@ -89,7 +88,8 @@ Then open http://localhost:8642.
 
 Developer extras:
 
-- `tools/track-preview.html` draws every circuit with its racing line coloured by AI target speed, plus braking zones and boards (`?ids=monaco,spa` for just a few).
+- `tools/track-preview.html` draws every circuit with its racing line coloured by the speed the car can carry, the stops that get braking boards, and every corner numbered with its slowest speed (`?ids=monaco,spa` for just a few).
+- `tools/chicanes.html` shows a close-up of every chicane as drawn in the game.
 - `tools/convert-circuit.mjs` turns a GeoJSON centre line into a circuit file (see below).
 - Add `?nopause` to the URL to stop the game pausing when the tab is hidden (for automated testing).
 - `window.lightsOut` in the browser console gives access to the game state.
@@ -106,7 +106,11 @@ Options (JSON): `reverse` if the file runs the wrong way round, `startShift` (me
 
 The game handles the rest: where two parts of a circuit run closer than the (extra-wide) road allows, it pushes them apart and puts a shared barrier halfway between them; while you drive past, the road beside yours is dimmed. Where a circuit crosses itself (Suzuka) it builds a bridge, with the later part of the lap on top.
 
-Tuning knobs live at the top of their files: `WALL` in `js/car.js` (what barrier hits cost), `DIFFICULTY` (AI pace and how hard they chase a leader), `CHASE_BOOST` and `PACE_NOTE` in `js/race.js`.
+The road is drawn about three times wider than a real one (so cars can race side by side on a phone), which flattens real chicanes into wiggles you could drive straight through. So each circuit lists its chicanes in `js/data/tracks.js` (`chicanes: [{ at: lap fraction, kind: 'slow' | 'medium' | 'fast' }]`): the game rebuilds each one as a sharp Z at game scale and puts sausage kerbs on the inside of both turns (`rebuild: false` keeps the real shape and only adds kerbs). Circuits whose chicanes were rebuilt have `layout: 2`, which clears lap records set on the old shape.
+
+The racing line is an elastic band pulled as straight as the road allows (it uses the inside of tight corners like a player can). The AI drives it, and the braking boards come from the speeds along it, so they match what the car can really do.
+
+Tuning knobs live at the top of their files: `WALL` and `LIFT` in `js/car.js` (what barrier hits cost; how much a lift off the gas slows you), `LINE`, `CHICANE` and `HINTS` in `js/track.js` (racing line clearances, chicane shapes and kerbs, braking boards), `AI_KERB` in `js/ai.js`, `DIFFICULTY` (AI pace and how hard they chase a leader) and `CHASE_BOOST` in `js/race.js`.
 
 ## Roadmap
 

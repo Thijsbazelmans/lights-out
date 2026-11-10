@@ -1,6 +1,6 @@
 // Boot, game loop and screen flow.
 
-import { TRACKS } from './data/tracks.js';
+import { ALL_REAL, TRACKS } from './data/tracks.js';
 import { allDrivers, playerFor, rivalsFor } from './data/teams.js';
 import { Track } from './track.js';
 import { Race } from './race.js';
@@ -10,12 +10,12 @@ import { drawHUD } from './hud.js';
 import { createUI } from './ui.js';
 import { save } from './storage.js';
 import * as audio from './audio.js';
-import { bindTouchControls, initInput, isTouchDevice, onFirstTouch, readInput, setControlMode, setGameActive, setSteerMode, touchSnapshot } from './input.js';
+import { bindTouchControls, initInput, isTouchDevice, onFirstTouch, readInput, setGameActive, touchSnapshot } from './input.js';
 import { clamp, formatTime } from './util.js';
 import { POINTS, ROUNDS, abandonSeason, currentSeason, isComplete, nextTrack, playerStanding, recordRound, standings, startSeason, teamStanding } from './season.js';
 
 // Bump together with --build in css/style.css and CACHE in sw.js.
-const BUILD = '15';
+const BUILD = '16';
 
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d', { alpha: false });
@@ -87,9 +87,7 @@ const ui = createUI(document.getElementById('ui'), {
   },
   onSetting: (key, v) => {
     if (key === 'sound') audio.setSoundEnabled(v);
-    if (key === 'touchSteer') setSteerMode(v);
     if (key === 'steerSide') applySide();
-    if (key === 'touchControls') setControlMode(v);
   },
 });
 
@@ -154,10 +152,9 @@ function lockLandscape() {
 // clear of them.
 function controlRects() {
   if (touchEl.hidden) return null;
-  const buttons = touchEl.classList.contains('buttons');
-  const s = touchEl.querySelector(buttons ? '.steer-btns' : '.steer-pad')?.getBoundingClientRect();
-  const p = touchEl.querySelector(buttons ? '.pedal-btns' : '.pedal')?.getBoundingClientRect();
-  const g = buttons ? touchEl.querySelector('.tbtn.gas')?.getBoundingClientRect() : null;
+  const s = touchEl.querySelector('.steer-btns')?.getBoundingClientRect();
+  const p = touchEl.querySelector('.pedal-btns')?.getBoundingClientRect();
+  const g = touchEl.querySelector('.tbtn.gas')?.getBoundingClientRect();
   return s && p && s.width && p.width ? { steer: s, pedal: p, gas: g } : null;
 }
 
@@ -305,9 +302,6 @@ function handleOut(r) {
         break;
       case 'boost':
         audio.sfxBoost(e.tier);
-        break;
-      case 'brakeCue':
-        audio.sfxBeep(1180, 0.1, 'square', 0.08);
         break;
       case 'tier':
         audio.sfxBeep(560 + e.tier * 220, 0.07, 'triangle', 0.07);
@@ -504,6 +498,7 @@ function updateEngineSound(r, input) {
 
 // ---------- boot ----------
 
+save.checkLayouts(Object.fromEntries(ALL_REAL.map((d) => [d.id, d.layout])));
 initInput({ onPause: onPauseKey });
 bindTouchControls(touchEl);
 onFirstTouch(() => {
@@ -512,8 +507,6 @@ onFirstTouch(() => {
   if (ui.current === 'title') ui.show('title');
 });
 audio.setSoundEnabled(save.settings.sound);
-setSteerMode(save.settings.touchSteer);
-setControlMode(save.settings.touchControls);
 applySide();
 
 if (document.fonts && document.fonts.load) {

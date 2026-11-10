@@ -5,6 +5,9 @@
 
 import { clamp, damp, rand, wrapAngle } from './util.js';
 
+// How close (px) an AI car aims to pass a chicane's sausage kerb.
+export const AI_KERB = { gap: 36 };
+
 export class AIDriver {
   constructor(car, track, { pace = 0.93 } = {}) {
     this.car = car;
@@ -68,7 +71,7 @@ export class AIDriver {
     const myLat = (c.x - t.px[idx]) * t.nx[idx] + (c.y - t.py[idx]) * t.ny[idx];
     const edge = t.half - 24;
     // Usable width on each side: less where a wall sits close to the track.
-    const edgeAt = (i) => [-Math.min(edge, t.wallL[i] - 40), Math.min(edge, t.wallR[i] - 40)];
+    const edgeAt = (i) => [-t.roomAt(i, -1, edge, 40, AI_KERB.gap), t.roomAt(i, 1, edge, 40, AI_KERB.gap)];
     const [lo, hi] = edgeAt(idx);
     // Pass on the straights, or when clearly quicker; through corners, follow.
     let bend = 0;
@@ -100,8 +103,11 @@ export class AIDriver {
     const desiredOff = this.offsetTarget + Math.sin(this.wob * 0.7) * 8;
     this.offset = damp(this.offset, desiredOff, 2.2, dt);
 
-    // Steer toward a point ahead on our line.
-    const look = clamp(55 + Math.abs(v) * 0.32, 60, 280);
+    // Steer toward a point ahead on our line; look less far ahead through a
+    // tight bit (a chicane), so we don't cut across its kerbs.
+    let tight = 0;
+    for (let k = 4; k <= 24; k += 4) tight = Math.max(tight, Math.abs(t.rcurv[(idx + k) % n]));
+    const look = clamp(55 + Math.abs(v) * 0.32, 60, 280) * (tight > 1 / 170 ? 0.7 : 1);
     const ti = (idx + Math.round(look / t.ds)) % n;
     const [tlo, thi] = edgeAt(ti);
     const lat = clamp(t.roff[ti] + this.offset, tlo, thi);

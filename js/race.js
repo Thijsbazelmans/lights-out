@@ -11,24 +11,19 @@ const SPLITS = 40; // timing points per lap (gaps and live delta)
 const GHOST_DT = 0.05;
 const LIGHT_GAP = 0.8;
 
-// AI speed per difficulty. `top` is the corner pace of the fastest cars and
-// `spread` how much slower the slowest are; `power` is top-end engine power.
-// On lap 1 everyone runs near the middle of that range (a proper first-lap
-// scramble); during lap 1 each car moves to its own race pace, so the field
-// strings out into smaller groups and one-on-one battles.
-// Braking pace notes: when you're above `minSpeed` × top speed and a corner
-// slower than `slowest` × top speed needs you to lose at least `minDrop` ×
-// top speed, warn `warn` seconds before the braking point. BRAKE comes `now`
-// seconds early (time to react), assuming `brake` × full braking.
-export const PACE_NOTE = { slowest: 0.6, minDrop: 0.28, minSpeed: 0.7, warn: 1.7, now: 0.35, brake: 0.75 };
-
 // How often a chasing car boosts out of a corner: base + more × how hard it chases.
 export const CHASE_BOOST = { base: 0.4, more: 0.6, tier2: 0.6 };
 
+// AI speed per difficulty. `top` is the corner pace of the fastest cars (a
+// share of the racing line's own speeds) and `spread` how much slower the
+// slowest are; `power` is top-end engine power. On lap 1 everyone runs near
+// the middle of that range (a proper first-lap scramble); during lap 1 each
+// car moves to its own race pace, so the field strings out into smaller
+// groups and one-on-one battles.
 export const DIFFICULTY = {
-  easy: { top: 0.93, spread: 0.13, power: 0.95, powerSpread: 0.07, chase: 0.08 },
-  normal: { top: 1.0, spread: 0.13, power: 1.0, powerSpread: 0.07, chase: 0.12 },
-  hard: { top: 1.04, spread: 0.12, power: 1.02, powerSpread: 0.06, chase: 0.15 },
+  easy: { top: 0.82, spread: 0.13, power: 0.95, powerSpread: 0.07, chase: 0.08 },
+  normal: { top: 0.88, spread: 0.13, power: 1.0, powerSpread: 0.07, chase: 0.12 },
+  hard: { top: 0.915, spread: 0.12, power: 1.02, powerSpread: 0.06, chase: 0.15 },
 };
 
 const GHOST_LIVERY = { color: '#cfe8ff', color2: '#6fb7ff', helmet: '#ffffff' };
@@ -161,7 +156,6 @@ export class Race {
     }
     if (steps >= 10) this.acc = 0;
     this.particles.update(scaled);
-    this.updatePaceNote(dt);
     this.updateBeside(dt);
     for (const m of this.messages) m.t += dt;
     this.messages = this.messages.filter((m) => m.t < m.dur);
@@ -281,56 +275,6 @@ export class Race {
       return 1 + Math.min(chase, 0.03 + (-d / L) * 1.0) * lead;
     }
     return 1;
-  }
-
-  // Pace notes: a heads-up for the next slow corner, timed from your actual
-  // speed (so a boost or the slipstream brings it earlier), then BRAKE at the
-  // point where you need to be on the brakes to make it.
-  updatePaceNote(dt) {
-    const p = this.player;
-    const t = this.track;
-    const prev = this.paceNote;
-    if (!p || this.hints === false || this.phase !== 'race' || p.finished || p.frozen) {
-      this.paceNote = null;
-      return;
-    }
-    const TOP = PHYS.TOP;
-    const n = t.n;
-    let z = null;
-    let ahead = Infinity;
-    for (const c of t.brakeZones) {
-      if (t.vProfile[c.end] > PACE_NOTE.slowest * TOP) continue;
-      const a = (c.end - p.trackIdx + n) % n;
-      if (a < ahead && a < n / 2) {
-        ahead = a;
-        z = c;
-      }
-    }
-    let note = prev && prev.zone === z ? prev : null;
-    if (z) {
-      const v = Math.max(0, p.forwardSpeed);
-      const vc = t.vProfile[z.end];
-      const brakeDist = Math.max(0, (v * v - vc * vc) / (2 * PHYS.BRAKE * PACE_NOTE.brake));
-      const tt = (ahead * t.ds - brakeDist) / Math.max(v, 60); // seconds until you must brake
-      const need = v - vc;
-      if (!note && v > PACE_NOTE.minSpeed * TOP && need > PACE_NOTE.minDrop * TOP && tt < PACE_NOTE.warn && tt > 0) {
-        const kind = vc < 0.33 * TOP ? 'HAIRPIN' : vc < 0.47 * TOP ? 'SLOW' : 'MEDIUM';
-        note = { zone: z, kind, dir: z.dir > 0 ? 'RIGHT' : 'LEFT', stage: 'warn', t: 0, fade: 1, tt, warnAt: tt };
-      }
-      if (note) {
-        note.t += dt;
-        note.tt = tt;
-        if (note.stage === 'warn' && tt < PACE_NOTE.now) {
-          note.stage = 'brake';
-          this.out.push({ t: 'brakeCue' });
-        }
-        // Slowed down enough, or through the corner: let it go.
-        if (note.stage !== 'done' && (need < 0.08 * TOP || ahead > n / 2)) note.stage = 'done';
-        if (note.stage === 'done') note.fade -= dt / 0.35;
-        if (note.fade <= 0) note = null;
-      }
-    } else note = null;
-    this.paceNote = note;
   }
 
   // Where another part of the circuit runs right beside yours, fade it down

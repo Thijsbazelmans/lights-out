@@ -22,6 +22,7 @@ export const PHYS = {
   GRIP: 9,
   GRASS_TOP: 0.45,
   GRASS_GRIP: 0.5,
+  LIFT: 0.32, // off the gas and off the brake: extra drag × speed, so a lift scrubs speed
   BOOST_TOP: 1.3,
   BOOST_ACC: 1.9,
   SLIP_TOP: 0.1,
@@ -192,6 +193,7 @@ export class Car {
       if (this.gas <= 0.05 && this.brake <= 0.05) {
         const c = P.COAST * dt;
         vf = Math.abs(vf) <= c ? 0 : vf - Math.sign(vf) * c;
+        vf -= vf * P.LIFT * dt;
       }
       vf -= vf * P.DRAG * dt;
       if (off) vf -= vf * 0.9 * dt;

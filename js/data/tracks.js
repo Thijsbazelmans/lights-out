@@ -179,33 +179,37 @@ function THEME_DESERT() {
   };
 }
 
-// Real circuits. lengthKm: real lap length.
+// Real circuits. lengthKm: real lap length. `layout` goes up when a circuit's
+// shape changes enough that old lap records no longer compare (2: chicanes
+// rebuilt at game scale, see Track.shapeChicanes).
 const REAL = [
   ['interlagos', 'Interlagos', 'São Paulo Grand Prix', 'Brazil', 4.31, 'saopaulo', INTERLAGOS],
-  ['monaco', 'Monaco', 'Monaco Grand Prix', 'Monaco', 3.34, 'monaco', MONACO, { runoff: 30 }],
+  ['monaco', 'Monaco', 'Monaco Grand Prix', 'Monaco', 3.34, 'monaco', MONACO, { runoff: 30, chicanes: [{ at: 0.343, kind: 'slow', rebuild: false }, { at: 0.539, kind: 'medium', rebuild: false }] }],
   ['zandvoort', 'Zandvoort', 'Dutch Grand Prix', 'Netherlands', 4.26, 'dunes', ZANDVOORT],
-  ['suzuka', 'Suzuka', 'Japanese Grand Prix', 'Japan', 5.81, 'park', SUZUKA],
-  ['lasvegas', 'Las Vegas', 'Las Vegas Grand Prix', 'United States', 6.2, 'vegas', LAS_VEGAS, { runoff: 42 }],
-  ['silverstone', 'Silverstone', 'British Grand Prix', 'Great Britain', 5.89, 'britain', SILVERSTONE],
-  ['spa', 'Spa-Francorchamps', 'Belgian Grand Prix', 'Belgium', 7.0, 'forest', SPA],
-  ['baku', 'Baku', 'Azerbaijan Grand Prix', 'Azerbaijan', 6.0, 'baku', BAKU, { runoff: 42 }],
-  ['monza', 'Monza', 'Italian Grand Prix', 'Italy', 5.79, 'forest', MONZA],
+  ['suzuka', 'Suzuka', 'Japanese Grand Prix', 'Japan', 5.81, 'park', SUZUKA, { chicanes: [{ at: 0.887, kind: 'slow' }] }],
+  ['lasvegas', 'Las Vegas', 'Las Vegas Grand Prix', 'United States', 6.2, 'vegas', LAS_VEGAS, { runoff: 42, chicanes: [{ at: 0.31, kind: 'medium', rebuild: false }] }],
+  ['silverstone', 'Silverstone', 'British Grand Prix', 'Great Britain', 5.89, 'britain', SILVERSTONE, { chicanes: [{ at: 0.459, kind: 'slow', rebuild: false }] }],
+  ['spa', 'Spa-Francorchamps', 'Belgian Grand Prix', 'Belgium', 7.0, 'forest', SPA, { chicanes: [{ at: 0.947, kind: 'slow' }] }],
+  ['baku', 'Baku', 'Azerbaijan Grand Prix', 'Azerbaijan', 6.0, 'baku', BAKU, { runoff: 42, chicanes: [{ at: 0.325, kind: 'medium', rebuild: false }, { at: 0.445, kind: 'medium', rebuild: false, turns: 3 }] }],
+  ['monza', 'Monza', 'Italian Grand Prix', 'Italy', 5.79, 'forest', MONZA, {
+    chicanes: [{ at: 0.107, kind: 'slow' }, { at: 0.315, kind: 'slow' }, { at: 0.638, kind: 'medium' }],
+  }],
   ['sepang', 'Sepang', 'Malaysian Grand Prix', 'Malaysia', 5.54, 'tropical', SEPANG],
-  ['singapore', 'Marina Bay', 'Singapore Grand Prix', 'Singapore', 4.94, 'night', MARINA_BAY, { runoff: 42 }],
+  ['singapore', 'Marina Bay', 'Singapore Grand Prix', 'Singapore', 4.94, 'night', MARINA_BAY, { runoff: 42, chicanes: [{ at: 0.54, kind: 'medium', rebuild: false }, { at: 0.855, kind: 'medium', rebuild: false }] }],
   ['miami', 'Miami', 'Miami Grand Prix', 'United States', 5.41, 'miami', MIAMI, { runoff: 46 }],
-  ['melbourne', 'Albert Park', 'Australian Grand Prix', 'Australia', 5.28, 'park', ALBERT_PARK, { runoff: 54 }],
+  ['melbourne', 'Albert Park', 'Australian Grand Prix', 'Australia', 5.28, 'park', ALBERT_PARK, { runoff: 54, chicanes: [{ at: 0.064, kind: 'medium' }, { at: 0.352, kind: 'fast' }] }],
   ['shanghai', 'Shanghai', 'Chinese Grand Prix', 'China', 5.45, 'china', SHANGHAI],
   ['bahrain', 'Bahrain', 'Bahrain Grand Prix', 'Bahrain', 5.41, 'bahrain', BAHRAIN],
-  ['jeddah', 'Jeddah', 'Saudi Arabian Grand Prix', 'Saudi Arabia', 6.17, 'jeddah', JEDDAH, { runoff: 42 }],
-  ['montreal', 'Montréal', 'Canadian Grand Prix', 'Canada', 4.36, 'island', MONTREAL, { runoff: 50 }],
-  ['barcelona', 'Barcelona', 'Barcelona-Catalunya Grand Prix', 'Spain', 4.66, 'dry', BARCELONA],
+  ['jeddah', 'Jeddah', 'Saudi Arabian Grand Prix', 'Saudi Arabia', 6.17, 'jeddah', JEDDAH, { runoff: 42, chicanes: [{ at: 0.071, kind: 'slow' }] }],
+  ['montreal', 'Montréal', 'Canadian Grand Prix', 'Canada', 4.36, 'island', MONTREAL, { runoff: 50, chicanes: [{ at: 0.225, kind: 'medium' }, { at: 0.357, kind: 'medium' }, { at: 0.542, kind: 'medium' }, { at: 0.937, kind: 'slow' }] }],
+  ['barcelona', 'Barcelona', 'Barcelona-Catalunya Grand Prix', 'Spain', 4.66, 'dry', BARCELONA, { chicanes: [{ at: 0.155, kind: 'medium', rebuild: false }] }],
   ['austria', 'Red Bull Ring', 'Austrian Grand Prix', 'Austria', 4.32, 'alpine', RED_BULL_RING],
-  ['hungary', 'Hungaroring', 'Hungarian Grand Prix', 'Hungary', 4.38, 'hungary', HUNGARORING],
+  ['hungary', 'Hungaroring', 'Hungarian Grand Prix', 'Hungary', 4.38, 'hungary', HUNGARORING, { chicanes: [{ at: 0.48, kind: 'slow' }] }],
   ['austin', 'Austin', 'United States Grand Prix', 'United States', 5.51, 'usa', COTA],
-  ['mexico', 'Mexico City', 'Mexico City Grand Prix', 'Mexico', 4.3, 'mexico', MEXICO_CITY],
+  ['mexico', 'Mexico City', 'Mexico City Grand Prix', 'Mexico', 4.3, 'mexico', MEXICO_CITY, { chicanes: [{ at: 0.288, kind: 'slow', rebuild: false, turns: 3 }, { at: 0.471, kind: 'medium', rebuild: false }] }],
   ['qatar', 'Lusail', 'Qatar Grand Prix', 'Qatar', 5.42, 'qatar', LUSAIL],
-  ['abudhabi', 'Yas Marina', 'Abu Dhabi Grand Prix', 'Abu Dhabi', 5.28, 'yas', YAS_MARINA],
-  ['madrid', 'Madring', 'Spanish Grand Prix', 'Spain', 5.42, 'madrid', MADRING, { runoff: 34 }],
+  ['abudhabi', 'Yas Marina', 'Abu Dhabi Grand Prix', 'Abu Dhabi', 5.28, 'yas', YAS_MARINA, { chicanes: [{ at: 0.478, kind: 'slow' }] }],
+  ['madrid', 'Madring', 'Spanish Grand Prix', 'Spain', 5.42, 'madrid', MADRING, { runoff: 34, chicanes: [{ at: 0.036, kind: 'medium', rebuild: false }, { at: 0.308, kind: 'medium', rebuild: false }] }],
 ];
 
 export const ALL_REAL = REAL.map(([id, name, gp, country, lengthKm, themeId, points, extra]) => ({
@@ -218,6 +222,7 @@ export const ALL_REAL = REAL.map(([id, name, gp, country, lengthKm, themeId, poi
   theme: THEMES[themeId],
   scale: 1,
   points,
+  layout: extra?.chicanes ? 2 : 1,
   ...(extra || {}),
 }));
 
