@@ -10,12 +10,12 @@ import { drawHUD } from './hud.js';
 import { createUI } from './ui.js';
 import { save } from './storage.js';
 import * as audio from './audio.js';
-import { bindTouchControls, initInput, isTouchDevice, onFirstTouch, readInput, setGameActive, setSteerMode, touchSnapshot } from './input.js';
+import { bindTouchControls, initInput, isTouchDevice, onFirstTouch, readInput, setControlMode, setGameActive, setSteerMode, touchSnapshot } from './input.js';
 import { clamp, formatTime } from './util.js';
 import { POINTS, ROUNDS, abandonSeason, currentSeason, isComplete, nextTrack, playerStanding, recordRound, standings, startSeason, teamStanding } from './season.js';
 
 // Bump together with --build in css/style.css and CACHE in sw.js.
-const BUILD = '14';
+const BUILD = '15';
 
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d', { alpha: false });
@@ -89,6 +89,7 @@ const ui = createUI(document.getElementById('ui'), {
     if (key === 'sound') audio.setSoundEnabled(v);
     if (key === 'touchSteer') setSteerMode(v);
     if (key === 'steerSide') applySide();
+    if (key === 'touchControls') setControlMode(v);
   },
 });
 
@@ -149,12 +150,15 @@ function lockLandscape() {
   }
 }
 
-// Where the sliders are on screen, so the HUD can keep clear of them.
+// Where the steering and pedal controls are on screen, so the HUD can keep
+// clear of them.
 function controlRects() {
   if (touchEl.hidden) return null;
-  const s = touchEl.querySelector('.steer-pad')?.getBoundingClientRect();
-  const p = touchEl.querySelector('.pedal')?.getBoundingClientRect();
-  return s && p && s.width && p.width ? { steer: s, pedal: p } : null;
+  const buttons = touchEl.classList.contains('buttons');
+  const s = touchEl.querySelector(buttons ? '.steer-btns' : '.steer-pad')?.getBoundingClientRect();
+  const p = touchEl.querySelector(buttons ? '.pedal-btns' : '.pedal')?.getBoundingClientRect();
+  const g = buttons ? touchEl.querySelector('.tbtn.gas')?.getBoundingClientRect() : null;
+  return s && p && s.width && p.width ? { steer: s, pedal: p, gas: g } : null;
 }
 
 function syncChrome() {
@@ -509,6 +513,7 @@ onFirstTouch(() => {
 });
 audio.setSoundEnabled(save.settings.sound);
 setSteerMode(save.settings.touchSteer);
+setControlMode(save.settings.touchControls);
 applySide();
 
 if (document.fonts && document.fonts.load) {
@@ -530,7 +535,7 @@ requestAnimationFrame(frame);
 // update a phone can hold a mix; if so, reload once to fetch a matching set.
 function versionMatches() {
   const css = getComputedStyle(document.documentElement).getPropertyValue('--build').replace(/["'\s]/g, '');
-  return css === BUILD && !!document.querySelector('#touch .steer-pad') && !!document.getElementById('rotate');
+  return css === BUILD && !!document.querySelector('#touch .steer-btns') && !!document.getElementById('rotate');
 }
 
 function checkVersion() {

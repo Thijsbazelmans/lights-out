@@ -12,6 +12,7 @@ function defaults() {
       difficulty: 'normal',
       laps: 3,
       autoGas: false,
+      touchControls: 'buttons', // phone: 'buttons' (‹ › and BRAKE GAS, like the arrow keys) or 'sliders'
       steerSide: 'left', // phone: steering strip under the 'left' or 'right' thumb, pedal under the other
       touchSteer: 'float', // sliders: 'float' centre where the thumb lands, 'fixed' centre of the strip
       brakeHints: true, // red braking zones on the racing line and 3-2-1 boards

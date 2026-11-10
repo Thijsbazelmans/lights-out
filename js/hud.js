@@ -341,10 +341,47 @@ function drawSpeedPanel(ctx, p, sx, sy, sw, sh) {
   for (const tick of [0.6, 1.3]) ctx.fillRect(bx + bw * (tick / 2.2) - 1, by, 2, 5);
 }
 
-// Phone held sideways. The column above the steering strip holds position,
-// lap times, gaps, messages and the speed readout; the corner above the
-// pedal holds the map, next to the pause button. Only the start lights,
-// the title card before the start and the corner warnings use the middle.
+// Speed as a compact tile: gear, km/h and the drift-charge / boost bar.
+function drawSpeedTile(ctx, p, x, y, w, h) {
+  const sp = Math.max(0, p.forwardSpeed);
+  const kmh = Math.round(sp * 0.447);
+  const { gear } = gearInfo(sp / PHYS.TOP);
+  panel(ctx, x, y, w, h, 12);
+  ctx.fillStyle = 'rgba(255,255,255,0.08)';
+  roundRect(ctx, x + 8, y + 8, 24, 24, 6);
+  ctx.fill();
+  text(ctx, sp < 5 && p.forwardSpeed < -5 ? 'R' : String(gear), x + 20, y + 26, `900 17px ${F_DISPLAY}`, C.text, 'center');
+  text(ctx, 'KM/H', x + w - 9, y + 24, `700 9px ${F_UI}`, C.muted, 'right');
+  text(ctx, String(kmh), x + w - 9, y + 61, `800 32px ${F_DISPLAY}`, C.text, 'right');
+  const bx = x + 8;
+  const by = y + h - 13;
+  const bw = w - 16;
+  ctx.fillStyle = 'rgba(255,255,255,0.08)';
+  roundRect(ctx, bx, by, bw, 5, 2.5);
+  ctx.fill();
+  let fill = 0;
+  let col = '#fff';
+  if (p.drifting) {
+    fill = clamp(p.driftCharge / 2.2, 0, 1);
+    col = p.driftTier === 0 ? 'rgba(255,255,255,0.6)' : TIER_COLORS[p.driftTier];
+  } else if (p.boost > 0) {
+    fill = clamp(p.boost / 1.5, 0, 1);
+    col = TIER_COLORS[p.boostLevel] || TIER_COLORS[2];
+  }
+  if (fill > 0) {
+    ctx.fillStyle = col;
+    roundRect(ctx, bx, by, Math.max(5, bw * fill), 5, 2.5);
+    ctx.fill();
+  }
+  ctx.fillStyle = 'rgba(11,14,20,0.9)';
+  for (const tick of [0.6, 1.3]) ctx.fillRect(bx + bw * (tick / 2.2) - 1, by, 2, 5);
+}
+
+// Phone held sideways. The column above the steering controls holds
+// position, lap times, gaps and messages; the speed sits right next to the
+// gas, and the map in the corner above the pedals, next to the pause
+// button. Only the start lights, the title card before the start and the
+// corner warnings use the middle.
 function drawSideHUD(ctx, race, cam, w, h, ins, opts) {
   const p = race.player;
   const T = ins.top + 10;
@@ -352,7 +389,7 @@ function drawSideHUD(ctx, race, cam, w, h, ins, opts) {
   const R = w - ins.right - 12;
   const cx = w / 2;
   const isRace = race.mode === 'race';
-  const { steer: sr } = opts.ctl;
+  const { steer: sr, pedal: pr, gas: gr } = opts.ctl;
   const steerLeft = sr.left + sr.width / 2 < w / 2;
   const colW = 178;
   const colX = steerLeft ? L : R - colW;
@@ -365,44 +402,33 @@ function drawSideHUD(ctx, race, cam, w, h, ins, opts) {
   drawSideTimes(ctx, race, p, colX, T, colW);
   const y = T + 70;
 
-  // ---- messages (overtakes, fastest lap...) for a moment, else the gaps to
-  // the cars around you (or recent laps in a time trial) ----
-  const msgs = race.messages.slice(-2).reverse();
-  if (msgs.length) {
-    let my = y + 14;
-    for (const m of msgs) {
-      const appear = clamp(m.t / 0.14, 0, 1);
-      const fade = clamp((m.dur - m.t) / 0.3, 0, 1);
-      let size = 24 * Math.min(1, m.scale) * (1 + (1 - appear) * 0.3);
-      ctx.font = `900 italic ${size}px ${F_DISPLAY}`;
-      const tw = ctx.measureText(m.text).width;
-      if (tw > colW - 8) size *= (colW - 8) / tw;
-      ctx.globalAlpha = fade;
-      drawBanner(ctx, m.text, m.color, colX + colW / 2, my, size);
-      ctx.globalAlpha = 1;
-      my += size + 10;
-    }
-  } else if (isRace) drawNearby(ctx, race, colX, y, p, colW);
-  else drawLapList(ctx, race, colX, y, colW, p);
+  // ---- gaps to the cars around you (or recent laps in a time trial), then
+  // messages (overtakes, fastest lap...) underneath ----
+  const gh = isRace ? drawNearby(ctx, race, colX, y, p, colW) : drawLapList(ctx, race, colX, y, colW, p);
+  let my = y + (gh ? gh + 8 : 0) + 16;
+  for (const m of race.messages.slice(-2).reverse()) {
+    if (my > colBottom - 10) break;
+    const appear = clamp(m.t / 0.14, 0, 1);
+    const fade = clamp((m.dur - m.t) / 0.3, 0, 1);
+    let size = 24 * Math.min(1, m.scale) * (1 + (1 - appear) * 0.3);
+    ctx.font = `900 italic ${size}px ${F_DISPLAY}`;
+    const tw = ctx.measureText(m.text).width;
+    if (tw > colW - 8) size *= (colW - 8) / tw;
+    ctx.globalAlpha = fade;
+    drawBanner(ctx, m.text, m.color, colX + colW / 2, my, size);
+    ctx.globalAlpha = 1;
+    my += size + 10;
+  }
 
-  // ---- speed, gear, drift charge; brake and gas either side ----
-  const sw = 150;
-  const sh = 58;
-  const sx = colX + 14;
-  const sy = colBottom - sh;
-  drawSpeedPanel(ctx, p, sx, sy, sw, sh);
-  const bar = (x, v, col) => {
-    panel(ctx, x, sy, 10, sh, 5);
-    if (v > 0.01) {
-      const hh = (sh - 6) * clamp(v, 0, 1);
-      ctx.fillStyle = col;
-      roundRect(ctx, x + 2, sy + sh - 3 - hh, 6, hh, 3);
-      ctx.fill();
-    }
-  };
-  bar(colX, p.brake, C.red);
-  bar(colX + colW - 10, p.gas, C.green);
-  if (p.slipstream > 0.35) text(ctx, 'SLIPSTREAM', colX + colW / 2, sy - 7, `800 12px ${F_DISPLAY}`, '#7fd8ff', 'center');
+  // ---- speed: a tile right next to the gas ----
+  const pedalRight = pr.left + pr.width / 2 > w / 2;
+  const tileW = 96;
+  const tileH = 84;
+  const g = gr || pr; // the gas button, or the top of the slider pedal
+  const tileX = pedalRight ? pr.left - 10 - tileW : pr.right + 10;
+  const tileY = clamp(g.top + (Math.min(g.height, tileH * 1.4) - tileH) / 2, T + 130, h - tileH - 8);
+  drawSpeedTile(ctx, p, tileX, tileY, tileW, tileH);
+  if (p.slipstream > 0.35) text(ctx, 'SLIPSTREAM', tileX + tileW / 2, tileY - 7, `800 12px ${F_DISPLAY}`, '#7fd8ff', 'center');
 
   // ---- map, in the corner above the pedal, beside the pause button ----
   const ms = 92;

@@ -16,23 +16,25 @@ Top-down arcade Formula racing that runs in the browser and installs to a phone'
 
 | | Keyboard | Phone | Controller |
 |---|---|---|---|
-| Gas | ↑ or W | slide the pedal thumb up | RT or A |
-| Brake | ↓, S or Space | slide the pedal thumb down | LT, B or X |
-| Steer | ← → or A D | slide the steering thumb left or right | left stick or d-pad |
+| Gas | ↑ or W | GAS (top button) | RT or A |
+| Brake | ↓, S or Space | BRAKE (bottom button) | LT, B or X |
+| Steer | ← → or A D | ‹ and › | left stick or d-pad |
 | Pause | Esc or P | ❚❚ in the top corner | Start |
 
-On a phone the game is played sideways; held upright, it asks you to turn the phone (and pauses a race). An installed home-screen app on Android opens in landscape by itself. Both thumbs stay on the screen: one on the steering strip, one on the pedal (gas at the top, a neutral band to coast in the middle, brake at the bottom). Settings → Phone layout puts steering under the left thumb (default) or the right. Steering is proportional: a small slide is a small turn. By default, wherever you put your steering thumb down counts as straight ahead; Settings → Slider steering switches to a fixed centre.
+On a phone the game is played sideways; held upright, it asks you to turn the phone (and pauses a race). An installed home-screen app on Android opens in landscape by itself. By default the controls are buttons, like the arrow keys on a computer: ‹ and › under one thumb, GAS above BRAKE under the other. A thumb can rock from one button to its neighbour without lifting; the gap between GAS and BRAKE, or lifting off, is coasting. Each half of the screen belongs to one pair of buttons, so a thumb doesn't need to land exactly. Settings → Phone layout puts steering under the left thumb (default) or the right.
 
-With the phone sideways the middle of the screen stays clear for the road: position, lap times, gaps, messages and the speed readout sit in the column above the steering strip, the map sits next to the pause button above the pedal, and only the start lights and the corner warnings appear in the middle. Red and green bars beside the speed readout show brake and gas.
+Settings → Phone controls → Sliders swaps the buttons for proportional sliders: a steering strip (a small slide is a small turn; by default wherever you put your thumb down counts as straight ahead, or Settings → Slider steering → Fixed centre) and one pedal (gas at the top, a neutral band to coast, brake at the bottom).
 
-- **Drift:** while turning at speed, press and hold brake. The car slides round the corner without losing much speed. Hold it to fill the meter, then let go of brake for a boost: blue, then orange, then purple. On a phone, slide your pedal thumb from GAS down to BRAKE and back up.
+With the phone sideways the middle of the screen stays clear for the road: position, lap times, gaps and messages sit in the column above the steering controls, the speed sits right next to GAS, the map sits next to the pause button above the pedals, and only the start lights and the corner warnings appear in the middle.
+
+- **Drift:** while turning at speed, press and hold brake. The car slides round the corner without losing much speed. Hold it to fill the meter, then let go of brake for a boost: blue, then orange, then purple. On a phone, rock your pedal thumb from GAS down to BRAKE and back up.
 - **Launch:** wait for the five red lights to go out, then hit the gas. React within 0.3 s for a perfect start. Hold the gas too early and you spin the wheels.
 - **Slipstream:** tuck in behind a car on a straight for extra top speed.
 - **Braking hints:** red on the racing line shows where to brake, and 3-2-1 boards stand before the big stops (board 3 is the braking point). When you're flat out towards a slow corner, a pace note under the timer warns you early ("HAIRPIN RIGHT", timed from your actual speed, so a boost brings it sooner) and turns into a flashing BRAKE! with a beep when it's time. Can be turned off in Settings.
 - **Barriers:** a light scrape costs little; using a wall as a brake costs a lot of speed and makes the engine stutter for a moment, so it's slower than braking.
 - **Leading:** once you're out in front, the cars behind chase: the further you pull away, the harder they push, and they fire boosts out of the corners like your drifts do. A lead has to be kept, not just built.
 
-Settings: sound, camera (Chase rotates with the car; Fixed keeps north up), braking hints, phone layout (steer left or right), slider steering, auto-gas for phones, and erasing saved records.
+Settings: sound, camera (Chase rotates with the car; Fixed keeps north up), braking hints, phone controls (buttons or sliders), phone layout (steer left or right), slider steering, auto-gas for phones, and erasing saved records.
 
 ## Put it on GitHub Pages
 

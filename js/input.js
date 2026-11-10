@@ -6,6 +6,8 @@ import { clamp } from './util.js';
 const keys = new Set();
 const touch = { steer: 0, steering: false, gas: 0, brake: 0 };
 let steerMode = 'float'; // 'float': centre is where the thumb lands; 'fixed': centre of the strip
+let controlMode = 'buttons'; // phone: 'buttons' (‹ › and BRAKE GAS) or 'sliders'
+let touchRoot = null;
 let pauseCb = null;
 let padPausePrev = false;
 let gameActive = false;
@@ -59,6 +61,14 @@ export function setSteerMode(mode) {
   steerMode = mode === 'fixed' ? 'fixed' : 'float';
 }
 
+// Buttons or sliders on a phone.
+export function setControlMode(mode) {
+  controlMode = mode === 'sliders' ? 'sliders' : 'buttons';
+  if (!touchRoot) return;
+  clearTouch();
+  touchRoot.classList.toggle('buttons', controlMode === 'buttons');
+}
+
 export function touchSnapshot() {
   return { ...touch };
 }
@@ -68,9 +78,19 @@ export function touchSnapshot() {
 // bottom. Steering is on the left unless the sides are swapped in Settings. A finger belongs to whichever control it landed on until it lifts,
 // so it can wander off the strip without losing control.
 export function bindTouchControls(root) {
+  touchRoot = root;
   const pad = root.querySelector('.steer-pad');
   const pedal = root.querySelector('.pedal');
-  if (!pad || !pedal) return; // stale page from an older version; main.js reloads it
+  const steerBtns = root.querySelector('.steer-btns');
+  const pedalBtns = root.querySelector('.pedal-btns');
+  if (!pad || !pedal || !steerBtns || !pedalBtns) return; // stale page from an older version; main.js reloads it
+  const btn = {
+    left: steerBtns.querySelector('.left'),
+    right: steerBtns.querySelector('.right'),
+    brake: pedalBtns.querySelector('.brake'),
+    gas: pedalBtns.querySelector('.gas'),
+  };
+  const held = new Map(); // pointer id -> { group: 'steer' | 'pedal', on: button name or null }
   const knob = pad.querySelector('.steer-knob');
   const mark = pad.querySelector('.steer-center');
   const pknob = pedal.querySelector('.pedal-knob');
@@ -125,12 +145,51 @@ export function bindTouchControls(root) {
     pknob.style.top = '';
   }
 
+  // Buttons: each half of the screen belongs to one pair of buttons, and the
+  // line between the two decides which one a thumb is on: left or right for
+  // steering, up (gas) or down (brake) for the pedals, with a small gap in
+  // the middle that presses neither. So a thumb can rock from one to the
+  // other, and it doesn't need to land exactly.
+  function buttonAt(group, x, y) {
+    if (group === 'steer') {
+      const split = (btn.left.getBoundingClientRect().right + btn.right.getBoundingClientRect().left) / 2;
+      return x < split - 5 ? 'left' : x > split + 5 ? 'right' : null;
+    }
+    const split = (btn.gas.getBoundingClientRect().bottom + btn.brake.getBoundingClientRect().top) / 2;
+    return y < split - 4 ? 'gas' : y > split + 4 ? 'brake' : null;
+  }
+
+  function syncButtons() {
+    const on = new Set([...held.values()].map((h) => h.on));
+    const gas = on.has('gas') ? 1 : 0;
+    const brake = on.has('brake') ? 1 : 0;
+    const steer = (on.has('right') ? 1 : 0) - (on.has('left') ? 1 : 0);
+    if ((gas && !touch.gas) || (brake && !touch.brake)) navigator.vibrate?.(8);
+    touch.gas = gas;
+    touch.brake = brake;
+    touch.steer = steer;
+    touch.steering = on.has('left') || on.has('right');
+    for (const k of Object.keys(btn)) btn[k].classList.toggle('on', on.has(k));
+  }
+
+  function pressButtons(e) {
+    const pr = pedalBtns.getBoundingClientRect();
+    const pedalRight = pr.left + pr.width / 2 > window.innerWidth / 2;
+    const group = (e.clientX > window.innerWidth / 2) === pedalRight ? 'pedal' : 'steer';
+    held.set(e.pointerId, { group, on: buttonAt(group, e.clientX, e.clientY) });
+    syncButtons();
+  }
+
   root.addEventListener('pointerdown', (e) => {
     e.preventDefault();
     try {
       root.setPointerCapture(e.pointerId);
     } catch (err) {
       /* not supported */
+    }
+    if (root.classList.contains('buttons')) {
+      pressButtons(e);
+      return;
     }
     const pr = pedal.getBoundingClientRect();
     const pedalRight = pr.left + pr.width / 2 > window.innerWidth / 2;
@@ -145,10 +204,20 @@ export function bindTouchControls(root) {
     }
   });
   root.addEventListener('pointermove', (e) => {
+    const h = held.get(e.pointerId);
+    if (h) {
+      const on = buttonAt(h.group, e.clientX, e.clientY);
+      if (on !== h.on) {
+        h.on = on;
+        syncButtons();
+      }
+      return;
+    }
     if (steerPtr && e.pointerId === steerPtr.id) steerTo(e.clientX);
     else if (e.pointerId === pedalPtr) pedalTo(e.clientY);
   });
   const end = (e) => {
+    if (held.delete(e.pointerId)) syncButtons();
     if (steerPtr && e.pointerId === steerPtr.id) releaseSteer();
     else if (e.pointerId === pedalPtr) releasePedal();
   };
@@ -160,7 +229,10 @@ export function bindTouchControls(root) {
   clearTouch = () => {
     releaseSteer();
     releasePedal();
+    held.clear();
+    syncButtons();
   };
+  root.classList.toggle('buttons', controlMode === 'buttons');
 }
 
 export function readInput(autoGas) {
@@ -178,7 +250,7 @@ export function readInput(autoGas) {
   if (touch.brake) brake = 1;
   if (touch.steering) {
     steer += touch.steer;
-    analog = true;
+    analog = controlMode === 'sliders'; // buttons ease in like the arrow keys
   }
 
   let padPause = false;

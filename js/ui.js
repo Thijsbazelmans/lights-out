@@ -113,6 +113,11 @@ export function createUI(root, h) {
           <p class="hint">Red braking zones on the racing line and 3-2-1 boards before the big stops.</p>
         </div>
         <div class="opt">
+          <span class="label">Phone controls</span>
+          <div class="seg" data-setting="touchControls"><button data-val="buttons">Buttons</button><button data-val="sliders">Sliders</button></div>
+          <p class="hint">Buttons: ‹ and › to steer, GAS above BRAKE, like the arrow keys on a computer; rock your thumb from one to the other, or lift it to coast. Sliders: slide to steer as much as you like, and one pedal for gas (up) and brake (down).</p>
+        </div>
+        <div class="opt">
           <span class="label">Phone layout</span>
           <div class="seg" data-setting="steerSide"><button data-val="left">Steer left</button><button data-val="right">Steer right</button></div>
           <p class="hint">Steer left: steering under your left thumb, gas and brake under your right. Steer right: the other way round.</p>

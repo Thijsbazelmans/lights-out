@@ -1,7 +1,7 @@
 /* Layout: a pit-wall timing monitor floating over a live race. Left rail on
    wide screens, bottom sheet on phones; pause and results are centred modals. */
 :root {
-  --build: "14"; /* must match BUILD in js/main.js */
+  --build: "15"; /* must match BUILD in js/main.js */
   --asphalt: #0d1016;
   --panel: rgba(13, 16, 23, 0.9);
   --panel-solid: #131822;
@@ -233,6 +233,100 @@ button:focus-visible {
   }
 }
 
+/* Buttons: ‹ › under one thumb, GAS above BRAKE under the other, like the
+   arrow keys on a computer. A thumb can rock from one button to its
+   neighbour without lifting (handled in input.js). */
+.tbtns {
+  display: none;
+  position: absolute;
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 16px);
+  gap: 12px;
+  pointer-events: none;
+}
+
+.steer-btns {
+  left: max(14px, calc(env(safe-area-inset-left, 0px) + 12px));
+}
+
+.pedal-btns {
+  right: max(14px, calc(env(safe-area-inset-right, 0px) + 12px));
+  flex-direction: column; /* GAS on top, BRAKE below, like the pedal */
+  gap: 10px;
+}
+
+.touch.buttons .steer-pad,
+.touch.buttons .pedal {
+  display: none;
+}
+
+.touch.buttons .tbtns {
+  display: flex;
+}
+
+.tbtn {
+  display: grid;
+  place-items: center;
+  box-sizing: border-box;
+  border-radius: 24px;
+  border: 2px solid rgba(255, 255, 255, 0.2);
+  background: rgba(10, 13, 19, 0.42);
+  color: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+  transition: background 60ms, border-color 60ms, transform 60ms;
+}
+
+.steer-btns .tbtn {
+  width: 92px;
+  height: 92px;
+  font: 700 46px/1 var(--font-ui);
+  padding-bottom: 6px;
+}
+
+.pedal-btns .tbtn {
+  width: 104px;
+  height: 84px;
+  font: 800 15px/1 var(--font-display);
+  letter-spacing: 0.08em;
+}
+
+.tbtn.brake {
+  background: rgba(255, 90, 79, 0.18);
+}
+
+.tbtn.gas {
+  background: rgba(49, 214, 123, 0.17);
+}
+
+.steer-btns .tbtn.on {
+  background: rgba(255, 210, 63, 0.42);
+  border-color: rgba(255, 220, 110, 0.95);
+  transform: scale(0.96);
+}
+
+.tbtn.brake.on {
+  background: rgba(255, 90, 79, 0.58);
+  border-color: rgba(255, 120, 110, 0.95);
+  transform: scale(0.96);
+}
+
+.tbtn.gas.on {
+  background: rgba(49, 214, 123, 0.52);
+  border-color: rgba(90, 235, 150, 0.95);
+  transform: scale(0.96);
+}
+
+@media (min-height: 501px) {
+  .steer-btns .tbtn {
+    width: 100px;
+    height: 100px;
+  }
+  .pedal-btns .tbtn {
+    width: 110px;
+    height: 100px;
+  }
+}
+
 /* Swapped sides: steering under the right thumb, gas and brake under the
    left (and the pause button moves over with the pedal). */
 .touch.swap .steer-pad {
@@ -241,6 +335,16 @@ button:focus-visible {
 }
 
 .touch.swap .pedal {
+  right: auto;
+  left: max(14px, calc(env(safe-area-inset-left, 0px) + 12px));
+}
+
+.touch.swap .steer-btns {
+  left: auto;
+  right: max(14px, calc(env(safe-area-inset-right, 0px) + 12px));
+}
+
+.touch.swap .pedal-btns {
   right: auto;
   left: max(14px, calc(env(safe-area-inset-left, 0px) + 12px));
 }
