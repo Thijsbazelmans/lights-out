@@ -92,7 +92,7 @@ Developer extras:
 
 - `tools/track-preview.html` draws every circuit with its racing line coloured by the speed the car can carry, the stops that get braking boards, and every corner numbered with its slowest speed (`?ids=monaco,spa` for just a few).
 - `tools/chicanes.html` shows a close-up of every chicane as drawn in the game.
-- `tools/snapshot.html` sets up moments in a race (a corner call, BRAKE!, slipstream, a drift, off the road, hard braking) and draws one frame of each with the game's own code (`?w=740&h=360` for a phone held sideways, `?zoom=2` to look closer).
+- `tools/snapshot.html` sets up moments in a race (a corner call, BRAKE!, slipstream, a drift, off the road, hard braking) and draws one frame of each with the game's own code (`?w=740&h=360` for a phone held sideways, `?zoom=2` to look closer, `?calls` for every corner call card).
 - `tools/convert-circuit.mjs` turns a GeoJSON centre line into a circuit file (see below).
 - Add `?nopause` to the URL to stop the game pausing when the tab is hidden (for automated testing).
 - `window.lightsOut` in the browser console gives access to the game state.

@@ -15,7 +15,7 @@
 </style>
 </head>
 <body>
-<p>Developer tool: single frames of a race, set up and drawn with the game's own code, to check effects and the HUD without playing. <code>?w=740&amp;h=360</code> for a phone held sideways, <code>?zoom=2</code> to look closer, <code>?only=spa</code> for one circuit's scene.</p>
+<p>Developer tool: single frames of a race, set up and drawn with the game's own code, to check effects and the HUD without playing. <code>?w=740&amp;h=360</code> for a phone held sideways, <code>?zoom=2</code> to look closer, <code>?only=spa</code> for one circuit's scene, <code>?calls</code> for every corner call card.</p>
 <div class="grid" id="grid"></div>
 <script type="module">
 import { Track } from '../js/track.js';
@@ -78,7 +78,25 @@ function placeCar(t, c, frac, speed, ahead = 0, lat = 0) {
   c.launchPenalty = 0;
 }
 
-for (const [id, label, script] of scenes) {
+// Every corner call card, for checking the arrows.
+if (q.has('calls')) {
+  const { drawCall } = await import('../js/hud.js');
+  const cards = [['lift', -1], ['lift', 1], ['hard', -1], ['hard', 1], ['hairpin', -1], ['hairpin', 1], ['chicane', -1], ['chicane', 1]];
+  const cv = document.createElement('canvas');
+  cv.width = 520; cv.height = 56 * 4 + 16;
+  const ctx = cv.getContext('2d');
+  ctx.fillStyle = '#2d4a26';
+  ctx.fillRect(0, 0, cv.width, cv.height);
+  cards.forEach(([kind, dir], k) => {
+    const note = { c: { kind, dir, brake: kind !== 'lift' }, stage: 'warn', t: 1, fade: 1, tt: 0.6, warnAt: 1.4 };
+    drawCall(ctx, note, 130 + (k % 2) * 260, 8 + Math.floor(k / 2) * 56, 214, 0);
+  });
+  const fig = document.createElement('figure');
+  fig.appendChild(cv);
+  grid.appendChild(fig);
+}
+
+for (const [id, label, script] of q.has('calls') ? [] : scenes) {
   if (ONLY && !ONLY.split(',').includes(id)) continue;
   const t = new Track(ALL_REAL.find((d) => d.id === id));
   const r = new Race({ track: t, mode: 'race', laps: 3, player: playerFor('ferrari', 1), rivals: rivalsFor('ferrari', 1) });

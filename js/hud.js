@@ -277,7 +277,7 @@ const CALL_LOOK = {
   chicane: { col: '#ff5a3c', name: () => 'CHICANE' },
 };
 
-function drawCall(ctx, note, cx, y, pw, time) {
+export function drawCall(ctx, note, cx, y, pw, time) {
   const c = note.c;
   const look = CALL_LOOK[c.kind] || CALL_LOOK.hard;
   const dir = c.dir > 0 ? 'RIGHT' : 'LEFT';
@@ -302,24 +302,26 @@ function drawCall(ctx, note, cx, y, pw, time) {
   roundRect(ctx, x + 1, y + 1, pw - 2, ph - 2, 9);
   ctx.stroke();
   ctx.save();
-  ctx.translate(x + 22, y + 19);
-  if (c.dir < 0) ctx.scale(-1, 1);
+  ctx.translate(x + 22, y + 20);
+  ctx.scale(c.dir < 0 ? -1.15 : 1.15, 1.15);
   ctx.strokeStyle = col;
   ctx.fillStyle = col;
-  ctx.lineWidth = 3;
+  ctx.lineWidth = 2.8;
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
   ctx.beginPath();
   if (c.kind === 'hairpin') {
-    ctx.moveTo(-5, 10);
-    ctx.lineTo(-5, -2);
-    ctx.arc(1, -2, 6, Math.PI, 0);
-    ctx.lineTo(7, 3);
+    // Like the road sign: a long way in, a tight turn over the top, and a
+    // short way back down to a big arrowhead, so left and right differ at a glance.
+    ctx.moveTo(-8, 13);
+    ctx.lineTo(-8, -4);
+    ctx.arc(-2.5, -4, 5.5, Math.PI, 0);
+    ctx.lineTo(3, 0);
     ctx.stroke();
     ctx.beginPath();
-    ctx.moveTo(2, 2);
-    ctx.lineTo(7, 9);
-    ctx.lineTo(12, 2);
+    ctx.moveTo(-3, -1);
+    ctx.lineTo(9, -1);
+    ctx.lineTo(3, 8);
     ctx.closePath();
   } else if (c.kind === 'chicane') {
     ctx.moveTo(-6, 11);
