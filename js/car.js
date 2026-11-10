@@ -49,6 +49,19 @@ export const WALL = {
 // into it (less when you steer out); it bleeds `drag` px/s² of speed.
 export const DRIFT = { minSpeed: 230, endSpeed: 130, turn: 1.3, turnIn: 0.4, drag: 55 };
 
+// Tyres and damage (races). Tyres wear `lap` per lap of normal driving, plus
+// `drift` per second of drifting, `slide` per second of sliding and `off`
+// per second off the road at speed. A hit faster than `hitMin` px/s costs
+// `hit` damage per px/s above that (car-to-car knocks count `car` as much).
+// Worn tyres take away up to `tyreTop` of top speed and pull; damage takes
+// up to `damageTop`, more and more as it builds up (see conditionOf).
+export const WEAR = { lap: 0.016, drift: 0.0028, slide: 0.0008, off: 0.012, hitMin: 110, hit: 0.0003, car: 0.6, tyreTop: 0.25, damageTop: 0.45 };
+
+// Share of top speed and pull a car has left with its tyres and damage.
+export function conditionOf(car) {
+  return (1 - WEAR.tyreTop * (1 - car.tyres)) * (1 - WEAR.damageTop * Math.pow(car.damage, 1.3));
+}
+
 export const BOOST_TIME = [0, 0.6, 1.0, 1.5];
 export const TIER_COLORS = ['#ffffff', '#4fc3ff', '#ffb020', '#c45cff'];
 
@@ -100,6 +113,11 @@ export class Car {
     this.slipstream = 0;
     this.yawKick = 0;
     this.launchPenalty = 0;
+
+    this.wears = false; // tyre wear and damage count (set by the race)
+    this.tyres = 1; // 1 = fresh
+    this.damage = 0; // 0 = none, 1 = wrecked
+    this.hitT = 0; // how recently it took damage (for the HUD flash)
 
     this.offTrack = false;
     this.onKerb = false;
@@ -167,6 +185,11 @@ export class Car {
     }
     top *= 1 + P.SLIP_TOP * this.slipstream;
     acc *= 1 + P.SLIP_ACC * this.slipstream;
+    if (this.wears) {
+      const k = conditionOf(this);
+      top *= k;
+      acc *= k;
+    }
     if (this.launchPenalty > 0) acc *= 0.35;
 
     // Drift: while turning at speed, press brake. Hold it to keep sliding;
@@ -269,12 +292,36 @@ export class Car {
             this.driftCharge = 0;
           }
           if (vn > 50) events.push({ t: 'wall', car: this, x: this.x + q2.nx * reach, y: this.y + q2.ny * reach, power: vn });
+          if (vn > WEAR.hitMin) this.addDamage((vn - WEAR.hitMin) * WEAR.hit, events);
         }
       }
     }
 
     this.boost = Math.max(0, this.boost - dt);
     this.launchPenalty = Math.max(0, this.launchPenalty - dt);
+    this.hitT = Math.max(0, this.hitT - dt);
+    this.wear(dt, track);
+  }
+
+  // Tyres wear with every metre, faster in a drift or a slide, much faster
+  // off the road.
+  wear(dt, track) {
+    if (!this.wears) return;
+    const sp = this.speed;
+    let w = (WEAR.lap * sp * dt) / track.length;
+    if (this.drifting) w += WEAR.drift * dt;
+    else if (this.slide > 90) w += WEAR.slide * dt;
+    if (this.offTrack && sp > 120) w += WEAR.off * dt * Math.min(1, sp / 400);
+    this.tyres = Math.max(0, this.tyres - w);
+  }
+
+  addDamage(d, events) {
+    if (!this.wears || d <= 0) return;
+    this.damage = Math.min(1, this.damage + d);
+    if (d > 0.004) {
+      this.hitT = 0.8;
+      events.push({ t: 'damage', car: this, amount: d });
+    }
   }
 
   // Controlled arcade drift: the car keeps its speed and its path curves at a

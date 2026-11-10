@@ -28,6 +28,7 @@ With the phone sideways the middle of the screen stays clear for the road: posit
 - **Drift:** while turning at speed, press and hold brake. The car slides round the corner on a much tighter line without losing much speed (steer into it to turn tighter still), with tyre smoke and speed lines; let go of brake to grip again. A DRIFTING! tag under your car fills up the longer you hold it: white, blue, orange, purple. On a phone, rock your pedal thumb from GAS down to BRAKE and back up.
 - **Launch:** wait for the five red lights to go out, then hit the gas. React within 0.3 s for a perfect start and a launch boost (within 0.5 s, a smaller one). Hold the gas too early and you spin the wheels.
 - **Slipstream:** on a straight at speed, up to about eight car lengths behind another car and lined up with it, you're in its tow after a moment: extra pull and up to 18% more top speed, shown by a SLIPSTREAM! tag under your car, light-blue speed lines and air streaming past. Pull out and pass. Not in corners or chicanes.
+- **Tyres & damage (races):** every car starts at 100%. Tyres wear about 1.6% a lap of normal driving (a 3-lap race ends near 95%), faster when you drift (drift every corner and you'll end near 90%) and much faster off the road. Hits with walls or cars (beyond a light scrape) damage the car. Both cost top speed and pull: worn tyres a little, damage more and more as it builds up, and a badly damaged car smokes. TYRES and CAR next to your speed show where you are (green, yellow, orange, red); CAR flashes when you take a hit, and the results show how you finished. The computer cars wear and get damaged by the same rules. Off in time trials; can be turned off in Settings.
 - **Contact:** rubbing is fine. Run into someone's gearbox and you take the knock, not them; the computer cars lift off rather than push you along.
 - **Corners:** long bends are flat out; quicker ones need a lift off the gas (coasting scrubs off speed); hairpins and hard corners need proper braking; chicanes need a big stop. The yellow-and-black sausage kerbs in a chicane are solid, so it can't be cut.
 - **Corner calls:** a card under the timer calls the next corner you need to slow for: LEFT/RIGHT (a lift), HARD LEFT/RIGHT (brake), HAIRPIN or CHICANE, with a bar running down to where to slow; at the braking point it flashes BRAKE! with a beep.
@@ -35,7 +36,7 @@ With the phone sideways the middle of the screen stays clear for the road: posit
 - **Barriers:** a light scrape costs little; using a wall as a brake costs a lot of speed and makes the engine stutter for a moment, so it's slower than braking.
 - **Leading:** once you're out in front, the cars behind chase: the further you pull away, the harder they push, and up close they use your slipstream. A lead has to be kept, not just built.
 
-Settings: sound, camera (Chase rotates with the car; Fixed keeps north up), corner hints (calls and boards), phone layout (steer left or right), auto-gas for phones, and erasing saved records.
+Settings: sound, camera (Chase rotates with the car; Fixed keeps north up), corner hints (calls and boards), tyres & damage, phone layout (steer left or right), auto-gas for phones, and erasing saved records.
 
 ## Put it on GitHub Pages
 
@@ -113,13 +114,13 @@ The road is drawn about three times wider than a real one (so cars can race side
 
 The racing line is an elastic band pulled as straight as the road allows (it uses the inside of tight corners like a player can). The AI drives it, and the braking boards come from the speeds along it, so they match what the car can really do.
 
-Tuning knobs live at the top of their files: `WALL`, `LIFT`, `SLIP_TOP`/`SLIP_ACC` and `DRIFT` in `js/car.js` (what barrier hits cost; how much a lift off the gas slows you; what a full slipstream gives; how drifts start, turn and end), `LINE`, `CHICANE`, `HINTS` and `CALLS` in `js/track.js` (racing line clearances, chicane shapes and kerbs, braking boards, corner calls), `AI_KERB` in `js/ai.js`, `DIFFICULTY` (AI pace and how hard they chase a leader) `SLIPSTREAM` (tow range, only on straights at speed) and `REAR_END` (who takes the knock in a nose-to-tail hit) in `js/race.js`.
+Tuning knobs live at the top of their files: `WALL`, `LIFT`, `SLIP_TOP`/`SLIP_ACC`, `DRIFT` and `WEAR` in `js/car.js` (what barrier hits cost; how much a lift off the gas slows you; what a full slipstream gives; how drifts start, turn and end; how fast tyres wear, what hits cost and how much both slow you), `LINE`, `CHICANE`, `HINTS` and `CALLS` in `js/track.js` (racing line clearances, chicane shapes and kerbs, braking boards, corner calls), `AI_KERB` in `js/ai.js`, `DIFFICULTY` (AI pace and how hard they chase a leader) `SLIPSTREAM` (tow range, only on straights at speed) and `REAR_END` (who takes the knock in a nose-to-tail hit) in `js/race.js`.
 
 ## Roadmap
 
 1. ~~Arcade racer, one player, saved on the device~~
 2. ~~Real teams and drivers to pick from~~
 3. ~~Real circuits and a season mode~~
-4. Pit stops as a mini-game, tyre strategy, weather (and a damage gauge that sends you to the pits)
+4. ~~Tyre wear and damage~~; next: pit stops as a mini-game, tyre strategy, weather
 5. Team management: driver development, junior teams, car development
 6. Online: ghost races between two players, then live racing in the same room

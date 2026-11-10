@@ -14,6 +14,7 @@ function defaults() {
       autoGas: false,
       steerSide: 'left', // phone: ‹ › under the 'left' or 'right' thumb, GAS and BRAKE under the other
       brakeHints: true, // corner calls and 3-2-1 boards before the big stops
+      wear: true, // tyres wear and hits damage the car in races
       team: null, // id of the team you race for; null until picked
       seat: 1, // which of the team's two drivers you replace (0 or 1)
     },

@@ -135,6 +135,7 @@ export function drawHUD(ctx, race, cam, w, h, ins, opts) {
   // Keep the road ahead clear on a phone held sideways: sit under the timer (or the lights).
   if (shortLandscape) sy = T + (race.phase === 'lights' || (race.phase === 'intro' && isRace) ? 86 : 60);
   drawSpeedPanel(ctx, p, sx, sy, sw, sh);
+  if (p.wears) drawCondition(ctx, p, sx + sw + 8, sy, 104, sh, race.time);
   // ---- on a phone: how far you're steering, and gas and brake ----
   const gauges = !!opts.touchUI;
   const below = gauges && shortLandscape ? 18 : 0; // steering bar goes under the panel when sideways
@@ -367,6 +368,42 @@ export function drawCall(ctx, note, cx, y, pw, time) {
   ctx.restore();
 }
 
+// Tyres and car condition: two rows with a percentage and a bar, green to
+// red as they drop; CAR flashes red when you've just taken damage.
+function conditionColor(v) {
+  return v >= 0.9 ? C.green : v >= 0.75 ? C.yellow : v >= 0.55 ? '#ff8a2f' : C.red;
+}
+
+function drawCondition(ctx, p, x, y, w, h, time, compact = false) {
+  panel(ctx, x, y, w, h, compact ? 10 : 12);
+  const rows = [
+    ['TYRES', p.tyres, 0],
+    ['CAR', 1 - p.damage, p.hitT],
+  ];
+  const rh = h / 2;
+  rows.forEach(([label, v, flash], k) => {
+    const ry = y + k * rh;
+    if (flash > 0 && Math.floor(time * 12) % 2 === 0) {
+      ctx.fillStyle = 'rgba(255,79,58,0.32)';
+      roundRect(ctx, x + 3, ry + 3, w - 6, rh - 6, 6);
+      ctx.fill();
+    }
+    const col = conditionColor(v);
+    const pct = `${Math.round(v * 100)}%`;
+    text(ctx, label, x + 8, ry + rh * 0.48, `700 ${compact ? 9 : 10}px ${F_UI}`, C.muted);
+    text(ctx, pct, x + w - 8, ry + rh * 0.52, `800 ${compact ? 13 : 16}px ${F_DISPLAY}`, col, 'right');
+    const bx = x + 8;
+    const bw = w - 16;
+    const by = ry + rh - (compact ? 6 : 8);
+    ctx.fillStyle = 'rgba(255,255,255,0.1)';
+    roundRect(ctx, bx, by, bw, 3, 1.5);
+    ctx.fill();
+    ctx.fillStyle = col;
+    roundRect(ctx, bx, by, Math.max(3, bw * clamp(v, 0, 1)), 3, 1.5);
+    ctx.fill();
+  });
+}
+
 // What the bar under the speed shows: how long you've been drifting (its
 // colour steps up white, blue, orange, purple), the launch boost, or how
 // strong your slipstream is.
@@ -478,6 +515,7 @@ function drawSideHUD(ctx, race, cam, w, h, ins, opts) {
   const tileX = pedalRight ? pr.left - 10 - tileW : pr.right + 10;
   const tileY = clamp(g.top + (Math.min(g.height, tileH * 1.4) - tileH) / 2, T + 130, h - tileH - 8);
   drawSpeedTile(ctx, p, tileX, tileY, tileW, tileH);
+  if (p.wears) drawCondition(ctx, p, tileX, Math.min(tileY + tileH + 6, h - 48), tileW, 42, race.time, true);
   drawCarTags(ctx, race, cam, w, h);
 
   // ---- map, in the corner above the pedal, beside the pause button ----

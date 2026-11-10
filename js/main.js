@@ -15,7 +15,7 @@ import { clamp, formatTime } from './util.js';
 import { POINTS, ROUNDS, abandonSeason, currentSeason, isComplete, nextTrack, playerStanding, recordRound, standings, startSeason, teamStanding } from './season.js';
 
 // Bump together with --build in css/style.css and CACHE in sw.js.
-const BUILD = '19';
+const BUILD = '20';
 
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d', { alpha: false });
@@ -202,6 +202,7 @@ function launch({ mode, trackId, laps, difficulty, team, seat }) {
     player: playerFor(team, seat),
     rivals: rivalsFor(team, seat),
     record: rec,
+    wear: save.settings.wear !== false,
   });
   // What's being raced, for the title card, HUD, pause and results.
   const season = mode === 'season' ? currentSeason() : null;
@@ -358,6 +359,7 @@ function showResults(r) {
     chips.push({ kind: 'purple', text: `Circuit record: ${formatTime(rec.bestLap)}` });
   }
   if (r.prevBestPos == null || res.playerPos < r.prevBestPos) chips.push({ kind: 'green', text: `Best finish here: P${res.playerPos}` });
+  if (p.wears) chips.push({ kind: 'wear', text: `Tyres ${Math.round(p.tyres * 100)}% · Car ${Math.round((1 - p.damage) * 100)}%` });
   let season = null;
   const s = currentSeason();
   if (state.mode === 'season' && s && !isComplete(s)) {

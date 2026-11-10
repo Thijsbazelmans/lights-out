@@ -1,7 +1,7 @@
 // One session on one circuit: a race against the field, a solo time trial
 // against your own ghost, or the "attract" race that plays behind the menus.
 
-import { Car, PHYS, TIER_COLORS } from './car.js';
+import { Car, PHYS, TIER_COLORS, WEAR } from './car.js';
 import { AIDriver } from './ai.js';
 import { Particles, Skids } from './particles.js';
 import { clamp, damp, formatTime, rand, wrapAngle } from './util.js';
@@ -40,7 +40,7 @@ export const DIFFICULTY = {
 const GHOST_LIVERY = { color: '#cfe8ff', color2: '#6fb7ff', helmet: '#ffffff' };
 
 export class Race {
-  constructor({ track, mode, laps = 3, difficulty = 'normal', player = null, rivals = [], record = null }) {
+  constructor({ track, mode, laps = 3, difficulty = 'normal', player = null, rivals = [], record = null, wear = true }) {
     this.track = track;
     this.mode = mode; // 'race' | 'trial' | 'attract'
     this.totalLaps = mode === 'race' ? laps : Infinity;
@@ -78,6 +78,8 @@ export class Race {
     this.posMsgT = 0;
     this.recordDirty = false;
     this.setupGrid(player, rivals);
+    // Tyres and damage count in races (not time trials, so lap records compare).
+    if (mode === 'race' && wear) for (const c of this.cars) c.wears = true;
     this.focus = this.player || this.cars[0];
     this.rank();
   }
@@ -431,6 +433,12 @@ export class Race {
                   b.vy *= 1 - lose;
                 }
               }
+              // A proper knock damages both, the one doing the hitting most.
+              if (-rv > WEAR.hitMin) {
+                const dmg = (-rv - WEAR.hitMin) * WEAR.hit * WEAR.car;
+                a.addDamage(dmg * (aRear ? 1 : bRear ? 0.4 : 0.7), this.events);
+                b.addDamage(dmg * (bRear ? 1 : aRear ? 0.4 : 0.7), this.events);
+              }
               if (-rv > 60) this.events.push({ t: 'bump', a, b, x: (ax + bx) / 2, y: (ay + by) / 2, power: -rv });
             }
           }
@@ -743,6 +751,23 @@ export class Race {
           }
         }
       }
+      // A damaged car smokes: a grey wisp, thicker and darker as it gets worse.
+      if (c.damage > 0.25 && Math.random() < (c.damage - 0.25) * 1.6) {
+        const dark = c.damage > 0.55;
+        this.particles.spawn({
+          kind: 'smoke',
+          x: c.x - fx * 18 + rand(-3, 3),
+          y: c.y - fy * 18 + rand(-3, 3),
+          vx: c.vx * 0.15 + rand(-15, 15),
+          vy: c.vy * 0.15 + rand(-15, 15),
+          life: rand(0.6, 1.1),
+          size: rand(4, 6),
+          grow: 24,
+          drag: 1.6,
+          rgb: dark ? [58, 58, 64] : [160, 160, 166],
+          alpha: dark ? 0.45 : 0.32,
+        });
+      }
       // Air streaming past you in a tow or a drift.
       if (c === this.player && sp > 260 && (c.slipstream > 0.25 || c.drifting)) {
         const amount = c.drifting ? 0.8 : c.slipstream;
@@ -864,6 +889,8 @@ export class Race {
         this.out.push({ t: 'boost', tier: e.tier });
       } else if (e.t === 'driftTier' && e.car === this.player) {
         this.out.push({ t: 'tier', tier: e.tier });
+      } else if (e.t === 'damage' && e.car === this.player && e.amount >= 0.05) {
+        this.msg(e.amount >= 0.1 ? 'HEAVY DAMAGE' : 'DAMAGE', '#ff4f3a', 1.1, 0.85);
       } else if (e.t === 'driftEnd' && e.car === this.player && e.clean && e.tier > 0) {
         this.msg(['', 'NICE DRIFT', 'GREAT DRIFT', 'MEGA DRIFT'][e.tier], TIER_COLORS[e.tier], 0.8, 0.8);
       }

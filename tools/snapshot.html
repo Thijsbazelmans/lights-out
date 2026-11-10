@@ -55,6 +55,13 @@ const scenes = [
   }],
   ['bahrain', 'off the road', (r, t, p, run) => { place(r, t, p, 0.2, 600, 100); run(25, () => ({ gas: 1 })); }],
   ['spa', 'hard braking', (r, t, p, run) => { place(r, t, p, 0.37, 720); run(18, () => ({ brake: 1 })); }],
+  ['austria', 'worn tyres and a damaged car', (r, t, p, run) => {
+    place(r, t, p, 0.15, 600);
+    p.tyres = 0.81;
+    p.damage = 0.46;
+    run(40, () => ({ gas: 1 }));
+    p.hitT = 0.5;
+  }],
 ];
 
 function place(r, t, p, frac, speed, lat = 0) {
@@ -127,7 +134,7 @@ for (const [id, label, script] of q.has('calls') ? [] : scenes) {
   const fig = document.createElement('figure');
   fig.appendChild(cv);
   const cap = document.createElement('figcaption');
-  cap.textContent = `${t.name}: ${label}  (${Math.round(p.forwardSpeed * 0.447)} km/h, slipstream ${p.slipstream.toFixed(2)}, ${p.drifting ? 'drifting' : 'gripping'}${p.offTrack ? ', off track' : ''}${r.call ? `, call ${r.call.c.kind} ${r.call.stage}` : ''})`;
+  cap.textContent = `${t.name}: ${label}  (${Math.round(p.forwardSpeed * 0.447)} km/h, slipstream ${p.slipstream.toFixed(2)}, ${p.drifting ? 'drifting' : 'gripping'}${p.offTrack ? ', off track' : ''}, tyres ${Math.round(p.tyres * 100)}%, car ${Math.round((1 - p.damage) * 100)}%${r.call ? `, call ${r.call.c.kind} ${r.call.stage}` : ''})`;
   fig.appendChild(cap);
   grid.appendChild(fig);
 }
