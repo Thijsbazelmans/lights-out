@@ -44,6 +44,11 @@ export const WALL = {
   STUN_RAMP: 400,
 };
 
+// Drifting: starts above `minSpeed` px/s, ends below `endSpeed`; the path
+// curves `turn` × the grip limit, plus up to `turnIn` more when you steer
+// into it (less when you steer out); it bleeds `drag` px/s² of speed.
+export const DRIFT = { minSpeed: 230, endSpeed: 130, turn: 1.3, turnIn: 0.4, drag: 55 };
+
 export const BOOST_TIME = [0, 0.6, 1.0, 1.5];
 export const TIER_COLORS = ['#ffffff', '#4fc3ff', '#ffb020', '#c45cff'];
 
@@ -165,11 +170,11 @@ export class Car {
     if (this.launchPenalty > 0) acc *= 0.35;
 
     // Drift: while turning at speed, press brake. Hold it to keep sliding;
-    // let go of brake to cash the drift in as a boost.
+    // let go of brake to grip again.
     const brakeEdge = this.brake > 0.5 && !this.prevBrake;
     this.prevBrake = this.brake > 0.5;
-    const turning = Math.abs(ctl.steer) > 0.4 && this.steer * ctl.steer > 0 && Math.abs(this.steer) > 0.25;
-    if (this.canDrift && !this.drifting && brakeEdge && turning && vf > 280 && !off) {
+    const turning = Math.abs(ctl.steer) > 0.3 && this.steer * ctl.steer > 0 && Math.abs(this.steer) > 0.18;
+    if (this.canDrift && !this.drifting && brakeEdge && turning && vf > DRIFT.minSpeed && !off) {
       this.drifting = true;
       this.driftDir = Math.sign(ctl.steer);
       this.driftCharge = 0;
@@ -278,13 +283,13 @@ export class Car {
   updateDrift(dt, top, off, events) {
     const rel = clamp(this.steer * this.driftDir, -1, 1);
     let sp = Math.hypot(this.vx, this.vy);
-    sp -= (off ? 260 : 55) * dt;
+    sp -= (off ? 260 : DRIFT.drag) * dt;
     if (this.gas > 0.5 && sp < top) sp += 120 * dt;
-    const w = steerRate(sp) * (1.05 + 0.3 * rel);
+    const w = steerRate(sp) * (DRIFT.turn + DRIFT.turnIn * rel);
     const va = Math.atan2(this.vy, this.vx) + this.driftDir * w * dt;
     this.vx = Math.cos(va) * sp;
     this.vy = Math.sin(va) * sp;
-    this.driftSlip = damp(this.driftSlip, 0.4 + 0.14 * rel, 6, dt);
+    this.driftSlip = damp(this.driftSlip, 0.45 + 0.17 * rel, 6, dt);
     const nose = va + this.driftDir * this.driftSlip;
     this.angle += wrapAngle(nose - this.angle) * (1 - Math.exp(-12 * dt));
     this.slide = sp * Math.sin(this.driftSlip);
@@ -298,7 +303,7 @@ export class Car {
     // Two wheels on the grass is fine for a moment; staying out there ends it.
     this.driftOffT = off ? (this.driftOffT || 0) + dt : 0;
     const released = this.brake < 0.5;
-    if (released || sp < 170 || this.driftOffT > 0.3) {
+    if (released || sp < DRIFT.endSpeed || this.driftOffT > 0.45) {
       events.push({ t: 'driftEnd', car: this, tier: this.driftTier, clean: released && !off });
       // Drift lost while the brake is still held: ignore the brake until it's
       // released, so the car coasts instead of slamming to a stop.

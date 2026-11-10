@@ -12,11 +12,18 @@ const GHOST_DT = 0.05;
 const LIGHT_GAP = 0.8;
 
 // Slipstream: you're in a car's tow up to `range` px behind it, within a
-// narrow cone; strongest right on its gearbox (see PHYS.SLIP_TOP / SLIP_ACC).
-export const SLIPSTREAM = { range: 380, cone: 0.955 };
+// narrow cone, strongest right on its gearbox (see PHYS.SLIP_TOP / SLIP_ACC).
+// Only on a straight: both cars above `minSpeed` × top speed, pointing the
+// same way, and the road ahead bending less than 1 / `straight` px. It takes
+// a moment to build (`build`, per second) and goes quickly (`fade`).
+export const SLIPSTREAM = { range: 380, cone: 0.955, minSpeed: 0.73, straight: 1100, build: 1.3, fade: 5 };
+
+// A car hit from behind: its share of the push (the rest goes to the car
+// doing the hitting) and how much of the twist it gets.
+const REAR_END = { front: 0.15, twist: 0.25 };
 
 // A corner call shows up this many seconds before you need to slow down.
-const CALL_WARN = 1.8;
+const CALL_WARN = 1.4;
 
 // AI speed per difficulty. `top` is the corner pace of the fastest cars (a
 // share of the racing line's own speeds) and `spread` how much slower the
@@ -377,19 +384,27 @@ export class Race {
             const nx = dx / d;
             const ny = dy / d;
             const ov = 2 * R - d;
-            a.x -= (nx * ov) / 2;
-            a.y -= (ny * ov) / 2;
-            b.x += (nx * ov) / 2;
-            b.y += (ny * ov) / 2;
+            // Nose into someone's gearbox: the car behind takes the knock and
+            // gives way, so the one in front isn't shoved along or pinned (a
+            // front wing hooked on your rear wheel would stop you steering).
+            const aRear = sa > 0 && sb < 0 && afx * nx + afy * ny > 0.4; // a runs into b's tail
+            const bRear = sb > 0 && sa < 0 && -(bfx * nx + bfy * ny) > 0.4;
+            const wa = aRear ? 1 - REAR_END.front : bRear ? REAR_END.front : 0.5; // a's share of the push
+            const wb = 1 - wa;
+            a.x -= nx * ov * wa;
+            a.y -= ny * ov * wa;
+            b.x += nx * ov * wb;
+            b.y += ny * ov * wb;
             const rv = (b.vx - a.vx) * nx + (b.vy - a.vy) * ny;
             if (rv < 0) {
               // Rubbing, not bouncing: almost no rebound, a little scrub along
               // the contact, and only a small twist.
-              const jm = (-(1 + 0.05) * rv) / 2;
-              a.vx -= jm * nx;
-              a.vy -= jm * ny;
-              b.vx += jm * nx;
-              b.vy += jm * ny;
+              const J = -(1 + 0.05) * rv;
+              a.vx -= J * wa * nx;
+              a.vy -= J * wa * ny;
+              b.vx += J * wb * nx;
+              b.vy += J * wb * ny;
+              const jm = J / 2;
               const tx = -ny;
               const ty = nx;
               const rt = (b.vx - a.vx) * tx + (b.vy - a.vy) * ty;
@@ -400,8 +415,8 @@ export class Race {
               b.vy -= jt * ty;
               const ta = afx * sa * (-jm * ny) - afy * sa * (-jm * nx);
               const tb = bfx * sb * (jm * ny) - bfy * sb * (jm * nx);
-              a.yawKick = clamp(a.yawKick + ta * 0.0016, -2.5, 2.5);
-              b.yawKick = clamp(b.yawKick + tb * 0.0016, -2.5, 2.5);
+              a.yawKick = clamp(a.yawKick + ta * 0.0016 * (bRear ? REAR_END.twist : 1), -2.5, 2.5);
+              b.yawKick = clamp(b.yawKick + tb * 0.0016 * (aRear ? REAR_END.twist : 1), -2.5, 2.5);
               // Running into the back of someone costs the one doing the ramming.
               if (-rv > 140) {
                 const lose = clamp((-rv - 140) / 900, 0, 0.18);
@@ -433,13 +448,19 @@ export class Race {
   }
 
   slip(h) {
+    const t = this.track;
+    const S = SLIPSTREAM;
+    const vMin = S.minSpeed * PHYS.TOP;
     for (const a of this.cars) {
       let best = 0;
       const fx = Math.cos(a.angle);
       const fy = Math.sin(a.angle);
-      if (a.forwardSpeed > 250) {
+      let bend = 0;
+      for (let k = 0; k <= 28; k += 4) bend = Math.max(bend, Math.abs(t.rcurv[(a.trackIdx + k) % t.n]));
+      if (a.forwardSpeed > vMin && bend < 1 / S.straight) {
         for (const b of this.cars) {
-          if (b === a || b.forwardSpeed < 250 || !this.sameStretch(a, b)) continue;
+          if (b === a || b.forwardSpeed < vMin || !this.sameStretch(a, b)) continue;
+          if (Math.cos(b.angle - a.angle) < 0.985) continue;
           const dx = b.x - a.x;
           const dy = b.y - a.y;
           const d = Math.hypot(dx, dy);
@@ -448,7 +469,7 @@ export class Race {
           best = Math.max(best, Math.pow(1 - (d - 36) / (SLIPSTREAM.range - 36), 0.7));
         }
       }
-      a.slipstream = damp(a.slipstream, best, best > a.slipstream ? 2.2 : 3.5, h);
+      a.slipstream = damp(a.slipstream, best, best > a.slipstream ? S.build : S.fade, h);
     }
   }
 

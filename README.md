@@ -25,9 +25,10 @@ On a phone the game is played sideways; held upright, it asks you to turn the ph
 
 With the phone sideways the middle of the screen stays clear for the road: position, lap times, gaps and messages sit in the column above the steering controls, the speed sits right next to GAS, the map sits next to the pause button above the pedals, and only the start lights appear in the middle.
 
-- **Drift:** while turning at speed, press and hold brake. The car slides round the corner on a tighter line without losing much speed, with tyre smoke and speed lines; let go of brake to grip again. A DRIFTING! tag under your car fills up the longer you hold it: white, blue, orange, purple. On a phone, rock your pedal thumb from GAS down to BRAKE and back up.
+- **Drift:** while turning at speed, press and hold brake. The car slides round the corner on a much tighter line without losing much speed (steer into it to turn tighter still), with tyre smoke and speed lines; let go of brake to grip again. A DRIFTING! tag under your car fills up the longer you hold it: white, blue, orange, purple. On a phone, rock your pedal thumb from GAS down to BRAKE and back up.
 - **Launch:** wait for the five red lights to go out, then hit the gas. React within 0.3 s for a perfect start and a launch boost (within 0.5 s, a smaller one). Hold the gas too early and you spin the wheels.
-- **Slipstream:** up to about eight car lengths behind another car you're in its tow: extra pull and up to 18% more top speed, shown by a SLIPSTREAM! tag under your car, light-blue speed lines and air streaming past. Pull out and pass.
+- **Slipstream:** on a straight at speed, up to about eight car lengths behind another car and lined up with it, you're in its tow after a moment: extra pull and up to 18% more top speed, shown by a SLIPSTREAM! tag under your car, light-blue speed lines and air streaming past. Pull out and pass. Not in corners or chicanes.
+- **Contact:** rubbing is fine. Run into someone's gearbox and you take the knock, not them; the computer cars lift off rather than push you along.
 - **Corners:** long bends are flat out; quicker ones need a lift off the gas (coasting scrubs off speed); hairpins and hard corners need proper braking; chicanes need a big stop. The yellow-and-black sausage kerbs in a chicane are solid, so it can't be cut.
 - **Corner calls:** a card under the timer calls the next corner you need to slow for: LEFT/RIGHT (a lift), HARD LEFT/RIGHT (brake), HAIRPIN or CHICANE, with a bar running down to where to slow; at the braking point it flashes BRAKE! with a beep.
 - **Braking boards:** 3-2-1 boards on both sides of the road count down to every big stop; brake at the red **1** (that's for the speed you'd arrive with, with a little in hand). Calls and boards can be turned off in Settings → Corner hints.
@@ -112,7 +113,7 @@ The road is drawn about three times wider than a real one (so cars can race side
 
 The racing line is an elastic band pulled as straight as the road allows (it uses the inside of tight corners like a player can). The AI drives it, and the braking boards come from the speeds along it, so they match what the car can really do.
 
-Tuning knobs live at the top of their files: `WALL`, `LIFT` and `SLIP_TOP`/`SLIP_ACC` in `js/car.js` (what barrier hits cost; how much a lift off the gas slows you; what a full slipstream gives), `LINE`, `CHICANE`, `HINTS` and `CALLS` in `js/track.js` (racing line clearances, chicane shapes and kerbs, braking boards, corner calls), `AI_KERB` in `js/ai.js`, `DIFFICULTY` (AI pace and how hard they chase a leader) and `SLIPSTREAM` (tow range) in `js/race.js`.
+Tuning knobs live at the top of their files: `WALL`, `LIFT`, `SLIP_TOP`/`SLIP_ACC` and `DRIFT` in `js/car.js` (what barrier hits cost; how much a lift off the gas slows you; what a full slipstream gives; how drifts start, turn and end), `LINE`, `CHICANE`, `HINTS` and `CALLS` in `js/track.js` (racing line clearances, chicane shapes and kerbs, braking boards, corner calls), `AI_KERB` in `js/ai.js`, `DIFFICULTY` (AI pace and how hard they chase a leader) `SLIPSTREAM` (tow range, only on straights at speed) and `REAR_END` (who takes the knock in a nose-to-tail hit) in `js/race.js`.
 
 ## Roadmap
 

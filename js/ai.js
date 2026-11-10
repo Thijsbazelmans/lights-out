@@ -46,6 +46,7 @@ export class AIDriver {
     let blockedL = false;
     let blockedR = false;
     let besideAhead = false; // the car alongside is a nose in front: we give way
+    let touching = false; // our nose is on someone's gearbox: back off
     for (const o of cars) {
       if (o === c) continue;
       const di = Math.abs(o.trackIdx - idx);
@@ -59,6 +60,7 @@ export class AIDriver {
         else blockedR = true;
         if (f > 6) besideAhead = true;
       }
+      if (f > 6 && f < 50 && Math.abs(lat) < 24) touching = true;
       if (f < 8 || f > 180) continue;
       if (Math.abs(lat) > 36) continue;
       if (f < aheadF) {
@@ -130,6 +132,11 @@ export class AIDriver {
     if (v < vt - 12) out.gas = 1;
     else if (v > vt + 28) out.brake = clamp((v - vt) / 90, 0.35, 1);
     else out.gas = 0.45;
+    // Never push the car in front along: lift, and dab the brake.
+    if (touching && v > 40) {
+      out.gas = 0;
+      out.brake = Math.max(out.brake, 0.3);
+    }
 
     // Stuck against something: back out.
     if (Math.abs(v) < 25 && !c.frozen) this.stuck += dt;

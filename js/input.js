@@ -97,6 +97,16 @@ export function bindTouchControls(root) {
     for (const k of Object.keys(btn)) btn[k].classList.toggle('on', on.has(k));
   }
 
+  // Keep the phone's own long-press and double-tap gestures (text magnifier,
+  // callouts, zoom) off the controls; the pointer events below still arrive.
+  const block = (e) => {
+    if (e.cancelable) e.preventDefault();
+  };
+  for (const t of ['touchstart', 'touchmove', 'touchend', 'gesturestart']) root.addEventListener(t, block, { passive: false });
+  document.addEventListener('selectstart', (e) => {
+    if (!e.target.closest?.('input, textarea')) e.preventDefault();
+  });
+
   root.addEventListener('pointerdown', (e) => {
     e.preventDefault();
     try {

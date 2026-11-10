@@ -1,7 +1,7 @@
 /* Layout: a pit-wall timing monitor floating over a live race. Left rail on
    wide screens, bottom sheet on phones; pause and results are centred modals. */
 :root {
-  --build: "17"; /* must match BUILD in js/main.js */
+  --build: "18"; /* must match BUILD in js/main.js */
   --asphalt: #0d1016;
   --panel: rgba(13, 16, 23, 0.9);
   --panel-solid: #131822;
@@ -115,6 +115,16 @@ button:focus-visible {
   backdrop-filter: blur(2px);
   -webkit-backdrop-filter: blur(2px);
   transition: background 60ms, border-color 60ms, transform 60ms;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+
+/* The labels are drawn, not text, so a long press can't bring up the
+   iPhone's text magnifier (which would take over the touch). */
+.tbtn::before {
+  content: attr(data-label);
+  pointer-events: none;
 }
 
 .steer-btns .tbtn {
