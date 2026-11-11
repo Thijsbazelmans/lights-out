@@ -106,6 +106,7 @@ const scenes = [
   ['monza', 'qualifying: in the garage', (r, t, p, run) => run(50, () => ({ auto: true })), QUALI],
   ['monza', 'qualifying: leaving the pit lane', (r, t, p, run) => run(330, () => ({ auto: true })), QUALI],
   ['monza', 'qualifying: out-lap, times coming in', (r, t, p, run) => run(9000, () => ({ auto: true, stop: r.time > 24 })), QUALI],
+  ['monza', 'qualifying: chasing the pole ghost', (r, t, p, run) => run(9000, () => ({ auto: true, stop: r.quali.stage === 'flying' && r.time - p.lapStart > 2.2 })), QUALI],
   ['monza', 'qualifying: flying lap', (r, t, p, run) => run(9000, () => ({ auto: true, stop: r.quali.stage === 'flying' && r.time - p.lapStart > 21 })), QUALI],
   ['monza', 'qualifying: lap done', (r, t, p, run) => run(9000, () => ({ auto: true, stop: r.phase === 'finished' && r.finishReal > 1.7 })), QUALI],
   ['monaco', 'qualifying: garage, outside of the lap', (r, t, p, run) => run(250, () => ({ auto: true })), QUALI],

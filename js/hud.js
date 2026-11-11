@@ -182,6 +182,7 @@ export function drawHUD(ctx, race, cam, w, h, ins, opts) {
 
   // ---- which car is yours, on the grid and just after the start ----
   drawYouMarker(ctx, race, cam);
+  drawGhostTag(ctx, race, cam);
 
   // ---- wrong way ----
   if (race.wrongWayT > 0.9 && Math.floor(race.wrongWayT * 3) % 2 === 0) {
@@ -786,6 +787,7 @@ function drawSideHUD(ctx, race, cam, w, h, ins, opts) {
     drawPitGame(ctx, race.pits.game, (gapL + gapR) / 2 - gw / 2, T, gw, 104, race.time, true);
   }
   drawYouMarker(ctx, race, cam);
+  drawGhostTag(ctx, race, cam);
   if (race.wrongWayT > 0.9 && Math.floor(race.wrongWayT * 3) % 2 === 0) {
     drawBanner(ctx, 'WRONG WAY', C.red, mid, h * 0.3, 34);
   }
@@ -904,6 +906,27 @@ function drawQualiBoard(ctx, race, x, y, w, limit) {
     ry += rowH;
   }
   return height;
+}
+
+// Qualifying: who the ghost is (the pole lap you're chasing).
+function drawGhostTag(ctx, race, cam) {
+  const g = race.ghostAt;
+  const who = race.ghostOf;
+  if (!g || !who || !race.quali || race.quali.stage !== 'flying') return;
+  const [x, y] = cam.toScreen(g.x, g.y);
+  const label = `POLE · ${who.code}`;
+  ctx.font = `800 11px ${F_DISPLAY}`;
+  const tw = ctx.measureText(label).width + 14;
+  ctx.save();
+  ctx.globalAlpha = 0.85;
+  ctx.fillStyle = 'rgba(11,14,20,0.75)';
+  roundRect(ctx, x - tw / 2, y - 40, tw, 17, 6);
+  ctx.fill();
+  ctx.strokeStyle = C.purple;
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+  text(ctx, label, x, y - 28, `800 11px ${F_DISPLAY}`, '#e9d6ff', 'center');
+  ctx.restore();
 }
 
 // Which car is yours: a pulsing ring round it, joined to a YOU tag, on the

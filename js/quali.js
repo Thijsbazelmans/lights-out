@@ -11,6 +11,9 @@ import { rand } from './util.js';
 
 // Timing points per lap (gaps, the live delta, the provisional position).
 export const SPLITS = 40;
+// Ghost laps: a position every this many seconds (yours and, in
+// qualifying, the pole lap you're chasing).
+export const GHOST_DT = 0.05;
 
 // `push`: how much harder than their race pace the computer drivers go on
 // their qualifying lap, per difficulty: [corner pace, engine power], like
@@ -26,7 +29,7 @@ export const SPLITS = 40;
 // a lap after `timeout` s gets no time. You leave the garage `release` s
 // after the green light.
 export const QUALI = {
-  push: { easy: [1.06, 1.04], normal: [1.04, 1.03], hard: [1.03, 1.06] },
+  push: { easy: [1.06, 1.04], normal: [1.01, 1.02], hard: [1.0, 1.02] },
   paceTop: 0.97,
   scatter: 0.004,
   scrappy: 0.08,
@@ -71,7 +74,7 @@ export class QualiSim {
     let pace = Math.min(QUALI.paceTop, e.pace * this.push[0]) * (1 + rand(-QUALI.scatter, QUALI.scatter));
     if (Math.random() < QUALI.scrappy) pace *= 1 - rand(...QUALI.scrappyCost);
     const ai = new AIDriver(car, t, { pace });
-    return { e, car, ai, cars: [car], T: 0, start: null, armed: false, bucket: null, splits: [], time: null, over: false };
+    return { e, car, ai, cars: [car], T: 0, start: null, armed: false, bucket: null, splits: [], time: null, over: false, frames: [], gT: 0 };
   }
 
   // Up to `steps` physics steps (and about `ms` ms), one car after another.
@@ -119,6 +122,14 @@ export class QualiSim {
         return;
       }
     }
+    // Its path round the lap, for the pole ghost (as the race records yours).
+    if (r.start != null) {
+      r.gT += H;
+      while (r.gT >= GHOST_DT) {
+        r.gT -= GHOST_DT;
+        r.frames.push(Math.round(c.x), Math.round(c.y), Math.round(c.angle * 100) / 100);
+      }
+    }
     // Time into the lap at each timing point, as the race measures yours.
     const b = Math.floor((idx * SPLITS) / n);
     if (b !== r.bucket) {
@@ -128,7 +139,10 @@ export class QualiSim {
     if (r.T > QUALI.timeout) r.over = true;
   }
 
+  // Everyone's lap; the fastest one keeps its path, as the pole ghost.
   results() {
+    const timed = this.runs.filter((r) => r.time != null);
+    const best = timed.length ? timed.reduce((a, b) => (b.time < a.time ? b : a)) : null;
     return this.runs.map((r) => ({
       driverId: r.e.driverId,
       code: r.e.code,
@@ -137,6 +151,7 @@ export class QualiSim {
       livery: r.e.livery,
       time: r.time == null ? null : Math.round(r.time * 1000) / 1000,
       splits: r.splits,
+      ghost: r === best ? { dt: GHOST_DT, frames: r.frames } : null,
     }));
   }
 }

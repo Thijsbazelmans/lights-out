@@ -5,12 +5,11 @@
 import { Car, PHYS, TIER_COLORS, WEAR } from './car.js';
 import { AIDriver } from './ai.js';
 import { Pits, PIT_RULE, PIT_TEAMS } from './pit.js';
-import { QUALI, QualiSim, SPLITS, byLapTime } from './quali.js';
+import { GHOST_DT, QUALI, QualiSim, SPLITS, byLapTime } from './quali.js';
 import { Particles, Skids } from './particles.js';
 import { clamp, damp, formatTime, rand, wrapAngle } from './util.js';
 
 const STEP = 1 / 120; // physics runs at a fixed 120 Hz
-const GHOST_DT = 0.05;
 const LIGHT_GAP = 0.8;
 
 // Slipstream: you're in a car's tow up to `range` px behind it, within a
@@ -33,11 +32,13 @@ const CALL_WARN = 1.4;
 // the middle of that range (a proper first-lap scramble); during lap 1 each
 // car moves to its own race pace, so the field strings out into smaller
 // groups and one-on-one battles.
-// (Build 26 raised normal and hard: the owner won on normal without trying.)
+// (Builds 26 and 27 raised normal and hard: the owner still won on normal
+// by seconds with mistakes. Corner pace is near what the computer can drive
+// (AI_PACE_TOP in ai.js), so most of the rest is engine power.)
 export const DIFFICULTY = {
   easy: { top: 0.82, spread: 0.13, power: 0.95, powerSpread: 0.07, chase: 0.08 },
-  normal: { top: 0.93, spread: 0.12, power: 1.05, powerSpread: 0.07, chase: 0.1 },
-  hard: { top: 0.95, spread: 0.1, power: 1.09, powerSpread: 0.06, chase: 0.12 },
+  normal: { top: 0.96, spread: 0.1, power: 1.12, powerSpread: 0.07, chase: 0.12 },
+  hard: { top: 0.97, spread: 0.08, power: 1.18, powerSpread: 0.05, chase: 0.15 },
 };
 
 // A computer driver's pace for a weekend: the team and driver (`skill`),
@@ -300,6 +301,14 @@ export class Race {
       this.ghostFrames = [];
       this.ghostT = 0;
       this.fieldNow();
+      // The pole lap you're chasing, as a ghost in its team's colours.
+      const best = qs.best;
+      if (best && best.ghost && best.ghost.frames.length > 30) {
+        this.ghost = best.ghost;
+        this.ghostCar.livery = { ...best.livery, helmet: '#ffffff' };
+        this.ghostCar.code = best.code;
+        this.ghostOf = best;
+      }
       this.msg('FLYING LAP', '#ffffff', 1.5, 1.1);
       if (qs.pole) this.msg(`POLE ${formatTime(qs.pole.time)} · ${qs.pole.code}`, '#b65cff', 2.2, 0.7);
     } else if (qs.stage === 'flying') {
@@ -329,6 +338,8 @@ export class Race {
     this.fieldNow();
     qs.stage = 'done';
     qs.time = lt;
+    this.ghost = null;
+    this.ghostOf = null;
     car.finished = true;
     car.finishTime = this.time;
     car.finishPos = 1 + qs.results.filter((r) => r.time != null && r.time < lt).length;
@@ -449,7 +460,9 @@ export class Race {
           car.basePower = car.startPower + (car.racePower - car.startPower) * k;
         }
         const rub = this.rubberFor(car);
-        car.power = car.basePower * (1 + (rub - 1) * 0.6);
+        // A chase goes fully into power (corner pace is near its limit); a
+        // runaway leader easing off only partly.
+        car.power = car.basePower * (1 + (rub - 1) * (rub > 1 ? 1 : 0.6));
         ctl = ai.control(h, this.cars, rub, racing ? this.time : -1);
         if (car.launchBoostAt != null && racing && this.time >= car.launchBoostAt) {
           car.startBoost(1, this.events, 'launch');
@@ -1355,12 +1368,13 @@ export class Race {
     if (this.pits) this.drawPitArrows(ctx);
     t.drawDecor(ctx, view);
     const gp = this.ghostPose();
+    this.ghostAt = gp; // (for the HUD's tag on the pole ghost)
     if (gp) {
       const g = this.ghostCar;
       g.x = gp.x;
       g.y = gp.y;
       g.angle = gp.angle;
-      g.draw(ctx, 0.4);
+      g.draw(ctx, this.quali ? 0.55 : 0.4);
     }
     const m = 60;
     if (this.pits || this.lane) this.drawCrews(ctx, view);
