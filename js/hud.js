@@ -4,6 +4,7 @@ import { clamp, followRows, formatGap, formatTime, roundRect } from './util.js';
 import { PHYS, TIER_COLORS } from './car.js';
 import { gearInfo } from './audio.js';
 import { POINTS } from './season.js';
+import { PIT_GAME, WHEELS } from './pit.js';
 
 const F_DISPLAY = '"Saira Condensed", "Arial Narrow", system-ui, sans-serif';
 const F_DATA = '"JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace';
@@ -138,16 +139,25 @@ export function drawHUD(ctx, race, cam, w, h, ins, opts) {
   if (p.wears) drawCondition(ctx, p, sx + sw + 8, sy, 104, sh, race.time);
   // ---- on a phone: how far you're steering, and gas and brake ----
   const gauges = !!opts.touchUI;
+  if (race.pits) drawPitStatus(ctx, race, p, sx - (gauges ? 14 : 0) - 8 - 84, sy, 84, sh, race.time);
   const below = gauges && shortLandscape ? 18 : 0; // steering bar goes under the panel when sideways
   if (gauges) drawInputs(ctx, p, sx, sy, sw, sh, shortLandscape ? sy + sh + 6 : sy - 18);
 
   drawCarTags(ctx, race, cam, w, h);
 
   // ---- corner call: under the timer (under the speed panel when sideways) ----
-  if (race.call) {
-    const callY = shortLandscape ? sy + sh + 8 + below : T + 62;
-    const room = Math.min(cx - (L + pw) - 8, mx - 6 - cx - 8) * 2;
-    drawCall(ctx, race.call, cx, callY, Math.min(narrow ? 172 : 214, room), race.time);
+  const callY = shortLandscape ? sy + sh + 8 + below : T + 62;
+  const callW = Math.min(narrow ? 172 : 214, Math.min(cx - (L + pw) - 8, mx - 6 - cx - 8) * 2);
+  if (race.call) drawCall(ctx, race.call, cx, callY, callW, race.time);
+  // ---- pit entry coming up (under the corner call) ----
+  const hint = race.pits && race.pits.hint();
+  if (hint) drawPitHint(ctx, hint, cx, callY + (race.call ? 50 : 0), callW, race.time);
+  // ---- the pit stop you play: above the speed panel (at the bottom when sideways) ----
+  if (race.pits && race.pits.game) {
+    const gw = Math.min(320, w - 24);
+    const gh = 112;
+    const gy = shortLandscape ? B - gh : sy - gh - (gauges ? 26 : 12);
+    drawPitGame(ctx, race.pits.game, cx - gw / 2, gy, gw, gh, race.time, !!opts.touchUI);
   }
 
   // ---- "YOU" marker before the start ----
@@ -370,7 +380,8 @@ export function drawCall(ctx, note, cx, y, pw, time) {
 
 // Tyres and car condition: two rows with a percentage and a bar, green to
 // red as they drop; CAR flashes red when you've just taken damage.
-function conditionColor(v) {
+function conditionColor(v, tyres = false) {
+  if (tyres) return v >= 0.75 ? C.green : v >= 0.55 ? C.yellow : v >= 0.35 ? '#ff8a2f' : C.red;
   return v >= 0.9 ? C.green : v >= 0.75 ? C.yellow : v >= 0.55 ? '#ff8a2f' : C.red;
 }
 
@@ -388,7 +399,7 @@ function drawCondition(ctx, p, x, y, w, h, time, compact = false) {
       roundRect(ctx, x + 3, ry + 3, w - 6, rh - 6, 6);
       ctx.fill();
     }
-    const col = conditionColor(v);
+    const col = conditionColor(v, k === 0);
     const pct = `${Math.round(v * 100)}%`;
     text(ctx, label, x + 8, ry + rh * 0.48, `700 ${compact ? 9 : 10}px ${F_UI}`, C.muted);
     text(ctx, pct, x + w - 8, ry + rh * 0.52, `800 ${compact ? 13 : 16}px ${F_DISPLAY}`, col, 'right');
@@ -402,6 +413,175 @@ function drawCondition(ctx, p, x, y, w, h, time, compact = false) {
     roundRect(ctx, bx, by, Math.max(3, bw * clamp(v, 0, 1)), 3, 1.5);
     ctx.fill();
   });
+}
+
+// ---------- pit stops ----------
+
+// Whether you've made your stop: DUE (BOX THIS LAP on your last chance,
+// flashing), or a tick and how long you stood.
+function drawPitStatus(ctx, race, p, x, y, w, h, time, compact = false) {
+  const done = p.stops > 0;
+  const last = !done && race.pits.lastLap();
+  const flash = last && Math.floor(time * 3) % 2 === 0;
+  panel(ctx, x, y, w, h, compact ? 8 : 12);
+  if (flash) {
+    ctx.fillStyle = 'rgba(255,210,63,0.22)';
+    roundRect(ctx, x + 2, y + 2, w - 4, h - 4, compact ? 6 : 10);
+    ctx.fill();
+  }
+  const inPit = !!p.pit && p.pit.stage !== 'out';
+  const col = inPit ? '#4fa3ff' : done ? C.green : last ? C.yellow : '#ffb020';
+  const stood = done ? `${p.stopTimes[p.stopTimes.length - 1].toFixed(1)}s` : '';
+  const word = inPit ? 'IN PIT' : last ? 'BOX NOW' : 'DUE';
+  if (compact) {
+    text(ctx, 'PIT', x + 8, y + h / 2 + 4, `700 9px ${F_UI}`, C.muted);
+    text(ctx, done && !inPit ? `✓ ${stood}` : word, x + w - 8, y + h / 2 + 5, `800 13px ${F_DISPLAY}`, col, 'right');
+    return;
+  }
+  text(ctx, 'PIT STOP', x + 9, y + 17, `700 10px ${F_UI}`, C.muted);
+  if (done && !inPit) {
+    text(ctx, '✓', x + 10, y + 44, `900 22px ${F_DISPLAY}`, col);
+    text(ctx, stood, x + w - 9, y + 43, `800 16px ${F_DISPLAY}`, C.text, 'right');
+  } else {
+    text(ctx, word, x + 9, y + 43, `900 italic ${word === 'DUE' ? 21 : 19}px ${F_DISPLAY}`, col);
+  }
+}
+
+// PIT ENTRY coming up: an arrow to the side the entry is on.
+function drawPitHint(ctx, hint, cx, y, pw, time) {
+  const ph = 42;
+  const x = cx - pw / 2;
+  const right = hint.side > 0;
+  const col = hint.last ? C.yellow : '#4fa3ff';
+  panel(ctx, x, y, pw, ph, 10);
+  ctx.strokeStyle = col;
+  ctx.lineWidth = 2;
+  roundRect(ctx, x + 1, y + 1, pw - 2, ph - 2, 9);
+  ctx.stroke();
+  // Arrow, nudging toward the entry.
+  const nudge = Math.sin(time * 8) * 2;
+  const ax = right ? x + pw - 24 + nudge : x + 24 - nudge;
+  ctx.save();
+  ctx.translate(ax, y + ph / 2);
+  ctx.scale(right ? 1 : -1, 1);
+  ctx.fillStyle = col;
+  ctx.beginPath();
+  ctx.moveTo(-9, -9);
+  ctx.lineTo(4, 0);
+  ctx.lineTo(-9, 9);
+  ctx.lineTo(-5, 0);
+  ctx.closePath();
+  ctx.fill();
+  ctx.restore();
+  const tx = right ? x + 12 : x + 40;
+  text(ctx, hint.last ? 'LAST CHANCE' : 'PIT ENTRY', tx, y + 17, `800 10px ${F_UI}`, col);
+  text(ctx, `KEEP ${right ? 'RIGHT' : 'LEFT'}`, tx, y + 35, `900 italic 18px ${F_DISPLAY}`, C.text);
+}
+
+// The stop you play: four wheel guns, then the release light.
+function drawPitGame(ctx, g, x, y, w, h, time, touch) {
+  const G = PIT_GAME;
+  panel(ctx, x, y, w, h, 12);
+  const pad = 12;
+  const key = touch ? 'TAP GAS' : 'PRESS ↑';
+  let title = 'JACK UP';
+  if (g.phase === 'wheels') title = WHEELS[Math.min(3, g.wheel)];
+  else if (g.phase === 'jackDown') title = 'JACK DOWN';
+  else if (g.phase === 'light' || g.phase === 'go') title = 'RELEASE';
+  text(ctx, title, x + pad, y + 20, `900 italic 17px ${F_DISPLAY}`, C.text);
+  text(ctx, `${g.t.toFixed(2)}s`, x + w - pad, y + 20, `700 14px ${F_DATA}`, C.muted, 'right');
+
+  // The four wheels, as a little car seen from above: front at the top.
+  const cxw = x + pad + 12;
+  const cyw = y + 45;
+  ctx.fillStyle = 'rgba(255,255,255,0.12)';
+  roundRect(ctx, cxw - 4, cyw - 13, 8, 26, 3);
+  ctx.fill();
+  const pos = [
+    [-9, -9],
+    [9, -9],
+    [-9, 9],
+    [9, 9],
+  ];
+  pos.forEach(([dx, dy], i) => {
+    const on = g.done[i];
+    const now = g.phase === 'wheels' && g.wheel === i;
+    ctx.fillStyle = on ? C.green : now ? (Math.floor(time * 6) % 2 ? C.yellow : '#7a6a2a') : '#2c313b';
+    roundRect(ctx, cxw + dx - 3.5, cyw + dy - 5.5, 7, 11, 2);
+    ctx.fill();
+  });
+
+  const bx = x + pad + 34;
+  const bw = w - pad * 2 - 34;
+  const by = y + 34;
+  if (g.phase === 'wheels' || g.phase === 'jackUp') {
+    // Bar with the green zone and the moving marker.
+    const bh = 22;
+    ctx.fillStyle = '#1a1e26';
+    roundRect(ctx, bx, by, bw, bh, 6);
+    ctx.fill();
+    if (g.phase === 'wheels') {
+      const zx = bx + bw * (g.zone - G.green / 2 - G.ok);
+      ctx.fillStyle = 'rgba(255,210,63,0.35)';
+      ctx.fillRect(zx, by + 2, bw * (G.green + 2 * G.ok), bh - 4);
+      ctx.fillStyle = C.green;
+      ctx.fillRect(bx + bw * (g.zone - G.green / 2), by + 2, bw * G.green, bh - 4);
+      const locked = g.lock > 0;
+      const mx = bx + bw * clamp(g.m, 0, 1);
+      ctx.fillStyle = locked ? C.red : '#ffffff';
+      ctx.fillRect(mx - 2, by - 3, 4, bh + 6);
+      ctx.beginPath();
+      ctx.moveTo(mx - 6, by - 7);
+      ctx.lineTo(mx + 6, by - 7);
+      ctx.lineTo(mx, by - 1);
+      ctx.closePath();
+      ctx.fill();
+    }
+    const hintText = g.phase === 'wheels' ? `${key} IN THE GREEN` : 'CAR UP ON THE JACKS';
+    text(ctx, hintText, x + pad, y + h - 14, `700 11px ${F_UI}`, C.muted);
+  } else {
+    // Release light.
+    const green = g.green || g.phase === 'go';
+    const lx = bx + 22;
+    const ly = by + 22;
+    ctx.fillStyle = '#0c0d10';
+    ctx.beginPath();
+    ctx.arc(lx, ly, 19, 0, Math.PI * 2);
+    ctx.fill();
+    if (g.phase !== 'jackDown') {
+      ctx.fillStyle = green ? 'rgba(49,214,123,0.3)' : 'rgba(255,42,31,0.3)';
+      ctx.beginPath();
+      ctx.arc(lx, ly, 22, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = green ? C.green : C.lights;
+      ctx.beginPath();
+      ctx.arc(lx, ly, 15, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    const big = g.phase === 'jackDown' ? 'DOWN…' : green ? 'GO!' : 'WAIT…';
+    text(ctx, big, lx + 32, ly + 9, `900 italic 28px ${F_DISPLAY}`, green ? C.green : C.text);
+    text(ctx, green ? `${key} NOW` : `${key} ON GREEN`, x + pad, y + h - 14, `700 11px ${F_UI}`, C.muted);
+  }
+  // Front wing change, alongside.
+  if (g.wingNeed) {
+    const s = clamp(g.wingProgress ?? 0, 0, 1);
+    const wx = x + w - pad - 90;
+    const wy = y + h - 20;
+    text(ctx, 'FRONT WING', wx, wy, `700 9px ${F_UI}`, s >= 1 ? C.green : '#ff8a2f');
+    ctx.fillStyle = 'rgba(255,255,255,0.1)';
+    roundRect(ctx, wx, wy + 5, 90, 4, 2);
+    ctx.fill();
+    ctx.fillStyle = s >= 1 ? C.green : '#ff8a2f';
+    roundRect(ctx, wx, wy + 5, Math.max(4, 90 * s), 4, 2);
+    ctx.fill();
+  }
+  // PERFECT / OK / MISSED pops up over the bar.
+  if (g.flash) {
+    const a = clamp(1 - g.flash.t / 0.6, 0, 1);
+    ctx.globalAlpha = a;
+    drawBanner(ctx, g.flash.text, g.flash.color, x + w / 2 + 17, by - 4 - g.flash.t * 18, 20);
+    ctx.globalAlpha = 1;
+  }
 }
 
 // What the bar under the speed shows: how long you've been drifting (its
@@ -438,6 +618,7 @@ function drawCarTags(ctx, race, cam, w, h) {
   }
   const sa = clamp((p.slipstream - 0.25) / 0.12, 0, 1);
   if (sa > 0) tags.push({ label: 'SLIPSTREAM!', col: SLIP_COL, fill: clamp(p.slipstream, 0, 1), a: sa });
+  if (p.pit && p.pit.stage !== 'box') tags.push({ label: 'PIT LIMITER', col: C.yellow, fill: clamp(p.speed / 230, 0, 1), a: 1 });
   if (!tags.length) return;
   const [px, py] = cam.toScreen(p.x, p.y);
   let y = clamp(py + 40, 60, h - 70);
@@ -515,7 +696,13 @@ function drawSideHUD(ctx, race, cam, w, h, ins, opts) {
   const tileX = pedalRight ? pr.left - 10 - tileW : pr.right + 10;
   const tileY = clamp(g.top + (Math.min(g.height, tileH * 1.4) - tileH) / 2, T + 130, h - tileH - 8);
   drawSpeedTile(ctx, p, tileX, tileY, tileW, tileH);
-  if (p.wears) drawCondition(ctx, p, tileX, Math.min(tileY + tileH + 6, h - 48), tileW, 42, race.time, true);
+  const condY = Math.min(tileY + tileH + 6, h - 48);
+  if (p.wears) drawCondition(ctx, p, tileX, condY, tileW, 42, race.time, true);
+  if (race.pits) {
+    // Under the tyres and car readout if there's room, else above the speed.
+    const py = condY + 42 + 6 + 24 <= h - ins.bottom - 4 ? condY + 48 : tileY - 30;
+    drawPitStatus(ctx, race, p, tileX, py, tileW, 24, race.time, true);
+  }
   drawCarTags(ctx, race, cam, w, h);
 
   // ---- map, in the corner above the pedal, beside the pause button ----
@@ -545,6 +732,13 @@ function drawSideHUD(ctx, race, cam, w, h, ins, opts) {
     drawEventCard(ctx, ev, (gapL + gapR) / 2, T + (isRace ? 68 : 0), cw, fade, true);
   }
   if (race.call && !before) drawCall(ctx, race.call, mid, T, Math.min(214, gapR - gapL), race.time);
+  const hint = race.pits && !before && race.pits.hint();
+  if (hint) drawPitHint(ctx, hint, mid, T + (race.call ? 50 : 0), Math.min(214, gapR - gapL), race.time);
+  if (race.pits && race.pits.game) {
+    // Top middle, where the corner calls go, so the car and crew stay in view.
+    const gw = Math.min(320, gapR - gapL);
+    drawPitGame(ctx, race.pits.game, (gapL + gapR) / 2 - gw / 2, T, gw, 104, race.time, true);
+  }
   if (before && isRace) {
     const [px, py] = cam.toScreen(p.x, p.y);
     const yy = py - 46;
@@ -786,7 +980,7 @@ const confetti = new WeakMap();
 
 function drawFinish(ctx, race, w, h, ins, opts) {
   const p = race.player;
-  const pos = p.finishPos;
+  const pos = p.shownPos || p.finishPos;
   const t = race.finishReal;
   const ease = (x) => 1 - Math.pow(1 - clamp(x, 0, 1), 3);
   const backOut = (x) => {
@@ -844,10 +1038,11 @@ function drawFinish(ctx, race, w, h, ins, opts) {
   ctx.font = `900 italic ${narrow ? 26 : 32}px ${F_DISPLAY}`;
   ctx.fillStyle = '#ffffff';
   ctx.fillText(head, 0, big * 0.5);
-  const bits = [formatTime(p.finishTime)];
-  if (p.bestLap) bits.push(`best lap ${formatTime(p.bestLap)}`);
+  const bits = [formatTime(p.finishTime + (p.penalty || 0))];
+  if (p.penalty) bits.push(`+${p.penalty}s no pit stop`);
+  else if (p.bestLap) bits.push(`best lap ${formatTime(p.bestLap)}`);
   ctx.font = `500 ${narrow ? 12 : 14}px ${F_DATA}`;
-  ctx.fillStyle = race.fastest && race.fastest.car === p ? C.purple : C.muted;
+  ctx.fillStyle = p.penalty ? C.red : race.fastest && race.fastest.car === p ? C.purple : C.muted;
   ctx.fillText(bits.join('  ·  '), 0, big * 0.5 + (narrow ? 28 : 34));
   if (opts.season) {
     const pts = POINTS[pos - 1] || 0;

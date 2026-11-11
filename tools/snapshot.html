@@ -15,7 +15,7 @@
 </style>
 </head>
 <body>
-<p>Developer tool: single frames of a race, set up and drawn with the game's own code, to check effects and the HUD without playing. <code>?w=740&amp;h=360</code> for a phone held sideways, <code>?zoom=2</code> to look closer, <code>?only=spa</code> for one circuit's scene, <code>?calls</code> for every corner call card.</p>
+<p>Developer tool: single frames of a race, set up and drawn with the game's own code, to check effects and the HUD without playing. <code>?w=740&amp;h=360</code> for a phone held sideways, <code>?zoom=2</code> to look closer, <code>?only=spa</code> for one circuit's scenes (pit stops: <code>?only=monza,monaco</code>), <code>?calls</code> for every corner call card.</p>
 <div class="grid" id="grid"></div>
 <script type="module">
 import { Track } from '../js/track.js';
@@ -57,12 +57,53 @@ const scenes = [
   ['spa', 'hard braking', (r, t, p, run) => { place(r, t, p, 0.37, 720); run(18, () => ({ brake: 1 })); }],
   ['austria', 'worn tyres and a damaged car', (r, t, p, run) => {
     place(r, t, p, 0.15, 600);
-    p.tyres = 0.81;
+    p.tyres = 0.51;
     p.damage = 0.46;
     run(40, () => ({ gas: 1 }));
     p.hitT = 0.5;
   }],
+  ['monza', 'pit entry coming up', (r, t, p, run) => { placeK(r, t, p, t.pit.start - 150, 650, 20); run(10, () => ({ gas: 1 })); }],
+  ['monza', 'turning into the pit lane', (r, t, p, run) => { placeK(r, t, p, t.pit.start - 30, 650, t.half - 8); run(40, () => ({ gas: 1, steer: 0 })); }],
+  ['monza', 'pit stop: wheel guns', (r, t, p, run) => {
+    placeK(r, t, p, t.pit.start - 20, 620, t.half - 8);
+    run(1200, (k) => {
+      const g = r.pits.game;
+      if (g && g.wheel === 2 && g.phase === 'wheels' && g.pt > 0.15) return { stop: true };
+      return { gas: 1, steer: 0, pedal: !!g && g.phase === 'wheels' && g.gun <= 0 && Math.abs(g.m - g.zone) < 0.04 && k % 2 === 0 };
+    });
+  }],
+  ['monza', 'pit stop: release, front wing', (r, t, p, run) => {
+    p.damage = 0.32;
+    placeK(r, t, p, t.pit.start - 20, 620, t.half - 8);
+    run(1500, (k) => {
+      const g = r.pits.game;
+      if (g && g.phase === 'light' && g.pt > 0.05) return { stop: true };
+      return { gas: 1, steer: 0, pedal: !!g && g.phase === 'wheels' && g.gun <= 0 && Math.abs(g.m - g.zone) < 0.04 && k % 2 === 0 };
+    });
+  }],
+  ['monza', 'last chance to stop', (r, t, p, run) => { p.lap = 1; placeK(r, t, p, t.pit.start - 150, 650, 20); run(10, () => ({ gas: 1 })); }],
+  ['monaco', 'pit lane, outside of the lap', (r, t, p, run) => { placeK(r, t, p, t.pit.start - 2, 620, t.half - 6); run(150, () => ({ gas: 1, steer: 0 })); }],
 ];
+
+// Like placeCar, at signed sample k (negative before the line), `lat` px
+// right of the centre line, and on lap 0 so the pit entry is open.
+function placeK(r, t, p, k, speed, lat = 0) {
+  r.phase = 'race';
+  r.time = 20;
+  for (const c of r.cars) { c.frozen = false; if (c !== p) { c.x = -1e6; c.y = -1e6; } }
+  const i = ((k % t.n) + t.n) % t.n;
+  const a = Math.atan2(t.ty[i], t.tx[i]);
+  const off = lat * t.pit.side;
+  p.x = t.px[i] + t.nx[i] * off;
+  p.y = t.py[i] + t.ny[i] * off;
+  p.angle = a;
+  p.vx = Math.cos(a) * speed;
+  p.vy = Math.sin(a) * speed;
+  p.trackIdx = i;
+  p.lapArmed = true;
+  p.frozen = false;
+  p.launchPenalty = 0;
+}
 
 function place(r, t, p, frac, speed, lat = 0) {
   r.phase = 'race';
@@ -119,8 +160,8 @@ for (const [id, label, script] of q.has('calls') ? [] : scenes) {
     for (let k = 0; k < frames; k++) {
       const c = ctl(k);
       if (c.stop) break;
-      const steer = c.steer ?? bot.control(1 / 60, r.cars, 1, r.time).steer;
-      r.update(1 / 60, { gas: c.gas || 0, brake: c.brake || 0, steer, analog: true });
+      const steer = c.steer ?? (p.pit ? 0 : bot.control(1 / 60, r.cars, 1, r.time).steer);
+      r.update(1 / 60, { gas: c.gas || 0, brake: c.brake || 0, steer, analog: true, pedal: !!c.pedal });
       each?.(1 / 60);
       cam.update(1 / 60, p, { w: W, h: H, mode: 'chase', touchUI: phone, speedFrac: Math.max(0, p.forwardSpeed) / PHYS.TOP, boost: p.boost > 0, zoomMul: ZOOM });
     }

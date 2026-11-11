@@ -28,7 +28,8 @@ With the phone sideways the middle of the screen stays clear for the road: posit
 - **Drift:** while turning at speed, press and hold brake. The car slides round the corner on a much tighter line without losing much speed (steer into it to turn tighter still), with tyre smoke and speed lines; let go of brake to grip again. A DRIFTING! tag under your car fills up the longer you hold it: white, blue, orange, purple. On a phone, rock your pedal thumb from GAS down to BRAKE and back up.
 - **Launch:** wait for the five red lights to go out, then hit the gas. React within 0.3 s for a perfect start and a launch boost (within 0.5 s, a smaller one). Hold the gas too early and you spin the wheels.
 - **Slipstream:** on a straight at speed, up to about eight car lengths behind another car and lined up with it, you're in its tow after a moment: extra pull and up to 18% more top speed, shown by a SLIPSTREAM! tag under your car, light-blue speed lines and air streaming past. Pull out and pass. Not in corners or chicanes.
-- **Tyres & damage (races):** every car starts at 100%. Tyres wear about 1.6% a lap of normal driving (a 3-lap race ends near 95%), faster when you drift (drift every corner and you'll end near 90%) and much faster off the road. Hits with walls or cars (beyond a light scrape) damage the car. Both cost top speed and pull: worn tyres a little, damage more and more as it builds up, and a badly damaged car smokes. TYRES and CAR next to your speed show where you are (green, yellow, orange, red); CAR flashes when you take a hit, and the results show how you finished. The computer cars wear and get damaged by the same rules. Off in time trials; can be turned off in Settings.
+- **Tyres & damage (races):** every car starts at 100%. A race of normal driving uses about 70% of a set of tyres, whatever the number of laps (so with the one pit stop each set ends near 65%); drifting wears them faster, running off the road much faster. Hits with walls or cars (beyond a light scrape) damage the car. Both cost top speed and pull: worn tyres hardly at first, more and more below about half, and damage more and more as it builds up; a badly damaged car smokes. TYRES and CAR next to your speed show where you are (green, yellow, orange, red); CAR flashes when you take a hit, and the results show how you finished. The computer cars wear and get damaged by the same rules. Off in time trials; can be turned off in Settings.
+- **Pit stop (races):** everyone has to stop once (from the end of lap 1, with at least most of a lap to go). The pit lane runs beside the start straight; a blue PIT board and a dashed line on the road mark the entry, and a PIT ENTRY card shows which side to keep to. Run your car over the dashed line at the entry and it turns in and drives itself at the speed limit to your team's box. There you play the stop: four wheel guns (tap GAS, or press ↑, when the marker is in the green: green is quick, just outside is slower, a miss jams the gun for a moment) and then the release light (go on green; go on red and you're held). The race clock keeps running, so a quick stop (about 2.3 s standing) gains places and a messy one loses them; the whole stop costs about 7–8 seconds. You leave with fresh tyres and a repaired car; a damaged car also gets a new front wing, which takes longer the worse the damage. The computer cars stop around halfway (sooner when badly damaged). The PIT readout next to your speed says DUE until you've stopped, BOX NOW on your last chance (with BOX THIS LAP on screen), then a tick and your time. Skip it and you get 20 seconds added at the finish. Off with tyres & damage off.
 - **Contact:** rubbing is fine. Run into someone's gearbox and you take the knock, not them; the computer cars lift off rather than push you along.
 - **Corners:** long bends are flat out; quicker ones need a lift off the gas (coasting scrubs off speed); hairpins and hard corners need proper braking; chicanes need a big stop. The yellow-and-black sausage kerbs in a chicane are solid, so it can't be cut.
 - **Corner calls:** a card under the timer calls the next corner you need to slow for: LEFT/RIGHT (a lift), HARD LEFT/RIGHT (brake), HAIRPIN or CHICANE, with a bar running down to where to slow; at the braking point it flashes BRAKE! with a beep.
@@ -75,9 +76,10 @@ Then open http://localhost:8642.
 | `css/style.css` | Menus, buttons, touch controls |
 | `js/main.js` | Boot, game loop, screen flow, saving results |
 | `js/race.js` | A session: start lights, laps, positions, collisions, slipstream, ghosts, results |
+| `js/pit.js` | Pit stops: the required stop, driving the pit lane, the stop you play, computer crews |
 | `js/car.js` | Car physics (grip, drift, boost, barriers) and the car drawing |
 | `js/ai.js` | Computer drivers: following the racing line, braking points, overtaking, recovery |
-| `js/track.js` | Circuit geometry, chicanes, racing line and corner speeds, braking boards, kerbs, scenery, minimap |
+| `js/track.js` | Circuit geometry, chicanes, racing line and corner speeds, braking boards, kerbs, pit lane and garages, scenery, minimap |
 | `js/data/tracks.js` | The circuits, their looks and the season calendar |
 | `js/data/circuits/` | Each real circuit as game coordinates |
 | `js/season.js` | Championship: points, standings, rounds |
@@ -93,7 +95,8 @@ Developer extras:
 
 - `tools/track-preview.html` draws every circuit with its racing line coloured by the speed the car can carry, the stops that get braking boards, and every corner numbered with its slowest speed (`?ids=monaco,spa` for just a few).
 - `tools/chicanes.html` shows a close-up of every chicane as drawn in the game.
-- `tools/snapshot.html` sets up moments in a race (a corner call, BRAKE!, slipstream, a drift, off the road, hard braking) and draws one frame of each with the game's own code (`?w=740&h=360` for a phone held sideways, `?zoom=2` to look closer, `?calls` for every corner call card).
+- `tools/snapshot.html` sets up moments in a race (a corner call, BRAKE!, slipstream, a drift, off the road, hard braking, the pit entry, the stop, the release, the last chance to stop) and draws one frame of each with the game's own code (`?w=740&h=360` for a phone held sideways, `?zoom=2` to look closer, `?only=monza,monaco` for the pit scenes, `?calls` for every corner call card).
+- `tools/sim-races.mjs` and `tools/sim-calls.mjs` run races without a browser for tuning (`node tools/sim-races.mjs all 3`: finishes, lap times, wall hits, tyres and damage, pit stops; `node tools/sim-calls.mjs monza`: when each corner call and BRAKE! comes).
 - `tools/convert-circuit.mjs` turns a GeoJSON centre line into a circuit file (see below).
 - Add `?nopause` to the URL to stop the game pausing when the tab is hidden (for automated testing).
 - `window.lightsOut` in the browser console gives access to the game state.
@@ -112,15 +115,17 @@ The game handles the rest: where two parts of a circuit run closer than the (ext
 
 The road is drawn about three times wider than a real one (so cars can race side by side on a phone), which flattens real chicanes into wiggles you could drive straight through. So each circuit lists its chicanes in `js/data/tracks.js` (`chicanes: [{ at: lap fraction, kind: 'slow' | 'medium' | 'fast' }]`): the game rebuilds each one as a sharp Z at game scale and puts sausage kerbs on the inside of both turns (`rebuild: false` keeps the real shape and only adds kerbs). Circuits whose chicanes were rebuilt have `layout: 2`, which clears lap records set on the old shape.
 
+Each circuit gets a pit lane beside its start straight, on the inside of the lap where there's room (Monaco, Spa and Miami have it on the outside): the game looks for a stretch with no other part of the circuit close by and no tight bend where the lane leaves or rejoins the road, as near the line as it can. `pit: { side: 1 | -1, shift: px }` on a circuit in `js/data/tracks.js` overrides the side or moves it along.
+
 The racing line is an elastic band pulled as straight as the road allows (it uses the inside of tight corners like a player can). The AI drives it, and the braking boards come from the speeds along it, so they match what the car can really do.
 
-Tuning knobs live at the top of their files: `WALL`, `LIFT`, `SLIP_TOP`/`SLIP_ACC`, `DRIFT` and `WEAR` in `js/car.js` (what barrier hits cost; how much a lift off the gas slows you; what a full slipstream gives; how drifts start, turn and end; how fast tyres wear, what hits cost and how much both slow you), `LINE`, `CHICANE`, `HINTS` and `CALLS` in `js/track.js` (racing line clearances, chicane shapes and kerbs, braking boards, corner calls), `AI_KERB` in `js/ai.js`, `DIFFICULTY` (AI pace and how hard they chase a leader) `SLIPSTREAM` (tow range, only on straights at speed) and `REAR_END` (who takes the knock in a nose-to-tail hit) in `js/race.js`.
+Tuning knobs live at the top of their files: `WALL`, `LIFT`, `SLIP_TOP`/`SLIP_ACC`, `DRIFT` and `WEAR` in `js/car.js` (what barrier hits cost; how much a lift off the gas slows you; what a full slipstream gives; how drifts start, turn and end; how fast tyres wear, what hits cost and how much both slow you), `LINE`, `CHICANE`, `HINTS`, `CALLS` and `PIT` in `js/track.js` (racing line clearances, chicane shapes and kerbs, braking boards, corner calls, pit lane size and entry), `PIT_DRIVE`, `PIT_RULE`, `PIT_GAME` and `AI_STOP` in `js/pit.js` (pit lane speed limit, when a stop counts and the penalty for skipping it, the stop you play, computer stop times), `AI_KERB` in `js/ai.js`, `DIFFICULTY` (AI pace and how hard they chase a leader) `SLIPSTREAM` (tow range, only on straights at speed) and `REAR_END` (who takes the knock in a nose-to-tail hit) in `js/race.js`.
 
 ## Roadmap
 
 1. ~~Arcade racer, one player, saved on the device~~
 2. ~~Real teams and drivers to pick from~~
 3. ~~Real circuits and a season mode~~
-4. ~~Tyre wear and damage~~; next: pit stops as a mini-game, tyre strategy, weather
+4. ~~Tyre wear and damage~~, ~~pit stops as a mini-game~~; next: tyre strategy, weather
 5. Team management: driver development, junior teams, car development
 6. Online: ghost races between two players, then live racing in the same room

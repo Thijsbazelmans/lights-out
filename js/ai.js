@@ -20,6 +20,7 @@ export class AIDriver {
     this.stuck = 0;
     this.reverseT = 0;
     this.reaction = rand(0.17, 0.42);
+    this.toPit = 0; // set by the race when coming in: the pit side (+1 right, -1 left)
     this.out = { gas: 0, brake: 0, steer: 0, analog: true };
   }
 
@@ -101,9 +102,11 @@ export class AIDriver {
     } else {
       this.offsetTarget = damp(this.offsetTarget, this.baseOff, 0.6, dt);
     }
+    // Coming in: over to the pit side of the road for the entry.
+    if (this.toPit) this.offsetTarget = this.toPit * (t.half - 24) - t.roff[idx];
     this.wob += dt;
     const desiredOff = this.offsetTarget + Math.sin(this.wob * 0.7) * 8;
-    this.offset = damp(this.offset, desiredOff, 2.2, dt);
+    this.offset = damp(this.offset, desiredOff, this.toPit ? 3.5 : 2.2, dt);
 
     // Steer toward a point ahead on our line; look less far ahead through a
     // tight bit (a chicane), so we don't cut across its kerbs.

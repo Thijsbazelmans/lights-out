@@ -15,7 +15,7 @@ import { clamp, formatTime } from './util.js';
 import { POINTS, ROUNDS, abandonSeason, currentSeason, isComplete, nextTrack, playerStanding, recordRound, standings, startSeason, teamStanding } from './season.js';
 
 // Bump together with --build in css/style.css and CACHE in sw.js.
-const BUILD = '20';
+const BUILD = '21';
 
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d', { alpha: false });
@@ -322,6 +322,23 @@ function handleOut(r) {
       case 'results':
         showResults(r);
         break;
+      case 'pitIn':
+      case 'boxCall':
+        audio.sfxBeep(740, 0.09, 'square', 0.07);
+        setTimeout(() => audio.sfxBeep(740, 0.09, 'square', 0.07), 140);
+        break;
+      case 'gun':
+        audio.sfxGun(!e.good);
+        break;
+      case 'gunMiss':
+        audio.sfxBeep(150, 0.16, 'sawtooth', 0.08);
+        break;
+      case 'pitGreen':
+        audio.sfxBeep(1040, 0.2, 'square', 0.09);
+        break;
+      case 'pitGo':
+        if (e.great) audio.sfxChime([660, 880, 1100], 0.07);
+        break;
     }
   }
   r.out.length = 0;
@@ -359,6 +376,8 @@ function showResults(r) {
     chips.push({ kind: 'purple', text: `Circuit record: ${formatTime(rec.bestLap)}` });
   }
   if (r.prevBestPos == null || res.playerPos < r.prevBestPos) chips.push({ kind: 'green', text: `Best finish here: P${res.playerPos}` });
+  if (res.playerPenalty) chips.push({ kind: 'red', text: `No pit stop: +${res.playerPenalty}s` });
+  if (res.playerStops.length) chips.push({ kind: 'wear', text: `Pit stop${res.playerStops.length > 1 ? 's' : ''}: ${res.playerStops.map((t) => `${t.toFixed(1)}s`).join(', ')}` });
   if (p.wears) chips.push({ kind: 'wear', text: `Tyres ${Math.round(p.tyres * 100)}% · Car ${Math.round((1 - p.damage) * 100)}%` });
   let season = null;
   const s = currentSeason();

@@ -44,6 +44,17 @@ export const HINTS = { brake: 0.7, minDrop: 0.2, gap: 0.2 };
 // taken below `slow` × top speed is a hairpin.
 export const CALLS = { lift: 0.06, hairpin: 135, slow: 0.5 };
 
+// Pit lane: beside the start straight, behind the track's own barrier (the
+// pit wall), on the inside of the lap unless only the outside has room.
+// Offsets are past that barrier: the fast lane's middle at `lane` (`laneHalf`
+// either side), the boxes where cars stop at `box`, garages from `garage`,
+// `depth` deep. Ramps in and out are `ramp` px long and the `boxes` team
+// boxes `gap` px apart, with `pad` px of speed-limited lane either side of
+// them; about `before` of it lies before the line. A car turns in by running
+// its centre `enter` px or less from the road edge at the pit entry, where a
+// dashed line `guide` px in from the edge marks the way.
+export const PIT = { lane: 40, laneHalf: 26, box: 90, garage: 120, depth: 54, ramp: 380, gap: 70, pad: 60, boxes: 11, before: 0.55, enter: 18, guide: 18 };
+
 function catmull(p0, p1, p2, p3, t) {
   // Centripetal Catmull-Rom: no loops or cusps when points are unevenly spaced.
   const d01 = Math.max(1e-4, Math.sqrt(Math.hypot(p1.x - p0.x, p1.y - p0.y)));
@@ -143,6 +154,7 @@ export class Track {
     this.buildGrid();
     this.buildKerbs();
     this.countCorners();
+    this.buildPit();
     this.buildDecor();
     this.geo = null; // drawing paths, built on first draw
   }
@@ -1212,6 +1224,222 @@ export class Track {
       stands.push({ x, y, angle: Math.atan2(this.ty[i], this.tx[i]), len: this.ds * 6 + 1, crowd });
     }
     this.stands = stands;
+    // Nothing stands in the pit lane or the garages.
+    if (this.pit) {
+      this.decor = this.decor.filter((d) => !this.inPitArea(d.x, d.y, d.r + 10));
+      this.stands = this.stands.filter((d) => !this.inPitArea(d.x, d.y, 34));
+    }
+  }
+
+  // ---------- pit lane ----------
+
+  // Finds a stretch beside the start straight with room for the pit lane
+  // and its garages (no other part of the circuit close by, the bend gentle
+  // enough), as near the preferred spot as it can, inside of the lap first.
+  // Positions along it are signed sample numbers k (negative before the line).
+  buildPit() {
+    const n = this.n;
+    const P = PIT;
+    const W = this.wallDist;
+    const rampN = Math.round(P.ramp / this.ds);
+    const padN = Math.round(P.pad / this.ds);
+    const gapN = P.gap / this.ds;
+    const len = 2 * rampN + 2 * padN + Math.round(P.boxes * gapN);
+    // The pit lane follows a smoothed copy of the straight, so small wiggles
+    // in the road don't get magnified out at the garages.
+    const M = Math.min(Math.floor(n / 2) - 2, 520);
+    const F = { M, x: new Float64Array(2 * M + 1), y: new Float64Array(2 * M + 1), nx: new Float64Array(2 * M + 1), ny: new Float64Array(2 * M + 1), curv: new Float64Array(2 * M + 1) };
+    for (let k = -M; k <= M; k++) {
+      const i = ((k % n) + n) % n;
+      F.x[k + M] = this.px[i];
+      F.y[k + M] = this.py[i];
+    }
+    const blur = (a) => {
+      const b = Float64Array.from(a);
+      for (let pass = 0; pass < 3; pass++) {
+        for (let q = 0; q < a.length; q++) {
+          let sum = 0;
+          let cnt = 0;
+          for (let d = -10; d <= 10; d++) {
+            const r = q + d;
+            if (r < 0 || r >= a.length) continue;
+            sum += b[r];
+            cnt++;
+          }
+          a[q] = sum / cnt;
+        }
+        b.set(a);
+      }
+    };
+    blur(F.x);
+    blur(F.y);
+    for (let q = 0; q <= 2 * M; q++) {
+      const a = Math.max(0, q - 1);
+      const b = Math.min(2 * M, q + 1);
+      const dx = F.x[b] - F.x[a];
+      const dy = F.y[b] - F.y[a];
+      const l = Math.hypot(dx, dy) || 1;
+      F.nx[q] = -dy / l;
+      F.ny[q] = dx / l;
+    }
+    for (let q = 0; q <= 2 * M; q++) {
+      const a = Math.max(0, q - 4);
+      const b = Math.min(2 * M, q + 4);
+      const ha = Math.atan2(-F.nx[a], F.ny[a]);
+      const hb = Math.atan2(-F.nx[b], F.ny[b]);
+      F.curv[q] = wrapAngle(hb - ha) / ((b - a) * this.ds);
+    }
+    this.pitFrame = F;
+
+    const laneOuter = W + P.lane + P.laneHalf + 8;
+    const far = W + P.garage + P.depth + 10;
+    const clear = this.wallDist + 24;
+    const g = this.grid;
+    const memo = new Map();
+    const room = (k, S, outer) => {
+      const key = k * 4 + (S > 0 ? 0 : 1) + (outer === far ? 2 : 0);
+      if (memo.has(key)) return memo.get(key);
+      const q = k + M;
+      const i = ((k % n) + n) % n;
+      let ok = q >= 0 && q <= 2 * M && F.curv[q] * S * outer < 0.5 && !this.crossings.some((c) => this.lapDistance(i, c.upper) < this.bridgeSpan * 3 || this.lapDistance(i, c.lower) < this.bridgeSpan * 3);
+      for (let o = W - 20; ok && o <= outer; o += 22) {
+        const x = F.x[q] + F.nx[q] * S * o;
+        const y = F.y[q] + F.ny[q] * S * o;
+        const cx = Math.floor((x - g.x0) / g.C);
+        const cy = Math.floor((y - g.y0) / g.C);
+        if (cx < 0 || cy < 0 || cx >= g.gw || cy >= g.gh) continue;
+        const list = g.cells[cy * g.gw + cx];
+        if (!list) continue;
+        for (const j of list) {
+          if (this.lapDistance(i, j) < 100) continue;
+          if ((x - this.px[j]) ** 2 + (y - this.py[j]) ** 2 < clear * clear) {
+            ok = false;
+            break;
+          }
+        }
+      }
+      memo.set(key, ok);
+      return ok;
+    };
+    // Where the lane leaves and rejoins the road, the road isn't a tight bend.
+    const straightAt = (k) => Math.abs(F.curv[clamp(k + M, 0, 2 * M)]) < 1 / 450;
+    const fits = (start, S) => {
+      const end = start + len;
+      for (let k = start - 8; k <= start + 8; k++) if (!straightAt(k)) return false;
+      for (let k = end - 8; k <= end + 8; k++) if (!straightAt(k)) return false;
+      for (let k = start; k <= end; k++) {
+        const ramp = k < start + rampN || k > end - rampN;
+        if (!room(k, S, ramp ? laneOuter : far)) return false;
+      }
+      return true;
+    };
+    const want = this.def.pit || {};
+    const inside = -this.outsideSign;
+    const sides = want.side ? [want.side] : [inside, -inside];
+    const base = Math.round(-P.before * len + (want.shift || 0) / this.ds);
+    this.pit = null;
+    for (const S of sides) {
+      for (let d = 0; d <= 240 && !this.pit; d += 3) {
+        for (const start of d ? [base + d, base - d] : [base]) {
+          if (start - 4 < -M || start + len + 4 > M || !fits(start, S)) continue;
+          const end = start + len;
+          const limitIn = start + rampN;
+          const boxes = [];
+          for (let b = 0; b < P.boxes; b++) boxes.push(limitIn + padN + (b + 0.5) * gapN);
+          this.pit = {
+            side: S,
+            start,
+            end,
+            rampN,
+            limitIn,
+            limitOut: end - rampN,
+            boxes,
+            laneO: W + P.lane,
+            boxO: W + P.box,
+            garageO: W + P.garage,
+            inO: this.half + P.laneHalf - 16, // where the entry ramp starts: on the road edge
+            outO: this.half - 10, // where the exit ramp ends, back on the road
+            far,
+          };
+          break;
+        }
+      }
+      if (this.pit) break;
+    }
+  }
+
+  // Middle of the pit lane at signed sample k, as an offset toward the pit side.
+  pitLane(k) {
+    const p = this.pit;
+    const sm = (u) => {
+      const v = clamp(u, 0, 1);
+      return v * v * (3 - 2 * v);
+    };
+    if (k < p.limitIn) return p.inO + (p.laneO - p.inO) * sm((k - p.start) / p.rampN);
+    if (k > p.limitOut) return p.outO + (p.laneO - p.outO) * sm((p.end - k) / p.rampN);
+    return p.laneO;
+  }
+
+  // World position at signed (fractional) sample k, `off` px toward the pit
+  // side: measured from the smoothed straight out by the garages, from the
+  // road itself near the ends where the lane meets it.
+  pitPoint(k, off, out = {}) {
+    const F = this.pitFrame;
+    const p = this.pit;
+    const q = clamp(k + F.M, 0, 2 * F.M - 1e-6);
+    const q0 = Math.floor(q);
+    const u = q - q0;
+    const S = p.side * off;
+    let nx = F.nx[q0] + (F.nx[q0 + 1] - F.nx[q0]) * u;
+    let ny = F.ny[q0] + (F.ny[q0 + 1] - F.ny[q0]) * u;
+    let x = F.x[q0] + (F.x[q0 + 1] - F.x[q0]) * u;
+    let y = F.y[q0] + (F.y[q0 + 1] - F.y[q0]) * u;
+    const edge = p.rampN * 0.7;
+    const near = Math.max(1 - (k - p.start) / edge, 1 - (p.end - k) / edge);
+    if (near > 0) {
+      const w = near >= 1 ? 1 : near * near * (3 - 2 * near);
+      const n = this.n;
+      const kf = Math.floor(k);
+      const i = ((kf % n) + n) % n;
+      const j = (i + 1) % n;
+      const v = k - kf;
+      x += (this.px[i] + (this.px[j] - this.px[i]) * v - x) * w;
+      y += (this.py[i] + (this.py[j] - this.py[i]) * v - y) * w;
+      nx += (this.nx[i] + (this.nx[j] - this.nx[i]) * v - nx) * w;
+      ny += (this.ny[i] + (this.ny[j] - this.ny[i]) * v - ny) * w;
+    }
+    out.x = x + nx * S;
+    out.y = y + ny * S;
+    const k0 = Math.round(k);
+    out.idx = ((k0 % this.n) + this.n) % this.n;
+    return out;
+  }
+
+  // Signed sample number (negative before the line) for a sample index.
+  signedK(idx) {
+    return idx > this.n / 2 ? idx - this.n : idx;
+  }
+
+  // How far a point sits toward the pit side of the centre line at sample idx.
+  pitSideOffset(x, y, idx) {
+    return ((x - this.px[idx]) * this.nx[idx] + (y - this.py[idx]) * this.ny[idx]) * this.pit.side;
+  }
+
+  // Is (x, y), give or take r, on the pit lane, its ramps or the garages?
+  inPitArea(x, y, r) {
+    const p = this.pit;
+    const F = this.pitFrame;
+    for (let k = p.start - 6; k <= p.end + 6; k++) {
+      const q = k + F.M;
+      const dx = x - F.x[q];
+      const dy = y - F.y[q];
+      if (Math.abs(dx * F.ny[q] - dy * F.nx[q]) > this.ds + r) continue;
+      const lat = (dx * F.nx[q] + dy * F.ny[q]) * p.side;
+      const ramp = k < p.limitIn - 4 || k > p.limitOut + 4;
+      const outer = ramp ? this.pitLane(k) + PIT.laneHalf + 14 : p.far;
+      if (lat > this.half && lat > this.wallDist - 30 - r && lat < outer + r) return true;
+    }
+    return false;
   }
 
   // ---------- drawing ----------
@@ -1359,8 +1587,234 @@ export class Track {
       full,
       groundPat: makePattern(th.groundKind || 'ground', th),
       runoffPat: makePattern(th.runoffKind || 'grass', th),
+      pit: this.pit ? this.buildPitGeo() : null,
     };
     return this.geo;
+  }
+
+  // Drawing paths for the pit lane: the lane and its ramps, the box area,
+  // edge lines, speed-limit lines, the box outlines and the garages.
+  buildPitGeo() {
+    const p = this.pit;
+    const P = PIT;
+    const pt = (k, o) => {
+      const q = this.pitPoint(k, o);
+      return [q.x, q.y];
+    };
+    const line = (k0, k1, off, step = 1) => {
+      const path = new Path2D();
+      let on = false;
+      for (let k = k0; k <= k1 + 1e-6; k += step) {
+        const o = off(k);
+        if (o == null) {
+          on = false;
+          continue;
+        }
+        path[on ? 'lineTo' : 'moveTo'](...pt(k, o));
+        on = true;
+      }
+      return path;
+    };
+    const lane = line(p.start, p.end, (k) => this.pitLane(k));
+    const apronO = (p.laneO + p.garageO) / 2;
+    const apron = line(p.limitIn, p.limitOut, () => apronO);
+    // Edge lines; the inner one only once it has left the road.
+    const inner = line(p.start, p.end, (k) => {
+      const o = this.pitLane(k) - P.laneHalf;
+      return o > this.half + 3 ? o : null;
+    });
+    const outerRamps = new Path2D();
+    outerRamps.addPath(line(p.start, p.limitIn, (k) => this.pitLane(k) + P.laneHalf));
+    outerRamps.addPath(line(p.limitOut, p.end, (k) => this.pitLane(k) + P.laneHalf));
+    const fastLane = line(p.limitIn, p.limitOut, () => p.laneO + P.laneHalf);
+    // Outer wall: along the ramps, then round the back of the garages.
+    const wall = new Path2D();
+    const back = p.garageO + P.depth + 4;
+    let first = true;
+    const add = (k, o) => {
+      wall[first ? 'moveTo' : 'lineTo'](...pt(k, o));
+      first = false;
+    };
+    for (let k = p.start + 6; k <= p.limitIn; k++) add(k, this.pitLane(k) + P.laneHalf + 6);
+    for (let k = p.limitIn; k <= p.limitOut; k++) add(k, back);
+    for (let k = p.limitOut; k <= p.end - 6; k++) add(k, this.pitLane(k) + P.laneHalf + 6);
+    // Speed-limit lines across the lane, and the timing line where it crosses the lap's line.
+    const limits = new Path2D();
+    for (const k of [p.limitIn, p.limitOut]) {
+      limits.moveTo(...pt(k, p.laneO - P.laneHalf));
+      limits.lineTo(...pt(k, p.laneO + P.laneHalf));
+    }
+    const timing = new Path2D();
+    if (p.start < 0 && p.end > 0) {
+      const o = this.pitLane(0);
+      timing.moveTo(...pt(0, o - P.laneHalf));
+      timing.lineTo(...pt(0, Math.max(o + P.laneHalf, 0 >= p.limitIn && 0 <= p.limitOut ? p.garageO : 0)));
+    }
+    // Dashed guide on the road before the entry.
+    const guide = line(p.start - 44, p.start + 2, () => this.half - P.guide);
+    // Boxes and garages, one per team.
+    const gapN = P.gap / this.ds;
+    const quad = (k0, k1, o0, o1) => {
+      const path = new Path2D();
+      path.moveTo(...pt(k0, o0));
+      path.lineTo(...pt(k1, o0));
+      path.lineTo(...pt(k1, o1));
+      path.lineTo(...pt(k0, o1));
+      path.closePath();
+      return path;
+    };
+    const boxes = p.boxes.map((k) => {
+      const half = 30 / this.ds;
+      const c = this.pitPoint(k, p.garageO + P.depth / 2);
+      return {
+        k,
+        box: quad(k - half, k + half, p.boxO - 18, p.boxO + 18),
+        garage: quad(k - gapN / 2 + 0.25, k + gapN / 2 - 0.25, p.garageO, p.garageO + P.depth),
+        front: quad(k - gapN / 2 + 0.25, k + gapN / 2 - 0.25, p.garageO, p.garageO + 6),
+        x: c.x,
+        y: c.y,
+        angle: this.pitAngle(k),
+      };
+    });
+    // Bounding box, for skipping it when it's off screen.
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+    for (let k = p.start - 46; k <= p.end; k += 4) {
+      for (const o of [0, p.far]) {
+        const [x, y] = pt(k, o);
+        minX = Math.min(minX, x);
+        maxX = Math.max(maxX, x);
+        minY = Math.min(minY, y);
+        maxY = Math.max(maxY, y);
+      }
+    }
+    const sign = this.pitPoint(p.start - 30, this.half + 34);
+    const paint = this.pitPoint(p.start + 22, this.pitLane(p.start + 22));
+    return {
+      lane,
+      apron,
+      apronW: p.garageO - p.laneO,
+      inner,
+      outerRamps,
+      fastLane,
+      wall,
+      limits,
+      timing,
+      guide,
+      boxes,
+      sign: { x: sign.x, y: sign.y, angle: this.pitAngle(p.start - 30) },
+      paint: { x: paint.x, y: paint.y, angle: this.pitAngle(p.start + 22) },
+      bounds: { minX, minY, maxX, maxY },
+    };
+  }
+
+  // Direction of travel along the pit lane at signed sample k.
+  pitAngle(k) {
+    const F = this.pitFrame;
+    const q = clamp(Math.round(k + F.M), 0, 2 * F.M);
+    return Math.atan2(-F.nx[q], F.ny[q]);
+  }
+
+  drawPit(ctx, view) {
+    const g = this.geo.pit;
+    const b = g.bounds;
+    if (b.maxX < view.minX || b.minX > view.maxX || b.maxY < view.minY || b.minY > view.maxY) return;
+    const th = this.theme;
+    const P = PIT;
+    ctx.save();
+    ctx.lineJoin = 'round';
+    ctx.lineCap = 'butt';
+    // Box area and lane.
+    ctx.strokeStyle = '#4d5159';
+    ctx.lineWidth = g.apronW;
+    ctx.stroke(g.apron);
+    ctx.strokeStyle = th.asphaltEdge;
+    ctx.lineWidth = P.laneHalf * 2 + 4;
+    ctx.stroke(g.lane);
+    ctx.strokeStyle = th.asphalt;
+    ctx.lineWidth = P.laneHalf * 2;
+    ctx.stroke(g.lane);
+    // Garages with the team's colour along the front.
+    const teams = this.pitTeams || [];
+    g.boxes.forEach((bx, i) => {
+      const team = teams[i];
+      ctx.fillStyle = '#262a32';
+      ctx.fill(bx.garage);
+      ctx.fillStyle = team ? team.color : '#5a5f69';
+      ctx.fill(bx.front);
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = '#15171c';
+      ctx.stroke(bx.garage);
+      // Box outline painted on the ground.
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = team ? team.color : 'rgba(255,255,255,0.5)';
+      ctx.globalAlpha = 0.85;
+      ctx.stroke(bx.box);
+      ctx.globalAlpha = 1;
+      if (team) {
+        ctx.save();
+        ctx.translate(bx.x, bx.y);
+        ctx.rotate(bx.angle + (this.pit.side > 0 ? Math.PI / 2 : -Math.PI / 2));
+        ctx.fillStyle = 'rgba(232,236,242,0.85)';
+        ctx.font = '800 13px "Saira Condensed", "Arial Narrow", sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(team.short, 0, 4);
+        ctx.restore();
+      }
+    });
+    // Lines: lane edges (dashed between lane and boxes), limit lines, the guide.
+    ctx.strokeStyle = th.edge;
+    ctx.lineWidth = 3;
+    ctx.stroke(g.inner);
+    ctx.stroke(g.outerRamps);
+    ctx.setLineDash([14, 12]);
+    ctx.lineWidth = 2;
+    ctx.stroke(g.fastLane);
+    ctx.lineWidth = 3;
+    ctx.setLineDash([16, 14]);
+    ctx.stroke(g.guide);
+    ctx.setLineDash([]);
+    ctx.lineWidth = 5;
+    ctx.stroke(g.limits);
+    ctx.lineWidth = 4;
+    ctx.strokeStyle = '#f4f4f4';
+    ctx.stroke(g.timing);
+    // Outer wall.
+    ctx.lineWidth = 7;
+    ctx.strokeStyle = '#b9bcc2';
+    ctx.stroke(g.wall);
+    // "PIT" painted on the entry, and the entry board.
+    ctx.save();
+    ctx.translate(g.paint.x, g.paint.y);
+    ctx.rotate(g.paint.angle + Math.PI / 2);
+    ctx.fillStyle = 'rgba(244,244,244,0.85)';
+    ctx.font = '900 22px "Saira Condensed", "Arial Narrow", sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('PIT', 0, 0);
+    ctx.restore();
+    ctx.save();
+    ctx.translate(g.sign.x, g.sign.y);
+    ctx.rotate(g.sign.angle + Math.PI / 2);
+    ctx.fillStyle = 'rgba(0,0,0,0.32)';
+    roundRectPath(ctx, -22 + 4, -16 + 5, 44, 32, 6);
+    ctx.fill();
+    ctx.fillStyle = '#1f6fe0';
+    roundRectPath(ctx, -22, -16, 44, 32, 6);
+    ctx.fill();
+    ctx.lineWidth = 2.5;
+    ctx.strokeStyle = '#ffffff';
+    ctx.stroke();
+    ctx.fillStyle = '#ffffff';
+    ctx.font = '900 17px "Saira Condensed", "Arial Narrow", sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('PIT', 0, 1);
+    ctx.restore();
+    ctx.restore();
   }
 
   visibleChunks(view) {
@@ -1434,6 +1888,7 @@ export class Track {
       ctx.stroke(sg.base);
     }
 
+    if (g.pit) this.drawPit(ctx, view);
     this.drawStartLine(ctx);
     if (hints) this.drawBoards(ctx, view);
   }

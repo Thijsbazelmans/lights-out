@@ -49,17 +49,20 @@ export const WALL = {
 // into it (less when you steer out); it bleeds `drag` px/s² of speed.
 export const DRIFT = { minSpeed: 230, endSpeed: 130, turn: 1.3, turnIn: 0.4, drag: 55 };
 
-// Tyres and damage (races). Tyres wear `lap` per lap of normal driving, plus
-// `drift` per second of drifting, `slide` per second of sliding and `off`
-// per second off the road at speed. A hit faster than `hitMin` px/s costs
-// `hit` damage per px/s above that (car-to-car knocks count `car` as much).
-// Worn tyres take away up to `tyreTop` of top speed and pull; damage takes
-// up to `damageTop`, more and more as it builds up (see conditionOf).
-export const WEAR = { lap: 0.016, drift: 0.0028, slide: 0.0008, off: 0.012, hitMin: 110, hit: 0.0003, car: 0.6, tyreTop: 0.25, damageTop: 0.45 };
+// Tyres and damage (races). A race of normal driving uses `race` of a set of
+// tyres whatever its length (so with the one required pit stop each set ends
+// near 65%); drifting adds `drift`, sliding `slide` and running off the road
+// at speed `off`, each counted in laps' worth of wear per second. A hit
+// faster than `hitMin` px/s costs `hit` damage per px/s above that
+// (car-to-car knocks count `car` as much). Worn tyres take away up to
+// `tyreTop` of top speed and pull, hardly at first and more and more as they
+// go (`tyreCurve`); damage takes up to `damageTop`, also growing as it
+// builds up (see conditionOf).
+export const WEAR = { race: 0.7, drift: 0.08, slide: 0.05, off: 0.15, hitMin: 110, hit: 0.0003, car: 0.6, tyreTop: 0.22, tyreCurve: 1.7, damageTop: 0.45 };
 
 // Share of top speed and pull a car has left with its tyres and damage.
 export function conditionOf(car) {
-  return (1 - WEAR.tyreTop * (1 - car.tyres)) * (1 - WEAR.damageTop * Math.pow(car.damage, 1.3));
+  return (1 - WEAR.tyreTop * Math.pow(1 - car.tyres, WEAR.tyreCurve)) * (1 - WEAR.damageTop * Math.pow(car.damage, 1.3));
 }
 
 export const BOOST_TIME = [0, 0.6, 1.0, 1.5];
@@ -115,6 +118,7 @@ export class Car {
     this.launchPenalty = 0;
 
     this.wears = false; // tyre wear and damage count (set by the race)
+    this.wearLap = WEAR.race / 3; // tyre wear per lap of normal driving (set by the race)
     this.tyres = 1; // 1 = fresh
     this.damage = 0; // 0 = none, 1 = wrecked
     this.hitT = 0; // how recently it took damage (for the HUD flash)
@@ -308,11 +312,11 @@ export class Car {
   wear(dt, track) {
     if (!this.wears) return;
     const sp = this.speed;
-    let w = (WEAR.lap * sp * dt) / track.length;
-    if (this.drifting) w += WEAR.drift * dt;
-    else if (this.slide > 90) w += WEAR.slide * dt;
-    if (this.offTrack && sp > 120) w += WEAR.off * dt * Math.min(1, sp / 400);
-    this.tyres = Math.max(0, this.tyres - w);
+    let laps = (sp * dt) / track.length;
+    if (this.drifting) laps += WEAR.drift * dt;
+    else if (this.slide > 90) laps += WEAR.slide * dt;
+    if (this.offTrack && sp > 120) laps += WEAR.off * dt * Math.min(1, sp / 400);
+    this.tyres = Math.max(0, this.tyres - laps * this.wearLap);
   }
 
   addDamage(d, events) {

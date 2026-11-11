@@ -181,7 +181,9 @@ export function readInput(autoGas) {
   if (padPause && !padPausePrev) pauseCb?.();
   padPausePrev = padPause;
 
+  // Either pedal pressed, before auto-gas (the pit stop you play reacts to presses).
+  const pedal = gas > 0.5 || brake > 0.5;
   if (autoGas && brake < 0.1) gas = 1;
 
-  return { gas: clamp(gas, 0, 1), brake: clamp(brake, 0, 1), steer: clamp(steer, -1, 1), analog };
+  return { gas: clamp(gas, 0, 1), brake: clamp(brake, 0, 1), steer: clamp(steer, -1, 1), analog, pedal };
 }

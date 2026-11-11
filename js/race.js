@@ -3,6 +3,7 @@
 
 import { Car, PHYS, TIER_COLORS, WEAR } from './car.js';
 import { AIDriver } from './ai.js';
+import { Pits, PIT_RULE, PIT_TEAMS } from './pit.js';
 import { Particles, Skids } from './particles.js';
 import { clamp, damp, formatTime, rand, wrapAngle } from './util.js';
 
@@ -40,7 +41,7 @@ export const DIFFICULTY = {
 const GHOST_LIVERY = { color: '#cfe8ff', color2: '#6fb7ff', helmet: '#ffffff' };
 
 export class Race {
-  constructor({ track, mode, laps = 3, difficulty = 'normal', player = null, rivals = [], record = null, wear = true }) {
+  constructor({ track, mode, laps = 3, difficulty = 'normal', player = null, rivals = [], record = null, wear = true, autoPit = false }) {
     this.track = track;
     this.mode = mode; // 'race' | 'trial' | 'attract'
     this.totalLaps = mode === 'race' ? laps : Infinity;
@@ -63,6 +64,7 @@ export class Race {
     this.acc = 0;
     this.fastest = null;
     this.splitFirst = new Map();
+    this.playerSplits = new Map(); // when you passed each timing point
     this.finishCount = 0;
     this.finishReal = 0;
     this.skipFinish = false;
@@ -78,8 +80,17 @@ export class Race {
     this.posMsgT = 0;
     this.recordDirty = false;
     this.setupGrid(player, rivals);
-    // Tyres and damage count in races (not time trials, so lap records compare).
-    if (mode === 'race' && wear) for (const c of this.cars) c.wears = true;
+    // Tyres and damage count in races (not time trials, so lap records compare),
+    // and with them the one pit stop everyone has to make.
+    if (mode === 'race' && wear) {
+      for (const c of this.cars) {
+        c.wears = true;
+        c.wearLap = WEAR.race / Math.max(1, laps);
+      }
+    }
+    track.pitTeams = PIT_TEAMS;
+    this.pits = mode === 'race' && wear && track.pit ? new Pits(this, { auto: autoPit }) : null;
+    this.prevPedal = false;
     this.focus = this.player || this.cars[0];
     this.rank();
   }
@@ -211,7 +222,17 @@ export class Race {
       }
     }
 
+    // A press of either pedal (for the pit stop you play).
+    const pedal = !!input.pedal;
+    const tap = pedal && !this.prevPedal;
+    this.prevPedal = pedal;
+    if (this.pits) this.pits.beforeStep();
+
     for (const car of this.cars) {
+      if (car.pit) {
+        this.pits.drive(car, h, car === this.player && tap);
+        continue;
+      }
       const ai = this.ai.get(car);
       let ctl = input;
       if (ai) {
@@ -237,11 +258,28 @@ export class Race {
     this.collide();
     this.slip(h);
     for (const car of this.cars) this.progress(car);
+    if (this.pits) {
+      for (const car of this.cars) this.pits.check(car);
+      this.pitNotes();
+    }
     this.rank();
     this.effects(h);
     this.recordGhost(h);
     this.handleEvents();
 
+  }
+
+  // Your pit reminder: on the last lap you can still stop on, BOX THIS LAP.
+  pitNotes() {
+    const p = this.player;
+    const pits = this.pits;
+    if (!p || p.finished || this.boxMsg || !pits.lastLap() || this.time < 3) return;
+    const to = pits.lastChance * this.track.length + pits.gate - p.progress;
+    if (to < this.track.length * 0.6) {
+      this.boxMsg = true;
+      this.msg('BOX THIS LAP', '#ffd23f', 2.4, 1);
+      this.out.push({ t: 'boxCall' });
+    }
   }
 
   go(input) {
@@ -275,7 +313,7 @@ export class Race {
   rubberFor(car) {
     const p = this.player;
     if (car.finished) return 0.8;
-    if (this.mode !== 'race' || !p || p.finished || p.lap < 1) return 1;
+    if (this.mode !== 'race' || !p || p.finished || p.lap < 1 || p.pit) return 1;
     const L = this.track.length;
     const d = car.progress - p.progress; // > 0: this rival is ahead of you
     if (d > 0.2 * L) return Math.max(0.96, 1 - ((d - 0.2 * L) / L) * 0.12);
@@ -298,7 +336,7 @@ export class Race {
     const p = this.player;
     const t = this.track;
     let note = this.call;
-    if (!p || this.hints === false || this.phase !== 'race' || p.finished || p.frozen || !t.calls.length) {
+    if (!p || this.hints === false || this.phase !== 'race' || p.finished || p.frozen || p.pit || !t.calls.length) {
       this.call = null;
       return;
     }
@@ -362,10 +400,12 @@ export class Race {
     const RR = 4 * R * R;
     for (let i = 0; i < cs.length; i++) {
       const a = cs[i];
+      if (a.pit) continue; // in the pit lane, behind the wall
       const afx = Math.cos(a.angle);
       const afy = Math.sin(a.angle);
       for (let j = i + 1; j < cs.length; j++) {
         const b = cs[j];
+        if (b.pit) continue;
         const dx0 = b.x - a.x;
         const dy0 = b.y - a.y;
         if (dx0 * dx0 + dy0 * dy0 > 3600) continue;
@@ -465,9 +505,9 @@ export class Race {
       const fy = Math.sin(a.angle);
       let bend = 0;
       for (let k = 0; k <= 28; k += 4) bend = Math.max(bend, Math.abs(t.rcurv[(a.trackIdx + k) % t.n]));
-      if (a.forwardSpeed > vMin && bend < 1 / S.straight) {
+      if (a.forwardSpeed > vMin && bend < 1 / S.straight && !a.pit) {
         for (const b of this.cars) {
-          if (b === a || b.forwardSpeed < vMin || !this.sameStretch(a, b)) continue;
+          if (b === a || b.pit || b.forwardSpeed < vMin || !this.sameStretch(a, b)) continue;
           if (Math.cos(b.angle - a.angle) < 0.985) continue;
           const dx = b.x - a.x;
           const dy = b.y - a.y;
@@ -484,9 +524,10 @@ export class Race {
   progress(car) {
     const t = this.track;
     const n = t.n;
-    const prev = car.trackIdx;
-    let idx = t.localIndex(car.x, car.y, prev);
-    if (t.lastLocalD2 > (t.wallDist * 1.6) ** 2) {
+    const prev = car.pitPrev ?? car.trackIdx;
+    car.pitPrev = null;
+    let idx = car.pit ? car.trackIdx : t.localIndex(car.x, car.y, prev);
+    if (!car.pit && t.lastLocalD2 > (t.wallDist * 1.6) ** 2) {
       const q = t.query(car.x, car.y, car.q);
       if (q.dist !== Infinity) idx = q.idx;
     }
@@ -512,6 +553,7 @@ export class Race {
       if (forward && (this.phase === 'race' || this.phase === 'finished')) {
         const key = car.lap * SPLITS + bucket;
         if (!this.splitFirst.has(key)) this.splitFirst.set(key, this.time);
+        if (car === this.player) this.playerSplits.set(key, this.time);
         car.splitKey = key;
         car.splitTime = this.time;
         if (car.lap >= 0) {
@@ -596,6 +638,7 @@ export class Race {
     car.finished = true;
     car.finishTime = this.time;
     car.finishPos = ++this.finishCount;
+    car.penalty = this.penaltyOf(car);
     const ai = this.ai.get(car);
     if (ai) ai.pace *= 0.8;
     if (car === this.player) {
@@ -604,7 +647,12 @@ export class Race {
       this.messages.length = 0; // the finish screen takes over
       this.ai.set(car, new AIDriver(car, this.track, { pace: 0.72 }));
       car.basePower = 0.85;
-      this.out.push({ t: 'finish', pos: car.finishPos });
+      // No pit stop: where the time penalty drops you to.
+      if (car.penalty) {
+        const mine = car.finishTime + car.penalty;
+        car.shownPos = 1 + this.cars.filter((c) => c !== car && this.estimateFinish(c) < mine).length;
+      }
+      this.out.push({ t: 'finish', pos: car.shownPos || car.finishPos });
     } else if (car.finishPos === 1 && this.player && !this.player.finished) {
       // The winner is home: everyone else is on their last lap.
       this.msg(`CHEQUERED FLAG · ${car.name.split(' ').slice(-1)[0].toUpperCase()} WINS`, '#ffffff', 2.6, 0.75);
@@ -898,29 +946,126 @@ export class Race {
     this.events.length = 0;
   }
 
-  buildResults() {
+  // Seconds added to a car's race time: no pit stop when one was required.
+  penaltyOf(car) {
+    return this.pits && car.stops === 0 ? PIT_RULE.penalty : 0;
+  }
+
+  // A car's race time, penalty included. For a car still running once
+  // you've finished: your time plus its gap to you at the last timing point
+  // it passed; otherwise a guess from its average speed so far.
+  estimateFinish(c) {
+    if (c.finished) return c.finishTime + (c.penalty || 0);
+    const p = this.player;
+    const yours = p && p.finished && c.splitKey != null ? this.playerSplits.get(c.splitKey) : null;
+    if (yours != null) return p.finishTime + (c.splitTime - yours) + this.penaltyOf(c);
     const total = this.totalLaps * this.track.length;
+    const avg = c.progress > 0 && this.time > 0 ? c.progress / this.time : 400;
+    return this.time + Math.max(0, total - c.progress) / Math.max(200, avg) + this.penaltyOf(c);
+  }
+
+  buildResults() {
     const rows = [];
     let prev = 0;
     for (const c of this.order) {
       let time = c.finished ? c.finishTime : null;
       if (time == null) {
-        const avg = c.progress > 0 && this.time > 0 ? c.progress / this.time : 400;
-        time = this.time + Math.max(0, total - c.progress) / Math.max(200, avg);
+        time = this.estimateFinish(c) - this.penaltyOf(c);
         time = Math.max(time, prev + 0.15);
       }
       prev = time;
-      rows.push({ name: c.name, code: c.code, team: c.teamId, driver: c.driverId, livery: c.livery, isPlayer: c.isPlayer, time, best: c.bestLap, finished: c.finished });
+      const penalty = c.finished ? c.penalty || 0 : this.penaltyOf(c);
+      rows.push({ name: c.name, code: c.code, team: c.teamId, driver: c.driverId, livery: c.livery, isPlayer: c.isPlayer, time: time + penalty, penalty, best: c.bestLap, finished: c.finished });
     }
+    // Penalties can change the order.
+    rows.sort((a, b) => a.time - b.time);
     const p = this.player;
+    const mine = rows.findIndex((r) => r.isPlayer);
     return {
       rows,
       fastest: this.fastest ? { time: this.fastest.time, code: this.fastest.car.code, isPlayer: this.fastest.car.isPlayer } : null,
-      playerPos: p ? p.finishPos || p.pos : null,
-      playerTime: p ? p.finishTime : null,
+      playerPos: p ? (mine >= 0 ? mine + 1 : p.finishPos || p.pos) : null,
+      playerTime: p && p.finishTime != null ? p.finishTime + (p.penalty || 0) : null,
       playerBest: p ? p.bestLap : null,
+      playerPenalty: p ? p.penalty || 0 : 0,
+      playerStops: p && p.stopTimes ? p.stopTimes.slice() : [],
       laps: this.totalLaps,
     };
+  }
+
+  // Pit crews: waiting in the box as their car comes in, one at each wheel
+  // (stepping back once it's done), one at each jack, and the release light
+  // by the nose.
+  drawCrews(ctx, view) {
+    const t = this.track;
+    const p = t.pit;
+    for (const c of this.cars) {
+      const s = c.pit;
+      if (!s || s.stage === 'out') continue;
+      const boxK = p.boxes[c.box];
+      if (s.stage === 'in' && s.k < boxK - 70) continue;
+      let x;
+      let y;
+      let a;
+      if (s.stage === 'box') {
+        x = c.x;
+        y = c.y;
+        a = c.angle;
+      } else {
+        const q = t.pitPoint(boxK, p.boxO);
+        x = q.x;
+        y = q.y;
+        a = t.pitAngle(boxK);
+      }
+      if (x < view.minX - 80 || x > view.maxX + 80 || y < view.minY - 80 || y > view.maxY + 80) continue;
+      const done = s.done || [false, false, false, false];
+      const team = PIT_TEAMS[c.box];
+      const jacked = s.stage === 'box';
+      const people = [
+        [13, -20 - (done[0] ? 9 : 0)],
+        [13, 20 + (done[1] ? 9 : 0)],
+        [-15, -20 - (done[2] ? 9 : 0)],
+        [-15, 20 + (done[3] ? 9 : 0)],
+        [jacked ? 31 : 40, 0],
+        [jacked ? -31 : -40, 0],
+      ];
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.rotate(a);
+      for (const [px, py] of people) {
+        ctx.fillStyle = 'rgba(0,0,0,0.3)';
+        ctx.beginPath();
+        ctx.arc(px + 1.5, py + 2.5, 5, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = team.color;
+        ctx.beginPath();
+        ctx.arc(px, py, 5, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#16181c';
+        ctx.beginPath();
+        ctx.arc(px, py, 2.4, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      // Release light, on the lane side of the nose.
+      if (s.stage === 'box') {
+        const g = c === this.player ? this.pits.game : null;
+        const green = g ? g.green : s.t >= (s.service || 0);
+        const ly = p.side > 0 ? -24 : 24; // toward the lane
+        ctx.fillStyle = '#16181c';
+        ctx.beginPath();
+        ctx.arc(30, ly, 6.5, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = green ? '#31d67b' : '#ff2a1f';
+        ctx.beginPath();
+        ctx.arc(30, ly, 4.5, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = green ? 'rgba(49,214,123,0.3)' : 'rgba(255,42,31,0.3)';
+        ctx.beginPath();
+        ctx.arc(30, ly, 10, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.restore();
+    }
   }
 
   draw(ctx, cam, w, h, dpr) {
@@ -940,6 +1085,7 @@ export class Race {
       g.draw(ctx, 0.4);
     }
     const m = 60;
+    if (this.pits) this.drawCrews(ctx, view);
     for (const c of this.cars) {
       if (c === this.player) continue;
       if (c.x < view.minX - m || c.x > view.maxX + m || c.y < view.minY - m || c.y > view.maxY + m) continue;

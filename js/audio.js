@@ -214,3 +214,24 @@ export function sfxChime(notes, step = 0.11, type = 'triangle', vol = 0.1) {
 }
 
 export const sfxClick = () => sfxBeep(1200, 0.04, 'square', 0.04);
+
+// Wheel gun: a quick rattle of noise (a longer one when the wheel is slow to go on).
+export function sfxGun(long = false) {
+  if (!ctx) return;
+  const t0 = ctx.currentTime;
+  const hits = long ? 7 : 4;
+  for (let i = 0; i < hits; i++) {
+    const t = t0 + i * 0.035;
+    const src = ctx.createBufferSource();
+    src.buffer = noiseBuf;
+    const f = ctx.createBiquadFilter();
+    f.type = 'bandpass';
+    f.Q.value = 1.5;
+    f.frequency.value = 2400 + Math.random() * 600;
+    const g = gainNode(0);
+    src.connect(f).connect(g).connect(master);
+    envelope(g, t, 0.002, 0.22, 0.03);
+    src.start(t, Math.random());
+    src.stop(t + 0.06);
+  }
+}
