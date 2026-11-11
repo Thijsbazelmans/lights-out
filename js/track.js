@@ -11,7 +11,8 @@ import { maxCornerSpeed, PHYS } from './car.js';
 
 const DS = 8; // centerline sample spacing in px
 const CHUNK = 96; // samples per drawing chunk (only visible chunks are drawn)
-const KERB_CURV = 1 / 560; // corners tighter than this get kerbs
+const KERB_CURV = 1 / 560; // corners tighter than this get kerbs...
+const KERB_TURN = 0.25; // ...if they turn at least this much in all, either way (rad): not a kink on a straight
 
 // Racing line: how far it keeps from the road edge, from a barrier and from
 // a sausage kerb, and the coarse-to-fine passes (band spacing in samples,
@@ -114,6 +115,66 @@ function resampleLoop(X, Y, m) {
     ny[q] = Y[j] + (Y[b] - Y[j]) * f;
   }
   return [nx, ny];
+}
+
+// Where segments a-b and c-d cross, or null.
+function segHit(a, b, c, d) {
+  const rx = b.x - a.x;
+  const ry = b.y - a.y;
+  const sx = d.x - c.x;
+  const sy = d.y - c.y;
+  const den = rx * sy - ry * sx;
+  if (Math.abs(den) < 1e-9) return null;
+  const qx = c.x - a.x;
+  const qy = c.y - a.y;
+  const t = (qx * sy - qy * sx) / den;
+  const u = (qx * ry - qy * rx) / den;
+  if (t < 0 || t > 1 || u < 0 || u > 1) return null;
+  return { x: a.x + rx * t, y: a.y + ry * t };
+}
+
+// A line drawn at a fixed distance beside the centre line folds over itself
+// on the inside of a corner tighter than that distance (and where the two
+// legs of a hairpin come close). Where it crosses itself within `win`
+// points, the loop between is cut out, leaving the edge you'd actually see.
+// Points are { x, y, i } (i: the centre-line sample they came from).
+function untangle(pts, win = 120) {
+  const N = pts.length;
+  const out = [];
+  let i = 0;
+  while (i < N - 1) {
+    const a = pts[i];
+    const b = pts[i + 1];
+    out.push(a);
+    let cut = -1;
+    let hit = null;
+    const end = Math.min(N - 1, i + win);
+    for (let j = i + 2; j < end; j++) {
+      const h = segHit(a, b, pts[j], pts[j + 1]);
+      if (h) {
+        cut = j;
+        hit = h;
+      }
+    }
+    if (cut >= 0) {
+      out.push({ x: hit.x, y: hit.y, i: a.i });
+      i = cut + 1;
+    } else i++;
+  }
+  if (N) out.push(pts[N - 1]);
+  return out;
+}
+
+// The part of an untangled line that belongs to centre-line samples
+// [s, e], plus one point either side so neighbouring pieces join up.
+function slicePts(pts, s, e) {
+  let a = pts.findIndex((p) => p.i >= s);
+  if (a < 0) return [];
+  let b = a;
+  while (b + 1 < pts.length && pts[b + 1].i <= e) b++;
+  a = Math.max(0, a - 1);
+  b = Math.min(pts.length - 1, b + 1);
+  return pts.slice(a, b + 1);
 }
 
 function smoothCircular(arr, passes) {
@@ -960,6 +1021,10 @@ export class Track {
     const W = this.wallDist;
     const wl = new Float64Array(n).fill(W);
     const wr = new Float64Array(n).fill(W);
+    // The other stretch's sample that set each limit (for drawing one shared
+    // barrier between two stretches side by side).
+    const pl = new Int32Array(n).fill(-1);
+    const pr = new Int32Array(n).fill(-1);
     const C = 96;
     const cells = new Map();
     const key = (cx, cy) => `${cx},${cy}`;
@@ -992,8 +1057,13 @@ export class Track {
             if (Math.abs(along) < 0.3) continue;
             // Distance along our normal to the line halfway between the two stretches.
             const lim = Math.max(this.half + 10, d / (2 * Math.abs(along)));
-            if (along > 0) wr[i] = Math.min(wr[i], lim);
-            else wl[i] = Math.min(wl[i], lim);
+            if (along > 0 && lim < wr[i]) {
+              wr[i] = lim;
+              pr[i] = j;
+            } else if (along <= 0 && lim < wl[i]) {
+              wl[i] = lim;
+              pl[i] = j;
+            }
           }
         }
       }
@@ -1015,6 +1085,19 @@ export class Track {
     };
     this.wallL = smoothLimit(wl);
     this.wallR = smoothLimit(wr);
+    // Spread each partner over the stretch its limit was smoothed into.
+    const spread = (p) => {
+      const out = new Int32Array(n).fill(-1);
+      for (let i = 0; i < n; i++) {
+        for (let k = 0; k <= 22 && out[i] < 0; k++) {
+          if (p[(i + k) % n] >= 0) out[i] = p[(i + k) % n];
+          else if (p[(i - k + n) % n] >= 0) out[i] = p[(i - k + n) % n];
+        }
+      }
+      return out;
+    };
+    this.partnerL = spread(pl);
+    this.partnerR = spread(pr);
     let pinch = W;
     for (let i = 0; i < n; i++) pinch = Math.min(pinch, this.wallL[i], this.wallR[i]);
     this.tightestWall = pinch;
@@ -1140,6 +1223,21 @@ export class Track {
     for (let i = 0; i < n; i++) {
       if (!raw[i]) continue;
       for (let k = -5; k <= 5; k++) kerb[(i + k + n) % n] = 1;
+    }
+    // Kinks in a straight (left over from the GPS line) aren't corners: no
+    // kerbs where a run turns less than KERB_TURN in all.
+    let start = 0;
+    while (start < n && kerb[start]) start++;
+    if (start < n) {
+      for (let s = 1; s <= n; s++) {
+        const a = (start + s) % n;
+        if (!kerb[a] || kerb[(a - 1 + n) % n]) continue;
+        let b = a;
+        let turn = 0;
+        while (kerb[(b + 1) % n] && b - a < n) b++;
+        for (let i = a; i <= b; i++) turn += Math.abs(this.curv[i % n]) * this.ds; // either way (a chicane's turns don't cancel)
+        if (turn < KERB_TURN) for (let i = a; i <= b; i++) kerb[i % n] = 0;
+      }
     }
     this.kerb = kerb;
   }
@@ -1448,6 +1546,40 @@ export class Track {
     if (this.geo) return this.geo;
     const n = this.n;
     const th = this.theme;
+    const W = this.wallDist;
+    // Lines beside the centre line over samples [a, b] (b may run past the
+    // end of the lap), with the folds on the inside of tight corners cut out.
+    const beside = (a, b, side, off) => {
+      const pts = [];
+      for (let i = a; i <= b; i++) {
+        const k = ((i % n) + n) % n;
+        const o = off(k);
+        pts.push({ x: this.px[k] + this.nx[k] * side * o, y: this.py[k] + this.ny[k] * side * o, i });
+      }
+      return untangle(pts);
+    };
+    const edge = this.half - 5;
+    const edgeL = beside(0, n, -1, () => edge);
+    const edgeR = beside(0, n, 1, () => edge);
+    const barL = beside(0, n, -1, (k) => this.barrierL[k] + 3);
+    const barR = beside(0, n, 1, (k) => this.barrierR[k] + 3);
+    // Two stretches side by side share one barrier: the one earlier in the
+    // lap draws it.
+    const shared = (fence, partner) => (k) => partner[k] >= 0 && partner[k] < k && fence[k] < W - 6;
+    const hideL = shared(this.fenceL, this.partnerL);
+    const hideR = shared(this.fenceR, this.partnerR);
+    const trace = (path, pts, hide) => {
+      let pen = false;
+      for (const p of pts) {
+        if (hide && hide(p.i % n)) {
+          pen = false;
+          continue;
+        }
+        if (pen) path.lineTo(p.x, p.y);
+        else path.moveTo(p.x, p.y);
+        pen = true;
+      }
+    };
     const chunks = [];
     for (let s = 0; s < n; s += CHUNK) {
       const e = Math.min(n, s + CHUNK);
@@ -1460,37 +1592,21 @@ export class Track {
       let minY = Infinity;
       let maxX = -Infinity;
       let maxY = -Infinity;
-      const edge = this.half - 5;
       for (let i = s - 2; i <= e + 1; i++) {
         const k = (i + n) % n;
         const x = this.px[k];
         const y = this.py[k];
-        const lx = x - this.nx[k] * edge;
-        const ly = y - this.ny[k] * edge;
-        const rx = x + this.nx[k] * edge;
-        const ry = y + this.ny[k] * edge;
-        const wlx = x - this.nx[k] * (this.barrierL[k] + 3);
-        const wly = y - this.ny[k] * (this.barrierL[k] + 3);
-        const wrx = x + this.nx[k] * (this.barrierR[k] + 3);
-        const wry = y + this.ny[k] * (this.barrierR[k] + 3);
-        if (i === s - 2) {
-          path.moveTo(x, y);
-          left.moveTo(lx, ly);
-          right.moveTo(rx, ry);
-          wallLeft.moveTo(wlx, wly);
-          wallRight.moveTo(wrx, wry);
-        } else {
-          path.lineTo(x, y);
-          left.lineTo(lx, ly);
-          right.lineTo(rx, ry);
-          wallLeft.lineTo(wlx, wly);
-          wallRight.lineTo(wrx, wry);
-        }
+        if (i === s - 2) path.moveTo(x, y);
+        else path.lineTo(x, y);
         minX = Math.min(minX, x);
         maxX = Math.max(maxX, x);
         minY = Math.min(minY, y);
         maxY = Math.max(maxY, y);
       }
+      trace(left, slicePts(edgeL, s, e));
+      trace(right, slicePts(edgeR, s, e));
+      trace(wallLeft, slicePts(barL, s, e), hideL);
+      trace(wallRight, slicePts(barR, s, e), hideR);
       const pad = this.wallDist + 20;
       chunks.push({
         s,
@@ -1499,28 +1615,40 @@ export class Track {
         right,
         wallLeft,
         wallRight,
-        kerbA: new Path2D(),
-        kerbB: new Path2D(),
         minX: minX - pad,
         minY: minY - pad,
         maxX: maxX + pad,
         maxY: maxY + pad,
       });
     }
-    // Kerbs: alternating blocks on both edges of tight corners.
-    for (let i = 0; i < n; i++) {
-      if (!this.kerb[i]) continue;
-      const j = (i + 1) % n;
-      const ch = chunks[Math.floor(i / CHUNK)];
-      const p = Math.floor(i / 2) % 2 === 0 ? ch.kerbA : ch.kerbB;
+    // Kerbs: a red and white band along both edges of each tight corner,
+    // following the edge (folds cut out) so it never fans out at an apex.
+    const kerbs = [];
+    let start = 0;
+    while (start < n && this.kerb[start]) start++; // begin outside a kerb
+    for (let s = 1; s <= n; s++) {
+      const a = (start + s) % n;
+      if (!this.kerb[a] || this.kerb[(a - 1 + n) % n]) continue;
+      let b = a;
+      while (this.kerb[(b + 1) % n] && b - a < n) b++;
       for (const side of [-1, 1]) {
-        const a = this.half - 7;
-        const b = this.half + 10;
-        p.moveTo(this.px[i] + this.nx[i] * side * a, this.py[i] + this.ny[i] * side * a);
-        p.lineTo(this.px[i] + this.nx[i] * side * b, this.py[i] + this.ny[i] * side * b);
-        p.lineTo(this.px[j] + this.nx[j] * side * b, this.py[j] + this.ny[j] * side * b);
-        p.lineTo(this.px[j] + this.nx[j] * side * a, this.py[j] + this.ny[j] * side * a);
-        p.closePath();
+        const pts = beside(a, b + 1, side, () => this.half + 1.5);
+        const path = new Path2D();
+        // No kerb against a barrier that's right at the edge (two stretches
+        // side by side): there's no room for both.
+        const fence = side > 0 ? this.fenceR : this.fenceL;
+        trace(path, pts, (k) => fence[k] < this.half + 28);
+        let minX = Infinity;
+        let minY = Infinity;
+        let maxX = -Infinity;
+        let maxY = -Infinity;
+        for (const p of pts) {
+          minX = Math.min(minX, p.x);
+          maxX = Math.max(maxX, p.x);
+          minY = Math.min(minY, p.y);
+          maxY = Math.max(maxY, p.y);
+        }
+        kerbs.push({ path, minX: minX - 20, minY: minY - 20, maxX: maxX + 20, maxY: maxY + 20 });
       }
     }
     // Sausage kerbs: a yellow block with black stripes and a shadow.
@@ -1584,6 +1712,7 @@ export class Track {
       boards,
       sausages,
       chunks,
+      kerbs,
       full,
       groundPat: makePattern(th.groundKind || 'ground', th),
       runoffPat: makePattern(th.runoffKind || 'grass', th),
@@ -1868,10 +1997,16 @@ export class Track {
       ctx.stroke(c.left);
       ctx.stroke(c.right);
     }
-    ctx.fillStyle = th.kerbA;
-    for (const c of vis) ctx.fill(c.kerbA);
-    ctx.fillStyle = th.kerbB;
-    for (const c of vis) ctx.fill(c.kerbB);
+    // Kerbs: a white band with red blocks on it.
+    const onScreen = g.kerbs.filter((k) => k.maxX > view.minX && k.minX < view.maxX && k.maxY > view.minY && k.minY < view.maxY);
+    ctx.lineWidth = 17;
+    ctx.lineJoin = 'round';
+    ctx.strokeStyle = th.kerbB;
+    for (const k of onScreen) ctx.stroke(k.path);
+    ctx.setLineDash([16, 16]);
+    ctx.strokeStyle = th.kerbA;
+    for (const k of onScreen) ctx.stroke(k.path);
+    ctx.setLineDash([]);
     for (const sg of g.sausages) {
       if (sg.x + sg.r < view.minX || sg.x - sg.r > view.maxX || sg.y + sg.r < view.minY || sg.y - sg.r > view.maxY) continue;
       ctx.lineCap = 'round';

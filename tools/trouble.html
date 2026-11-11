@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Trouble spots</title>
+<style>
+  :root { --bg: #0d1016; --fg: #eef2f8; --muted: #8d97ab; color-scheme: dark; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 14px system-ui, sans-serif; padding: 16px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; }
+  figure { margin: 0; background: #151a23; border-radius: 12px; padding: 8px; }
+  figcaption { color: var(--muted); font: 12px ui-monospace, monospace; margin-top: 4px; }
+  canvas { width: 100%; height: auto; display: block; border-radius: 8px; }
+</style>
+</head>
+<body>
+<p>Developer tool: close-ups of the places where a circuit's drawing gets crowded, as drawn in the game: tight hairpins (where kerbs and edge lines would fold on the inside) and stretches running side by side (two roads' kerbs and barriers in one gap). <code>?ids=baku,monaco</code> shows only those circuits; <code>?kind=pin</code> or <code>?kind=side</code> only one kind.</p>
+<div class="grid" id="grid"></div>
+<script type="module">
+import { Track } from '../js/track.js';
+import { ALL_REAL } from '../js/data/tracks.js';
+const q = new URLSearchParams(location.search);
+const want = q.get('ids');
+const kind = q.get('kind');
+const grid = document.getElementById('grid');
+const defs = ALL_REAL.filter((d) => !want || want.split(',').includes(d.id));
+
+// The spots: hairpins tighter than the kerb's outer edge, and runs where a
+// barrier was pulled in by another stretch (fenceL/R: before sausage kerbs).
+function spots(t) {
+  const n = t.n;
+  const out = [];
+  if (kind !== 'side') {
+    for (let i = 0; i < n; i++) {
+      const c = Math.abs(t.curv[i]);
+      if (c * (t.half + 10) < 0.9) continue;
+      if (c < Math.abs(t.curv[(i - 1 + n) % n]) || c < Math.abs(t.curv[(i + 1) % n])) continue;
+      if (out.length && i - out[out.length - 1].i < 20) continue;
+      out.push({ i, label: `hairpin, radius ${Math.round(1 / c)} px` });
+    }
+  }
+  if (kind !== 'pin') {
+    let cur = null;
+    const flush = () => {
+      if (cur && cur.b - cur.a > 6) out.push({ i: Math.round((cur.a + cur.b) / 2), label: `side by side, ${Math.round((cur.b - cur.a) * t.ds)} px, barrier ${Math.round(cur.min)} px out` });
+      cur = null;
+    };
+    for (let i = 0; i < n; i++) {
+      const m = Math.min(t.fenceL[i], t.fenceR[i]);
+      if (m < t.wallDist - 25) {
+        if (!cur) cur = { a: i, b: i, min: m };
+        cur.b = i;
+        cur.min = Math.min(cur.min, m);
+      } else flush();
+    }
+    flush();
+  }
+  return out;
+}
+
+for (const def of defs) {
+  const t = new Track(def);
+  for (const s of spots(t)) {
+    const fig = document.createElement('figure');
+    const cv = document.createElement('canvas');
+    cv.width = 560;
+    cv.height = 560;
+    fig.appendChild(cv);
+    const cap = document.createElement('figcaption');
+    cap.textContent = `${def.name} @ ${(s.i / t.n).toFixed(3)}: ${s.label}`;
+    fig.appendChild(cap);
+    grid.appendChild(fig);
+    const ctx = cv.getContext('2d');
+    const ang = Math.atan2(t.ty[s.i], t.tx[s.i]);
+    const zoom = 0.6;
+    ctx.translate(cv.width / 2, cv.height / 2);
+    ctx.scale(zoom, zoom);
+    ctx.rotate(-ang - Math.PI / 2);
+    ctx.translate(-t.px[s.i], -t.py[s.i]);
+    const R = cv.width / zoom;
+    const view = { minX: t.px[s.i] - R, maxX: t.px[s.i] + R, minY: t.py[s.i] - R, maxY: t.py[s.i] + R };
+    t.drawGround(ctx, view);
+    t.drawSurface(ctx, view, true);
+    t.drawDecor(ctx, view);
+  }
+}
+</script>
+</body>
+</html>
