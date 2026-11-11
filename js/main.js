@@ -15,7 +15,7 @@ import { clamp, formatTime } from './util.js';
 import { POINTS, ROUNDS, abandonSeason, currentSeason, isComplete, nextTrack, playerStanding, recordRound, standings, startSeason, teamStanding } from './season.js';
 
 // Bump together with --build in css/style.css and CACHE in sw.js.
-const BUILD = '22';
+const BUILD = '23';
 
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d', { alpha: false });
@@ -27,6 +27,16 @@ let W = 0;
 let H = 0;
 let DPR = 1;
 let insets = { top: 0, right: 0, bottom: 0, left: 0 };
+
+// A phone or tablet (touch is its main input; a touchscreen laptop isn't).
+// To keep phones cooler: the game is drawn at 1.5 pixels per point rather
+// than 2, at most 60 times a second while racing and 30 behind the menus.
+const PHONE = !!window.matchMedia && matchMedia('(pointer: coarse)').matches;
+const PHONE_DPR = 1.5;
+const PHONE_PARTICLES = 450; // most smoke, dust and sparks at once (900 elsewhere)
+const shade = { canvas: document.createElement('canvas'), key: '' }; // see shadeFor()
+let ctlRects; // see controlRects()
+let drawnStill = false; // the paused race is on screen and nothing moves
 
 const cam = new Camera();
 const trackCache = new Map();
@@ -101,7 +111,10 @@ const ui = createUI(document.getElementById('ui'), {
 // ---------- layout ----------
 
 function resize() {
-  DPR = Math.min(2, window.devicePixelRatio || 1);
+  DPR = Math.min(PHONE ? PHONE_DPR : 2, window.devicePixelRatio || 1);
+  shade.key = ''; // rebuild the tint and vignette for the new size
+  ctlRects = undefined;
+  drawnStill = false; // a resized canvas is blank: draw it again
   W = window.innerWidth;
   H = window.innerHeight;
   canvas.width = Math.round(W * DPR);
@@ -137,6 +150,7 @@ function applySide() {
   const right = save.settings.steerSide === 'right';
   touchEl.classList.toggle('swap', right);
   document.documentElement.classList.toggle('swap-controls', right && isTouchDevice());
+  ctlRects = undefined;
 }
 
 // Phones play sideways. Upright, a screen asks you to turn the phone (CSS)
@@ -157,17 +171,24 @@ function lockLandscape() {
 
 // Where the steering and pedal controls are on screen, so the HUD can keep
 // clear of them.
+// Measured once, then kept until the layout changes (resize, side swap,
+// buttons shown or hidden).
 function controlRects() {
   if (touchEl.hidden) return null;
+  if (ctlRects !== undefined) return ctlRects;
   const s = touchEl.querySelector('.steer-btns')?.getBoundingClientRect();
   const p = touchEl.querySelector('.pedal-btns')?.getBoundingClientRect();
   const g = touchEl.querySelector('.tbtn.gas')?.getBoundingClientRect();
-  return s && p && s.width && p.width ? { steer: s, pedal: p, gas: g } : null;
+  const rects = s && p && s.width && p.width ? { steer: s, pedal: p, gas: g } : null;
+  if (rects) ctlRects = rects; // not laid out yet: measure again next frame
+  return rects;
 }
 
 function syncChrome() {
   const racing = !!state.race && !state.resultsShown && !crossedLine();
-  touchEl.hidden = !touchVisible();
+  const hidden = !touchVisible();
+  if (touchEl.hidden !== hidden) ctlRects = undefined;
+  touchEl.hidden = hidden;
   pauseBtn.hidden = !racing || state.paused;
   setGameActive(racing && !state.paused);
 }
@@ -178,6 +199,7 @@ function startAttract() {
   const def = TRACKS[state.attractIdx % TRACKS.length];
   state.attractIdx++;
   state.attract = new Race({ track: getTrack(def.id), mode: 'attract', rivals: allDrivers() });
+  if (PHONE) state.attract.particles.max = PHONE_PARTICLES;
   state.attractT = 0;
   state.focusIdx = 0;
   cam.snap(state.attract.cars[0], W, H, 0.8);
@@ -238,6 +260,7 @@ function launch({ mode, trackId, laps, difficulty, team, seat, grid = null, form
     form,
     field,
   });
+  if (PHONE) state.race.particles.max = PHONE_PARTICLES;
   // What's being raced, for the title card, HUD, pause and results.
   const season = mode === 'season' || mode === 'quali' ? currentSeason() : null;
   state.race.event = {
@@ -444,8 +467,16 @@ function showResults(r) {
   }
   if (res.playerPenalty) chips.push({ kind: 'red', text: `No pit stop: +${res.playerPenalty}s` });
   if (res.playerStops.length) {
-    const field = res.fieldStop != null ? ` (field average ${res.fieldStop.toFixed(1)}s)` : '';
-    chips.push({ kind: 'wear', text: `Pit stop${res.playerStops.length > 1 ? 's' : ''}: ${res.playerStops.map((t) => `${t.toFixed(1)}s`).join(', ')}${field}` });
+    // Each stop, with any time it spent held for traffic or waiting for a front wing.
+    const stops = res.playerStops.map((t, i) => {
+      const w = res.playerStopWaits[i];
+      const why = [];
+      if (w && w.traffic >= 0.2) why.push(`${w.traffic.toFixed(1)}s held for traffic`);
+      if (w && w.wing >= 0.2) why.push(`${w.wing.toFixed(1)}s for a new front wing`);
+      return `${t.toFixed(1)}s${why.length ? ` (${why.join(', ')})` : ''}`;
+    });
+    const field = res.fieldStop != null ? ` · field average ${res.fieldStop.toFixed(1)}s` : '';
+    chips.push({ kind: 'wear', text: `Pit stop${stops.length > 1 ? 's' : ''}: ${stops.join(', ')}${field}` });
   }
   if (p.wears) chips.push({ kind: 'wear', text: `Tyres ${Math.round(p.tyres * 100)}% · Car ${Math.round((1 - p.damage) * 100)}%` });
   let season = null;
@@ -496,17 +527,35 @@ function showQuali(r) {
 // ---------- loop ----------
 
 let last = performance.now();
+let owed = 0; // time not yet played out (a frame skipped on a phone)
+
+// The fewest seconds between frames: a phone draws at most 60 frames a
+// second while racing and 30 behind the menus, results and pause screen.
+function frameGap() {
+  if (!PHONE) return 0;
+  return state.race && !state.paused && !state.resultsShown ? 1 / 60 : 1 / 30;
+}
 
 function frame(now) {
-  const dt = Math.min(0.05, (now - last) / 1000);
+  owed += (now - last) / 1000;
   last = now;
-  tick(dt);
+  if (owed >= frameGap() - 0.004) {
+    tick(Math.min(0.05, owed));
+    owed = 0;
+  }
   requestAnimationFrame(frame);
 }
 
 function tick(dt, forcedInput) {
   const r = state.race;
   const input = forcedInput || readInput(save.settings.autoGas);
+  // Paused: the picture doesn't change, so it's drawn once.
+  if (r && state.paused) {
+    if (!drawnStill) render(dt, input);
+    drawnStill = true;
+    return;
+  }
+  drawnStill = false;
   if (r && !state.paused) {
     r.update(dt, input);
     handleOut(r);
@@ -559,14 +608,9 @@ function render(dt, input) {
   r.hints = save.settings.brakeHints;
   r.draw(ctx, cam, W, H, DPR);
 
-  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
-  ctx.fillStyle = r.track.theme.tint;
-  ctx.fillRect(0, 0, W, H);
-  const vg = ctx.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.35, W / 2, H / 2, Math.hypot(W, H) * 0.62);
-  vg.addColorStop(0, 'rgba(0,0,0,0)');
-  vg.addColorStop(1, 'rgba(0,0,0,0.38)');
-  ctx.fillStyle = vg;
-  ctx.fillRect(0, 0, W, H);
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  if (canvas.width && canvas.height) ctx.drawImage(shadeFor(r.track.theme.tint), 0, 0); // (0 × 0 while the page has no size yet)
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0); // the HUD is drawn in points
 
   if (racing && !state.resultsShown) {
     drawHUD(ctx, r, cam, W, H, insets, {
@@ -577,6 +621,29 @@ function render(dt, input) {
     });
   }
   updateEngineSound(r, input);
+}
+
+// The circuit's colour tint and the dark vignette round the edges: drawn
+// once into a canvas of their own (again when the size or circuit changes),
+// then laid over every frame in one go.
+function shadeFor(tint) {
+  const key = `${tint}|${canvas.width}x${canvas.height}`;
+  if (shade.key === key) return shade.canvas;
+  shade.key = key;
+  const c = shade.canvas;
+  c.width = canvas.width;
+  c.height = canvas.height;
+  const g = c.getContext('2d');
+  g.setTransform(DPR, 0, 0, DPR, 0, 0);
+  g.clearRect(0, 0, W, H);
+  g.fillStyle = tint;
+  g.fillRect(0, 0, W, H);
+  const vg = g.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.35, W / 2, H / 2, Math.hypot(W, H) * 0.62);
+  vg.addColorStop(0, 'rgba(0,0,0,0)');
+  vg.addColorStop(1, 'rgba(0,0,0,0.38)');
+  g.fillStyle = vg;
+  g.fillRect(0, 0, W, H);
+  return c;
 }
 
 function updateEngineSound(r, input) {

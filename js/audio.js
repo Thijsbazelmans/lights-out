@@ -12,6 +12,10 @@ let eng = null;
 let screech = null;
 let rumble = null;
 let pack = null;
+// Nothing to play (menus, paused, sound off): after a moment the audio is
+// suspended so the phone's audio hardware can rest; racing wakes it again.
+let quiet = false;
+let restT = null;
 
 // Speed fraction at which each gear tops out (gear 1..8).
 const GEAR_TOP = [0, 0.14, 0.26, 0.38, 0.5, 0.62, 0.75, 0.88, 1.4];
@@ -30,6 +34,20 @@ export function gearInfo(speedFrac) {
 export function setSoundEnabled(on) {
   enabled = on;
   if (master) master.gain.setTargetAtTime(on ? 0.75 : 0, ctx.currentTime, 0.05);
+  if (!on) rest();
+}
+
+function rest() {
+  if (!ctx) return;
+  clearTimeout(restT);
+  restT = setTimeout(() => {
+    if ((quiet || !enabled) && ctx.state === 'running') ctx.suspend().catch(() => {});
+  }, 1500);
+}
+
+function wake() {
+  clearTimeout(restT);
+  if (ctx && ctx.state === 'suspended') ctx.resume().catch(() => {});
 }
 
 export function unlockAudio() {
@@ -49,6 +67,7 @@ export function unlockAudio() {
     build();
   }
   if (ctx.state === 'suspended') ctx.resume().catch(() => {});
+  if (quiet || !enabled) rest(); // a menu tap: play its click, then rest again
 }
 
 function gainNode(v) {
@@ -114,6 +133,14 @@ function build() {
 // Called every frame while racing.
 export function engineUpdate({ speedFrac, throttle, boost, active, slide, offroad, rival }) {
   if (!ctx || !eng) return;
+  if (!enabled) {
+    silence();
+    return;
+  }
+  if (quiet) {
+    quiet = false;
+    wake();
+  }
   const t = ctx.currentTime;
   const { rpm } = gearInfo(speedFrac);
   const f = 62 + rpm * 250 * (boost ? 1.07 : 1);
@@ -136,7 +163,9 @@ export function engineUpdate({ speedFrac, throttle, boost, active, slide, offroa
 }
 
 export function silence() {
-  if (!ctx || !eng) return;
+  if (!ctx || !eng || quiet) return;
+  quiet = true;
+  rest();
   const t = ctx.currentTime;
   eng.out.gain.setTargetAtTime(0, t, 0.05);
   screech.g.gain.setTargetAtTime(0, t, 0.05);

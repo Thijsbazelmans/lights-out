@@ -180,20 +180,8 @@ export function drawHUD(ctx, race, cam, w, h, ins, opts) {
     drawPitGame(ctx, race.pits.game, cx - gw / 2, gy, gw, gh, race.time, !!opts.touchUI);
   }
 
-  // ---- "YOU" marker before the start ----
-  if ((race.phase === 'intro' || race.phase === 'lights') && isRace) {
-    const [px, py] = cam.toScreen(p.x, p.y);
-    const yy = py - 46;
-    ctx.fillStyle = C.lights;
-    roundRect(ctx, px - 22, yy - 12, 44, 20, 6);
-    ctx.fill();
-    ctx.beginPath();
-    ctx.moveTo(px - 6, yy + 8);
-    ctx.lineTo(px + 6, yy + 8);
-    ctx.lineTo(px, yy + 15);
-    ctx.fill();
-    text(ctx, 'YOU', px, yy + 3, `900 13px ${F_DISPLAY}`, '#fff', 'center');
-  }
+  // ---- which car is yours, on the grid and just after the start ----
+  drawYouMarker(ctx, race, cam);
 
   // ---- wrong way ----
   if (race.wrongWayT > 0.9 && Math.floor(race.wrongWayT * 3) % 2 === 0) {
@@ -509,7 +497,11 @@ function drawPitGame(ctx, g, x, y, w, h, time, touch) {
   else if (g.phase === 'jackDown') title = 'JACK DOWN';
   else if (g.phase === 'light' || g.phase === 'go') title = 'RELEASE';
   text(ctx, title, x + pad, y + 20, `900 italic 17px ${F_DISPLAY}`, C.text);
+  // The stop's own clock (the race waits while you play).
   text(ctx, `${g.t.toFixed(2)}s`, x + w - pad, y + 20, `700 14px ${F_DATA}`, C.muted, 'right');
+  ctx.font = `700 14px ${F_DATA}`;
+  const tw = ctx.measureText(`${g.t.toFixed(2)}s`).width;
+  text(ctx, 'STOP', x + w - pad - tw - 6, y + 19, `700 9px ${F_UI}`, C.muted, 'right');
 
   // The four wheels, as a little car seen from above: front at the top.
   const cxw = x + pad + 12;
@@ -557,11 +549,11 @@ function drawPitGame(ctx, g, x, y, w, h, time, touch) {
       ctx.closePath();
       ctx.fill();
     }
-    const hintText = g.phase === 'wheels' ? `${key} IN THE GREEN` : 'CAR UP ON THE JACKS';
+    const hintText = g.phase === 'wheels' ? `${key} ON THE GREEN` : 'CAR UP ON THE JACKS';
     text(ctx, hintText, x + pad, y + h - 14, `700 11px ${F_UI}`, C.muted);
   } else {
     // Release light.
-    const green = g.green || g.phase === 'go';
+    const green = (g.green || g.phase === 'go') && !g.waiting;
     const lx = bx + 22;
     const ly = by + 22;
     ctx.fillStyle = '#0c0d10';
@@ -578,13 +570,16 @@ function drawPitGame(ctx, g, x, y, w, h, time, touch) {
       ctx.arc(lx, ly, 15, 0, Math.PI * 2);
       ctx.fill();
     }
-    const big = g.phase === 'jackDown' ? 'DOWN…' : green ? 'GO!' : 'WAIT…';
+    const wingWait = g.phase === 'jackDown' && g.pt >= PIT_GAME.jackDown && g.wingShow < 1;
+    const big = wingWait ? 'WING…' : g.phase === 'jackDown' ? 'DOWN…' : g.waiting ? 'HOLD' : green ? 'GO!' : 'WAIT…';
     text(ctx, big, lx + 32, ly + 9, `900 italic 28px ${F_DISPLAY}`, green ? C.green : C.text);
-    text(ctx, green ? `${key} NOW` : `${key} ON GREEN`, x + pad, y + h - 14, `700 11px ${F_UI}`, C.muted);
+    // Why the light is still red, when it isn't down to you.
+    const hint = g.waiting ? 'CAR COMING DOWN THE LANE' : green ? `${key} NOW` : wingWait ? 'FITTING THE NEW FRONT WING' : `${key} ON GREEN`;
+    text(ctx, hint, x + pad, y + h - 14, `700 11px ${F_UI}`, g.waiting || wingWait ? '#ff8a2f' : C.muted);
   }
   // Front wing change, alongside.
   if (g.wingNeed) {
-    const s = clamp(g.wingProgress ?? 0, 0, 1);
+    const s = clamp(g.wingShow ?? 0, 0, 1);
     const wx = x + w - pad - 90;
     const wy = y + h - 20;
     text(ctx, 'FRONT WING', wx, wy, `700 9px ${F_UI}`, s >= 1 ? C.green : '#ff8a2f');
@@ -759,19 +754,7 @@ function drawSideHUD(ctx, race, cam, w, h, ins, opts) {
     const gw = Math.min(320, gapR - gapL);
     drawPitGame(ctx, race.pits.game, (gapL + gapR) / 2 - gw / 2, T, gw, 104, race.time, true);
   }
-  if (before && isRace) {
-    const [px, py] = cam.toScreen(p.x, p.y);
-    const yy = py - 46;
-    ctx.fillStyle = C.lights;
-    roundRect(ctx, px - 22, yy - 12, 44, 20, 6);
-    ctx.fill();
-    ctx.beginPath();
-    ctx.moveTo(px - 6, yy + 8);
-    ctx.lineTo(px + 6, yy + 8);
-    ctx.lineTo(px, yy + 15);
-    ctx.fill();
-    text(ctx, 'YOU', px, yy + 3, `900 13px ${F_DISPLAY}`, '#fff', 'center');
-  }
+  drawYouMarker(ctx, race, cam);
   if (race.wrongWayT > 0.9 && Math.floor(race.wrongWayT * 3) % 2 === 0) {
     drawBanner(ctx, 'WRONG WAY', C.red, mid, h * 0.3, 34);
   }
@@ -890,6 +873,41 @@ function drawQualiBoard(ctx, race, x, y, w, limit) {
     ry += rowH;
   }
   return height;
+}
+
+// Which car is yours: a pulsing ring round it, joined to a YOU tag, on the
+// grid and through the start (it fades once the field gets going).
+function drawYouMarker(ctx, race, cam) {
+  const p = race.player;
+  if (race.mode !== 'race' || !p) return;
+  let a = race.phase === 'intro' || race.phase === 'lights' ? 1 : 0;
+  if (race.phase === 'race') a = clamp(1 - (race.time - 2.5) / 1.2, 0, 1);
+  if (a <= 0) return;
+  const [px, py] = cam.toScreen(p.x, p.y);
+  const pulse = 0.5 + 0.5 * Math.sin((performance.now() / 1000) * 5);
+  const r = Math.max(20, 30 * cam.zoom) + pulse * 4;
+  ctx.save();
+  ctx.globalAlpha = a;
+  ctx.beginPath();
+  ctx.arc(px, py, r, 0, Math.PI * 2);
+  ctx.lineWidth = 9;
+  ctx.strokeStyle = 'rgba(255,42,31,0.35)';
+  ctx.stroke();
+  ctx.lineWidth = 2.5;
+  ctx.strokeStyle = '#ffffff';
+  ctx.stroke();
+  // The tag, on a short stem from the top of the ring.
+  const yy = py - r - 24;
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(px - 1, yy + 8, 2, py - r - (yy + 8));
+  ctx.fillStyle = C.lights;
+  roundRect(ctx, px - 24, yy - 13, 48, 22, 7);
+  ctx.fill();
+  ctx.lineWidth = 2;
+  ctx.strokeStyle = '#ffffff';
+  ctx.stroke();
+  text(ctx, 'YOU', px, yy + 3, `900 14px ${F_DISPLAY}`, '#fff', 'center');
+  ctx.restore();
 }
 
 function drawBanner(ctx, s, color, x, y, size) {

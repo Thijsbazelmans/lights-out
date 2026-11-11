@@ -1889,8 +1889,16 @@ export class Track {
     }
 
     if (g.pit) this.drawPit(ctx, view);
-    this.drawStartLine(ctx);
+    // The line, and the grid boxes up to ~900 px behind it.
+    if (this.nearView(view, 0, 150) || this.nearView(view, (this.n - Math.round(450 / this.ds)) % this.n, 560)) this.drawStartLine(ctx);
     if (hints) this.drawBoards(ctx, view);
+  }
+
+  // Is sample i within `margin` px of the view rectangle?
+  nearView(view, i, margin) {
+    const x = this.px[i];
+    const y = this.py[i];
+    return x > view.minX - margin && x < view.maxX + margin && y > view.minY - margin && y < view.maxY + margin;
   }
 
   // Stretch of the upper deck around each crossing (sample indices).

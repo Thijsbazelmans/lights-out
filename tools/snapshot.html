@@ -71,7 +71,24 @@ const scenes = [
     run(1200, (k) => {
       const g = r.pits.game;
       if (g && g.wheel === 2 && g.phase === 'wheels' && g.pt > 0.15) return { stop: true };
-      return { gas: 1, steer: 0, pedal: !!g && g.phase === 'wheels' && g.gun <= 0 && Math.abs(g.m - g.zone) < 0.04 && k % 2 === 0 };
+      return { gas: 1, steer: 0, pedal: !!g && g.phase === 'wheels' && g.gun <= 0 && Math.abs(g.m - g.zone) < 0.05 };
+    });
+  }],
+  ['monza', 'pit stop: waiting for the front wing', (r, t, p, run) => {
+    p.damage = 0.6;
+    placeK(r, t, p, t.pit.start - 20, 620, t.half - 8);
+    run(1500, (k) => {
+      const g = r.pits.game;
+      if (g && g.phase === 'jackDown' && g.pt > 0.45) return { stop: true };
+      return { gas: 1, steer: 0, pedal: !!g && g.phase === 'wheels' && g.gun <= 0 && Math.abs(g.m - g.zone) < 0.05 };
+    });
+  }],
+  ['monza', 'pit stop: held for traffic (staged)', (r, t, p, run) => {
+    placeK(r, t, p, t.pit.start - 20, 620, t.half - 8);
+    run(1500, (k) => {
+      const g = r.pits.game;
+      if (g && g.phase === 'light' && g.pt > g.hold) { g.green = false; g.waiting = true; return { stop: true }; }
+      return { gas: 1, steer: 0, pedal: !!g && g.phase === 'wheels' && g.gun <= 0 && Math.abs(g.m - g.zone) < 0.05 };
     });
   }],
   ['monza', 'pit stop: release, front wing', (r, t, p, run) => {
@@ -80,7 +97,7 @@ const scenes = [
     run(1500, (k) => {
       const g = r.pits.game;
       if (g && g.phase === 'light' && g.pt > 0.05) return { stop: true };
-      return { gas: 1, steer: 0, pedal: !!g && g.phase === 'wheels' && g.gun <= 0 && Math.abs(g.m - g.zone) < 0.04 && k % 2 === 0 };
+      return { gas: 1, steer: 0, pedal: !!g && g.phase === 'wheels' && g.gun <= 0 && Math.abs(g.m - g.zone) < 0.05 };
     });
   }],
   ['monza', 'last chance to stop', (r, t, p, run) => { p.lap = 1; placeK(r, t, p, t.pit.start - 150, 650, 20); run(10, () => ({ gas: 1 })); }],

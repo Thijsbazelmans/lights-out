@@ -2,11 +2,12 @@
 // A car turns into the pit lane at the entry before the line; from there it
 // drives itself: down to the speed limit, into its team's box, and out again
 // once the crew is done, back onto the track after the exit. While you're
-// in the box you play the stop: four wheel guns (tap when the marker is in
-// the green) and the release (go when the light turns green). The race
-// clock keeps running, so a slow stop costs real time. A stop puts on fresh
-// tyres and repairs the car; a damaged car also needs a new front wing,
-// which takes longer the worse the damage.
+// in the box you play the stop: four wheel guns in rhythm (tap as the
+// marker crosses the green) and the release (go when the light turns
+// green). The race clock keeps running, so the stop takes as long as you
+// take: a clean one is quick, mistakes cost time. A stop puts on fresh tyres
+// and repairs the car; a damaged car also needs a new front wing, which
+// takes longer the worse the damage.
 
 import { TEAMS } from './data/teams.js';
 import { clamp, rand, wrapAngle } from './util.js';
@@ -21,44 +22,47 @@ export const PIT_DRIVE = { limit: 230, brake: 950, stop: 520, pull: 420, out: 56
 // `before` of a lap still to go; finishing without one adds `penalty` s.
 export const PIT_RULE = { penalty: 20, after: 0.5, before: 0.6 };
 
-// The stop you play. The marker crosses the bar in `sweep` s and bounces
-// back; the green zone sits somewhere in `zone` (share of the bar from the
-// left), `green` of the bar wide, and `ok` more either side
-// still fits the wheel, just slower. Wheel done in `good` s (green) or
-// `slow` s (just outside); a miss locks the gun for `miss` s. The car goes
-// up on the jacks in `jackUp` s and down in `jackDown` s; the release light
-// turns green `hold` s later (and only with the lane clear), and going on
-// red holds you `early` s more. A front wing change (damage over `wingFrom`)
-// takes `wing` + `wingPer` × damage s, alongside the wheels. Nobody gets
-// stuck: a wheel fits itself after `autoWheel` s, the car goes `autoGo` s
-// after green.
+// The stop you play, in rhythm; the race keeps running, so the time it
+// takes is your stop time. For each wheel the marker crosses the bar once,
+// in `sweep` s, and the green zone is always in the same place (`zone`,
+// share of the bar from the left), so the wheels come on a steady beat:
+// tap on the green and the wheel's on in `good` s and the next one starts;
+// just outside it (`ok` more either side) takes `slow` s; tap anywhere else,
+// or not at all, and the gun jams: `jam` s while the crew sorts it. Waiting
+// never helps: the marker crosses once. The car goes up on the jacks in
+// `jackUp` s and down in `jackDown` s; the release light turns green `hold`
+// s later (and only with the lane clear), going on red holds you `early` s
+// more, and the car goes by itself `autoGo` s after green. A front wing
+// change (damage over `wingFrom`) takes `wing` + `wingPer` × damage s,
+// alongside the wheels.
 export const PIT_GAME = {
   sweep: 0.55,
-  zone: [0.3, 0.75],
+  zone: 0.7,
   green: 0.2,
   ok: 0.1,
-  good: 0.1,
-  slow: 0.45,
-  miss: 0.4,
+  good: 0.05,
+  slow: 0.35,
+  jam: 0.9,
   jackUp: 0.1,
   jackDown: 0.15,
   hold: [0.15, 0.4],
-  early: 0.7,
+  early: 0.5,
   wingFrom: 0.05,
   wing: 0.9,
   wingPer: 3.5,
-  autoWheel: 2.5,
   autoGo: 2.5,
 };
 
 // Computer stops by difficulty: time standing in the box (s), and now and
-// then a slow one. Yours, measured with `node tools/sim-stops.mjs`: perfect
-// taps about 2.5 s, a sharp player 2.9 s, a good one on a phone 3.5 s, a
-// typical one 4.1 s (every pass of the marker you let go by, and every miss,
-// costs about half a second or more). So on normal a good stop of yours
-// matches the computer crews, a sharp one gains, a messy one loses. A stop
-// under the range shows GREAT STOP, over it by `slowOver` s SLOW STOP.
-export const AI_STOP = { easy: [3.7, 4.7], normal: [2.9, 3.9], hard: [2.6, 3.4], slowChance: 0.06, slow: [1.5, 3.5], slowOver: 0.3 };
+// then a slow one. Yours, measured with `node tools/sim-stops.mjs`: four
+// greens 2.4–3.0 s, a sharp player about 3.1 s, a good one on a phone 3.6 s,
+// a typical one 3.9 s, a casual one 4.4 s. So on normal a good stop of
+// yours matches the computer crews, a sharp one gains, a messy one loses
+// (hard: a sharp one matches; easy: a casual one). Your stop (not counting
+// time held for traffic or waiting for a front wing) shows GREAT STOP when
+// it beats the middle of the range, SLOW STOP when it's over the top by
+// `slowOver` s.
+export const AI_STOP = { easy: [3.9, 4.9], normal: [3.0, 4.0], hard: [2.7, 3.5], slowChance: 0.06, slow: [1.5, 3.5], slowOver: 0.3 };
 
 // Garage colours and names, in box order (the same as the team list).
 export const PIT_TEAMS = TEAMS.map((t) => ({ id: t.id, color: t.livery.color, color2: t.livery.color2, short: t.code }));
@@ -244,7 +248,7 @@ export class Pits {
   }
 
   // One physics step for a car in the pit lane.
-  drive(car, h, tap) {
+  drive(car, h, tap = false) {
     const t = this.track;
     const p = t.pit;
     const D = PIT_DRIVE;
@@ -334,10 +338,13 @@ export class Pits {
     if (s.wingNeed) s.wing = Math.min(s.wingNeed, s.wing + h);
     if (car === this.race.player && this.game) {
       const g = this.game;
-      g.wingProgress = s.wingNeed ? s.wing / s.wingNeed : 1;
       updateGame(g, h, tap, s, this.laneClear(car), this.race.out);
       s.done = g.done;
-      if (g.phase === 'go') this.release(car, g.t);
+      if (g.phase === 'go') {
+        s.traffic = g.traffic;
+        s.wingWait = g.wingWait;
+        this.release(car, g.t);
+      }
       return;
     }
     // Computer crews: the wheels come off one after another.
@@ -358,10 +365,19 @@ export class Pits {
     car.missedMsg = false;
     if (car === this.race.player) {
       this.game = null;
+      // Judged on your part of it: not the time held for traffic or spent
+      // waiting for a new front wing (both are shown, and both count).
+      const traffic = s.traffic || 0;
+      const wing = s.wingWait || 0;
+      car.stopWaits = car.stopWaits || [];
+      car.stopWaits.push({ traffic, wing });
+      const own = standing - traffic - wing;
       const [lo, hi] = AI_STOP[this.race.difficulty] || AI_STOP.normal;
-      const great = standing < lo;
-      const slow = standing > hi + AI_STOP.slowOver;
+      const great = own < (lo + hi) / 2;
+      const slow = own > hi + AI_STOP.slowOver;
       this.race.msg(`${great ? 'GREAT STOP' : slow ? 'SLOW STOP' : 'PIT STOP'}  ${standing.toFixed(1)}s`, great ? '#31d67b' : slow ? '#ffd23f' : '#ffffff', 2.2, 0.85);
+      if (traffic >= 0.2) this.race.msg(`${traffic.toFixed(1)}s HELD FOR TRAFFIC`, '#8d97ab', 2.2, 0.6);
+      if (wing >= 0.2) this.race.msg(`NEW FRONT WING +${wing.toFixed(1)}s`, '#ff8a2f', 2.2, 0.6);
       this.race.out.push({ t: 'pitGo', great });
     }
   }
@@ -421,14 +437,17 @@ function newGame(wingNeed) {
     t: 0, // time standing in the box
     pt: 0, // time in this phase / on this wheel
     wheel: 0,
-    m: 0,
-    dir: 1,
+    m: 0, // marker, 0..1 across the bar
     zone: 0.6,
     gun: 0,
     lock: 0,
     done: [false, false, false, false],
     hits: [],
     misses: 0,
+    traffic: 0, // s the release light stayed red for cars coming down the lane
+    wingWait: 0, // s the car stayed up waiting for the front wing
+    wingShow: 0, // how far the front wing bar is filled (0..1)
+    waiting: false, // held for traffic right now
     flash: null, // { text, color, t }
     green: false,
     greenAt: 0,
@@ -441,11 +460,11 @@ function newGame(wingNeed) {
 function nextWheel(g) {
   g.pt = 0;
   g.m = 0;
-  g.dir = 1;
-  g.zone = rand(...PIT_GAME.zone);
-  g.lock = 0;
+  g.zone = PIT_GAME.zone;
+  g.lock = 0; // 1 while a jammed gun is being sorted (the marker shows red)
 }
 
+// One physics step of the stop you play (the race keeps running).
 function updateGame(g, h, tap, s, laneClear, out) {
   const G = PIT_GAME;
   g.t += h;
@@ -454,6 +473,7 @@ function updateGame(g, h, tap, s, laneClear, out) {
     g.flash.t += h;
     if (g.flash.t > 0.6) g.flash = null;
   }
+  g.wingShow = s.wingNeed ? Math.min(1, s.wing / s.wingNeed) : 1;
   if (g.phase === 'jackUp') {
     if (g.pt >= G.jackUp) {
       g.phase = 'wheels';
@@ -474,32 +494,29 @@ function updateGame(g, h, tap, s, laneClear, out) {
       }
       return;
     }
-    g.lock = Math.max(0, g.lock - h);
-    g.m += (g.dir * h) / G.sweep;
-    if (g.m >= 1) {
-      g.m = 2 - g.m;
-      g.dir = -1;
-    } else if (g.m <= 0) {
-      g.m = -g.m;
-      g.dir = 1;
-    }
+    // One pass of the marker per wheel, on the beat.
+    g.m = Math.min(1, g.m + h / G.sweep);
     const fit = (kind) => {
       g.hits.push(kind);
       g.gun = kind === 'good' ? G.good : G.slow;
       out.push({ t: 'gun', good: kind === 'good' });
       g.flash = { text: kind === 'good' ? 'PERFECT' : 'OK', color: kind === 'good' ? '#31d67b' : '#ffd23f', t: 0 };
     };
-    if (tap && g.lock <= 0) {
+    const jam = (why) => {
+      g.hits.push('jam');
+      g.misses++;
+      g.gun = G.jam;
+      g.lock = 1;
+      out.push({ t: 'gunMiss' });
+      g.flash = { text: why, color: '#ff5a4f', t: 0 };
+    };
+    if (tap && g.m > 0.08) {
+      // (a tap right as the marker sets off is a double tap from the last wheel: ignored)
       const d = Math.abs(g.m - g.zone);
       if (d <= G.green / 2) fit('good');
       else if (d <= G.green / 2 + G.ok) fit('slow');
-      else {
-        g.lock = G.miss;
-        g.misses++;
-        out.push({ t: 'gunMiss' });
-        g.flash = { text: 'MISSED', color: '#ff5a4f', t: 0 };
-      }
-    } else if (g.pt > G.autoWheel) fit('slow');
+      else jam('MISSED');
+    } else if (g.m >= 1) jam('TOO LATE');
     return;
   }
   if (g.phase === 'jackDown') {
@@ -507,19 +524,25 @@ function updateGame(g, h, tap, s, laneClear, out) {
       g.phase = 'light';
       g.pt = 0;
       g.hold = rand(...G.hold);
-    }
+    } else if (g.pt >= G.jackDown) g.wingWait += h;
     return;
   }
   if (g.phase === 'light') {
-    if (!g.green && g.pt >= g.hold && laneClear) {
-      g.green = true;
-      g.greenAt = g.t;
-      out.push({ t: 'pitGreen' });
+    g.waiting = false;
+    if (!g.green && g.pt >= g.hold) {
+      if (laneClear) {
+        g.green = true;
+        g.greenAt = g.t;
+        out.push({ t: 'pitGreen' });
+      } else {
+        g.waiting = true; // a car coming down the lane
+        g.traffic += h;
+      }
     }
     if (tap) {
       if (g.green) g.phase = 'go';
       else {
-        g.hold = g.pt + G.early;
+        g.hold = Math.max(g.hold, g.pt + G.early);
         g.flash = { text: 'WAIT FOR GREEN', color: '#ff5a4f', t: 0 };
         out.push({ t: 'gunMiss' });
       }

@@ -1,7 +1,7 @@
 /* Layout: a pit-wall timing monitor floating over a live race. Left rail on
    wide screens, bottom sheet on phones; pause and results are centred modals. */
 :root {
-  --build: "22"; /* must match BUILD in js/main.js */
+  --build: "23"; /* must match BUILD in js/main.js */
   --asphalt: #0d1016;
   --panel: rgba(13, 16, 23, 0.9);
   --panel-solid: #131822;
@@ -112,8 +112,7 @@ button:focus-visible {
   border: 2px solid rgba(255, 255, 255, 0.2);
   background: rgba(10, 13, 19, 0.42);
   color: rgba(255, 255, 255, 0.85);
-  backdrop-filter: blur(2px);
-  -webkit-backdrop-filter: blur(2px);
+  /* no backdrop blur: over a moving game it costs the phone every frame */
   transition: background 60ms, border-color 60ms, transform 60ms;
   -webkit-user-select: none;
   user-select: none;

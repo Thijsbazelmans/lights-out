@@ -278,7 +278,7 @@ export class Race {
       }
       return;
     }
-    this.lane.drive(car, h, false);
+    this.lane.drive(car, h);
   }
 
   // Crossing the line in qualifying: the first time after the out-lap starts
@@ -357,6 +357,11 @@ export class Race {
   }
 
   update(dt, input) {
+    // A press of either pedal (for the pit stop you play), used by the
+    // first physics step of this frame.
+    const pedal = !!input.pedal;
+    this.tap = pedal && !this.prevPedal;
+    this.prevPedal = pedal;
     // After you cross the line: slow motion for a moment, then back to normal
     // speed, and the results after a few seconds (or on a tap).
     let scaled = dt;
@@ -420,10 +425,8 @@ export class Race {
       }
     }
 
-    // A press of either pedal (for the pit stop you play).
-    const pedal = !!input.pedal;
-    const tap = pedal && !this.prevPedal;
-    this.prevPedal = pedal;
+    const tap = this.tap;
+    this.tap = false;
     if (this.pits) this.pits.beforeStep();
 
     for (const car of this.cars) {
@@ -1197,6 +1200,7 @@ export class Race {
       playerBest: p ? p.bestLap : null,
       playerPenalty: p ? p.penalty || 0 : 0,
       playerStops: p && p.stopTimes ? p.stopTimes.slice() : [],
+      playerStopWaits: p && p.stopWaits ? p.stopWaits.slice() : [],
       fieldStop: this.fieldStop(),
       laps: this.totalLaps,
     };
@@ -1264,7 +1268,7 @@ export class Race {
       // Release light, on the lane side of the nose.
       if (s.stage === 'box') {
         const g = c === this.player && this.pits ? this.pits.game : null;
-        const green = g ? g.green : s.t >= (s.service || 0);
+        const green = g ? g.green && !g.waiting : s.t >= (s.service || 0);
         const ly = p.side > 0 ? -24 : 24; // toward the lane
         ctx.fillStyle = '#16181c';
         ctx.beginPath();
@@ -1321,6 +1325,7 @@ export class Race {
       const span = t.bridgeSpan;
       const above = me && t.lapDistance(me.trackIdx, c.upper) < span * 1.6;
       const below = me && t.lapDistance(me.trackIdx, c.lower) < span * 1.6;
+      if (!above && !below && !t.nearView(view, c.upper, span * 2.4 * t.ds + 120)) continue; // nowhere near the screen
       if (above) t.dimStretch(ctx, c.lower, Math.round(span * 1.8));
       const s2 = Math.round(span * 2.4);
       if (below) t.dimRange(ctx, (c.upper - s2 + t.n) % t.n, (c.upper + s2) % t.n, 1);
@@ -1331,6 +1336,6 @@ export class Race {
       if (above || below) me.draw(ctx);
     }
     this.particles.draw(ctx, view);
-    if (this.mode === 'race') t.drawGantry(ctx, this.phase === 'lights' ? this.lit : 0);
+    if (this.mode === 'race' && t.nearView(view, 3, 300)) t.drawGantry(ctx, this.phase === 'lights' ? this.lit : 0);
   }
 }
