@@ -12,7 +12,11 @@ import { rand } from './util.js';
 // Timing points per lap (gaps, the live delta, the provisional position).
 export const SPLITS = 40;
 
-// `push`: qualifying pace against race pace. Each computer lap comes out a
+// `push`: how much harder than their race pace the computer drivers go on
+// their qualifying lap, per difficulty: [corner pace, engine power], like
+// the cars chasing you when you lead a race (they can't drift, and you can).
+// Corner pace stops at `paceTop` (beyond that they overshoot corners). Each
+// computer lap comes out a
 // little better or worse (`scatter`, a share of pace), and now and then
 // scrappy (chance `scrappy`, losing `scrappyCost` of pace). They start
 // `runUp` of a lap before the line, standing, so they're up to speed when
@@ -22,7 +26,8 @@ export const SPLITS = 40;
 // a lap after `timeout` s gets no time. You leave the garage `release` s
 // after the green light.
 export const QUALI = {
-  push: 1,
+  push: { easy: [1.06, 1.04], normal: [1.1, 1.08], hard: [1.13, 1.13] },
+  paceTop: 0.97,
   scatter: 0.004,
   scrappy: 0.08,
   scrappyCost: [0.008, 0.025],
@@ -40,8 +45,9 @@ const H = 1 / 120; // the race's physics step
 // The computer drivers' qualifying laps. entries: { driverId, code, name,
 // teamId, livery, pace, power }.
 export class QualiSim {
-  constructor(track, entries) {
+  constructor(track, entries, difficulty = 'normal') {
     this.track = track;
+    this.push = QUALI.push[difficulty] || QUALI.push.normal;
     this.events = [];
     this.runs = entries.map((e) => this.start(e));
     this.done = !this.runs.length;
@@ -58,11 +64,11 @@ export class QualiSim {
       livery: e.livery,
       name: e.name,
       code: e.code,
-      power: e.power,
+      power: e.power * this.push[1],
     });
     car.frozen = false;
     car.trackIdx = i;
-    let pace = e.pace * QUALI.push * (1 + rand(-QUALI.scatter, QUALI.scatter));
+    let pace = Math.min(QUALI.paceTop, e.pace * this.push[0]) * (1 + rand(-QUALI.scatter, QUALI.scatter));
     if (Math.random() < QUALI.scrappy) pace *= 1 - rand(...QUALI.scrappyCost);
     const ai = new AIDriver(car, t, { pace });
     return { e, car, ai, cars: [car], T: 0, start: null, armed: false, bucket: null, splits: [], time: null, over: false };

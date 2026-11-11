@@ -201,7 +201,7 @@ export class Race {
         const ap = aiPace(d.skill, difficulty, this.form && this.form[id] != null ? this.form[id] : 0);
         return { driverId: id, code: d.code, name: d.name, teamId: d.teamId, livery: d.livery, pace: ap.pace, power: ap.power };
       });
-      this.quali.sim = new QualiSim(this.track, entries);
+      this.quali.sim = new QualiSim(this.track, entries, difficulty);
     }
     if (this.lane) {
       const t = this.track;
