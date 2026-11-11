@@ -5,10 +5,12 @@ import { PHYS, TIER_COLORS } from './car.js';
 import { gearInfo } from './audio.js';
 import { POINTS } from './season.js';
 import { PIT_GAME, WHEELS } from './pit.js';
+import { OVERTAKE } from './race.js';
 
 const F_DISPLAY = '"Saira Condensed", "Arial Narrow", system-ui, sans-serif';
 const F_DATA = '"JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace';
 const SLIP_COL = '#7fd8ff';
+const OT_COL = '#5dff9d'; // overtake mode (see OVERTAKE in race.js)
 const F_UI = '"Titillium Web", system-ui, -apple-system, sans-serif';
 
 const C = {
@@ -665,6 +667,7 @@ function drawCarTags(ctx, race, cam, w, h) {
     tags.push({ label: 'DRIFTING!', col: p.driftTier === 0 ? '#ffffff' : TIER_COLORS[p.driftTier], fill: clamp(p.driftCharge / 2.2, 0, 1), a: 1 });
   }
   const sa = clamp((p.slipstream - 0.25) / 0.12, 0, 1);
+  if (p.overtake > 0) tags.push({ label: 'OVERTAKE', col: OT_COL, fill: clamp(p.overtake / OVERTAKE.time, 0, 1), a: clamp(p.overtake / 0.4, 0, 1) });
   if (sa > 0) tags.push({ label: 'SLIPSTREAM!', col: SLIP_COL, fill: clamp(p.slipstream, 0, 1), a: sa });
   if (p.pit && p.pit.stage !== 'box') tags.push({ label: 'PIT LIMITER', col: C.yellow, fill: clamp(p.speed / 230, 0, 1), a: 1 });
   if (!tags.length) return;
@@ -1077,6 +1080,7 @@ function drawTower(ctx, race, x, y, p) {
       ctx.fillStyle = c.livery.color;
       ctx.fillRect(x + 37, ry + 5, 4, h - 12);
       text(ctx, c.code, x + 48, base + 7, `800 19px ${F_DISPLAY}`, c === mate ? C.yellow : C.text);
+      if (c !== p && c.overtake > 0) drawOT(ctx, x + 84, base - 6);
       let g;
       let col = C.text;
       if (c === p) {
@@ -1101,7 +1105,7 @@ function drawTower(ctx, race, x, y, p) {
     if (race.fastest && race.fastest.car === c) {
       ctx.fillStyle = C.purple;
       ctx.beginPath();
-      ctx.arc(x + (isBig ? 96 : 84), base, 3, 0, Math.PI * 2);
+      ctx.arc(x + (isBig ? (c !== p && c.overtake > 0 ? 110 : 96) : 84), base, 3, 0, Math.PI * 2);
       ctx.fill();
     }
     ry += h;
@@ -1154,9 +1158,18 @@ function drawNearby(ctx, race, x, y, p, w) {
     ctx.fillStyle = c.livery.color;
     ctx.fillRect(cx0, ry + 5, 3, rh - 10);
     text(ctx, c.code, cx0 + 8, mid + 6, `800 ${wide ? 17 : 14}px ${F_DISPLAY}`, arrow === 'TM' ? C.yellow : C.text);
+    if (c.overtake > 0) drawOT(ctx, cx0 + (wide ? 41 : 35), mid - 6);
     text(ctx, `${arrow === 'TM' ? (matesAhead ? '▲' : '▼') : ''}${g.toFixed(1)}s`, x + w - 8, mid + 5, `700 ${wide ? 13 : 11}px ${F_DATA}`, C.text, 'right');
   });
   return lines.length * rh + 8;
+}
+
+// A car with overtake mode on: a small green OT next to its name.
+function drawOT(ctx, x, y) {
+  ctx.fillStyle = OT_COL;
+  roundRect(ctx, x, y, 19, 12, 3);
+  ctx.fill();
+  text(ctx, 'OT', x + 9.5, y + 9.5, `800 9px ${F_DATA}`, '#0b0e14', 'center');
 }
 
 function drawLapList(ctx, race, x, y, w, p) {

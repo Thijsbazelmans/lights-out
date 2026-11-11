@@ -9,6 +9,7 @@
 // and repairs the car; a damaged car also needs a new front wing, which
 // takes longer the worse the damage.
 
+import { PHYS } from './car.js';
 import { TEAMS } from './data/teams.js';
 import { clamp, rand, wrapAngle } from './util.js';
 
@@ -277,7 +278,7 @@ export class Pits {
     else {
       // Out of the exit no faster than the road ahead allows.
       const n = t.n;
-      for (let j = 0; j <= 60; j += 3) vmax = Math.min(vmax, t.vProfile[(((Math.round(s.k) + j) % n) + n) % n] * 0.85);
+      for (let j = 0; j <= 60; j += 3) vmax = Math.min(vmax, Math.min(PHYS.TOP, t.vProfile[(((Math.round(s.k) + j) % n) + n) % n]) * 0.85);
     }
     vmax = Math.min(vmax, this.laneRoom(car));
     s.braking = s.v > vmax + 1;

@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Frame cost</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;700&family=Saira+Condensed:wght@600;800;900&family=Titillium+Web:wght@400;600;700&display=swap">
+<style>
+  :root { --bg: #0d1016; --fg: #eef2f8; --muted: #8d97ab; color-scheme: dark; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 13px ui-monospace, monospace; padding: 12px; }
+  table { border-collapse: collapse; }
+  td, th { padding: 2px 10px; text-align: right; }
+  th:first-child, td:first-child { text-align: left; }
+  canvas { width: 426px; display: block; margin: 8px 0; border-radius: 6px; }
+</style>
+</head>
+<body>
+<p>Developer tool: what a race frame costs, layer by layer, drawn on the CPU (like a phone's canvas) at phone size. <code>?ids=monza,monaco</code>, <code>?w=852&amp;h=393&amp;dpr=1.5</code>, <code>?frames=90</code>.</p>
+<div id="out">running…</div>
+<script type="module">
+import { Track } from '../js/track.js';
+import { ALL_REAL } from '../js/data/tracks.js';
+import { Race } from '../js/race.js';
+import { AIDriver } from '../js/ai.js';
+import { Camera } from '../js/camera.js';
+import { PHYS } from '../js/car.js';
+import { drawHUD } from '../js/hud.js';
+import { playerFor, rivalsFor } from '../js/data/teams.js';
+
+const q = new URLSearchParams(location.search);
+const W = Number(q.get('w') || 852);
+const H = Number(q.get('h') || 393);
+const DPR = Number(q.get('dpr') || 1.5);
+const FRAMES = Number(q.get('frames') || 90);
+const IDS = (q.get('ids') || 'monza,monaco,singapore,silverstone,montreal').split(',');
+await document.fonts.load('900 20px "Saira Condensed"').catch(() => {});
+
+const cv = document.createElement('canvas');
+cv.width = Math.round(W * DPR);
+cv.height = Math.round(H * DPR);
+// willReadFrequently: drawn on the CPU, so the time spent is the real raster cost.
+const ctx = cv.getContext('2d', { alpha: false, willReadFrequently: true });
+const flush = () => ctx.getImageData(0, 0, 1, 1);
+const shade = document.createElement('canvas');
+shade.width = cv.width;
+shade.height = cv.height;
+{
+  const g = shade.getContext('2d');
+  g.fillStyle = 'rgba(40,60,90,0.06)';
+  g.fillRect(0, 0, shade.width, shade.height);
+}
+const ctl = { steer: new DOMRect(16, H - 108, 196, 92), pedal: new DOMRect(W - 120, H - 204, 104, 188), gas: new DOMRect(W - 120, H - 204, 104, 84) };
+
+// Count calls per layer too: Safari pays for every call, not just for pixels.
+const COUNT = ['fill', 'stroke', 'fillRect', 'strokeRect', 'fillText', 'strokeText', 'drawImage', 'arc', 'save', 'restore', 'setLineDash', 'measureText', 'lineTo', 'moveTo', 'beginPath', 'createLinearGradient', 'createRadialGradient'];
+const calls = {};
+let layer = '';
+const P = CanvasRenderingContext2D.prototype;
+for (const m of COUNT) {
+  const orig = P[m];
+  P[m] = function (...a) {
+    if (layer) {
+      const c = (calls[layer] ||= {});
+      c[m] = (c[m] || 0) + 1;
+    }
+    return orig.apply(this, a);
+  };
+}
+const SETS = ['fillStyle', 'strokeStyle', 'font', 'globalAlpha', 'lineWidth'];
+for (const m of SETS) {
+  const d = Object.getOwnPropertyDescriptor(P, m);
+  Object.defineProperty(P, m, { get: d.get, set(v) { if (layer) { const c = (calls[layer] ||= {}); c['=' + m] = (c['=' + m] || 0) + 1; } d.set.call(this, v); }, configurable: true });
+}
+const rows = [];
+const all = {};
+import { setCarSprites } from '../js/car.js';
+import { clearTiles } from '../js/tiles.js';
+const MODES = ['before', 'phone'];
+for (const id of IDS) {
+  const def = ALL_REAL.find((d) => d.id === id);
+  if (!def) continue;
+  const t = new Track(def);
+  for (const mode of MODES) {
+    const phone = mode === 'phone';
+    clearTiles();
+    const r = new Race({ track: t, mode: 'race', laps: 3, player: playerFor('ferrari', 1), rivals: rivalsFor('ferrari', 1) });
+    r.event = { gp: def.gp, name: def.name, country: def.country, accent: def.theme.thumb, mode: 'race', laps: 3, round: 5, rounds: 24 };
+    r.tiled = phone;
+    r.particles.sprites = phone;
+    const p = r.player;
+    const bot = new AIDriver(p, t, { pace: 0.95 });
+    const cam = new Camera();
+    cam.snap(p, W, H, 0.45);
+    setCarSprites(phone ? DPR * cam.baseZoom(W, H) * 1.25 : 0);
+    const drive = () => (r.phase === 'race' && !p.pit ? { ...bot.control(1 / 60, r.cars, 1, r.time), pedal: false } : { gas: 0, brake: 0, steer: 0, analog: true });
+    const camUp = () => cam.update(1 / 60, p, { w: W, h: H, mode: 'chase', touchUI: true, speedFrac: Math.max(0, p.forwardSpeed) / PHYS.TOP, boost: p.boost > 0 });
+    for (let k = 0; k < 60 * 14; k++) {
+      r.update(1 / 60, drive());
+      camUp();
+      if (k > 60 * 13) r.draw(ctx, cam, W, H, DPR); // tiles made before timing
+    }
+    const tm = {};
+    const add = (k, v) => (tm[k] = (tm[k] || 0) + v);
+    const lap = (k, fn, f) => {
+      const a = performance.now();
+      layer = f === FRAMES - 1 ? `${id} ${mode} ${k}` : '';
+      fn();
+      layer = '';
+      flush();
+      add(k, performance.now() - a);
+    };
+    for (let f = 0; f < FRAMES; f++) {
+      let t0 = performance.now();
+      r.update(1 / 60, drive());
+      camUp();
+      add('update', performance.now() - t0);
+      flush();
+      r.focus = p;
+      lap('(flush)', () => {}, f);
+      lap('world', () => r.draw(ctx, cam, W, H, DPR), f);
+      lap('shade', () => { ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.drawImage(shade, 0, 0); }, f);
+      lap('hud', () => { ctx.setTransform(DPR, 0, 0, DPR, 0, 0); drawHUD(ctx, r, cam, W, H, { top: 0, left: 0, right: 0, bottom: 0 }, { touchUI: true, ctl, dt: 1 / 60, season: true }); }, f);
+    }
+    for (const k in tm) tm[k] /= FRAMES;
+    const base = tm['(flush)'];
+    for (const k in tm) if (k !== 'update' && k !== '(flush)') tm[k] = Math.max(0, tm[k] - base);
+    delete tm['(flush)'];
+    tm.total = Object.values(tm).reduce((a, b) => a + b, 0);
+    const c = Object.entries(calls).filter(([k]) => k.startsWith(`${id} ${mode}`)).reduce((n, [, v]) => n + Object.entries(v).filter(([m]) => !m.startsWith('=') && !['lineTo', 'moveTo', 'beginPath', 'arc', 'save', 'restore'].includes(m)).reduce((a, [, x]) => a + x, 0), 0);
+    tm['draw calls'] = c;
+    rows.push([`${id} ${mode}`, tm]);
+    const key = mode;
+    all[key] ||= {};
+    for (const k in tm) all[key][k] = (all[key][k] || 0) + tm[k] / IDS.length;
+    if (f0shot(mode)) {
+      const shot = document.createElement('canvas');
+      shot.width = cv.width; shot.height = cv.height;
+      shot.getContext('2d').drawImage(cv, 0, 0);
+      shot.title = `${id} ${mode}`;
+      document.body.appendChild(shot);
+    }
+  }
+}
+function f0shot() { return true; }
+for (const m of MODES) rows.push([`average ${m}`, all[m]]);
+const keys = Object.keys(all[MODES[0]]);
+document.getElementById('out').innerHTML = `<table><tr><th>ms / frame</th>${keys.map((k) => `<th>${k}</th>`).join('')}</tr>${rows
+  .map(([id, tm]) => `<tr><td>${id}</td>${keys.map((k) => `<td>${k === 'draw calls' ? Math.round(tm[k]) : tm[k].toFixed(2)}</td>`).join('')}</tr>`)
+  .join('')}</table>`;
+window.perfResult = rows;
+window.perfCalls = calls;
+const pre = document.createElement('pre');
+pre.textContent = Object.entries(calls).map(([k, c]) => `${k}: ${Object.entries(c).map(([m, n]) => `${m} ${n}`).join(', ')}`).join('\n');
+document.getElementById('out').after(pre);
+</script>
+</body>
+</html>

@@ -36,15 +36,28 @@ export class Particles {
   draw(ctx, view) {
     const m = 40;
     const inView = (p) => p.x > view.minX - m && p.x < view.maxX + m && p.y > view.minY - m && p.y < view.maxY + m;
-    for (const p of this.list) {
-      if (p.kind !== 'smoke' && p.kind !== 'dust') continue;
-      if (!inView(p)) continue;
-      const f = p.life / p.max;
-      const [r, g, b] = p.rgb;
-      ctx.fillStyle = `rgba(${r},${g},${b},${(p.alpha ?? 0.35) * f})`;
-      ctx.beginPath();
-      ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
-      ctx.fill();
+    if (this.sprites) {
+      // Phones: each puff is a picture of a disc in its colour, faded with
+      // globalAlpha (no new shape or colour string per puff per frame).
+      ctx.save();
+      for (const p of this.list) {
+        if (p.kind !== 'smoke' && p.kind !== 'dust') continue;
+        if (!inView(p)) continue;
+        ctx.globalAlpha = (p.alpha ?? 0.35) * (p.life / p.max);
+        ctx.drawImage(disc(p.rgb), p.x - p.size, p.y - p.size, p.size * 2, p.size * 2);
+      }
+      ctx.restore();
+    } else {
+      for (const p of this.list) {
+        if (p.kind !== 'smoke' && p.kind !== 'dust') continue;
+        if (!inView(p)) continue;
+        const f = p.life / p.max;
+        const [r, g, b] = p.rgb;
+        ctx.fillStyle = `rgba(${r},${g},${b},${(p.alpha ?? 0.35) * f})`;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+        ctx.fill();
+      }
     }
     // Bits kicked up off the road, and air streaming past a car.
     ctx.save();
@@ -93,6 +106,29 @@ export class Particles {
     }
     ctx.restore();
   }
+}
+
+// A disc in one colour, for the puffs (see Particles.draw).
+const discs = new Map();
+const discOf = new WeakMap(); // the same colour array again: no lookup by name
+function disc(rgb) {
+  let c = discOf.get(rgb);
+  if (c) return c;
+  const key = rgb.join(',');
+  c = discs.get(key);
+  if (!c) {
+    c = document.createElement('canvas');
+    c.width = 64;
+    c.height = 64;
+    const g = c.getContext('2d');
+    g.fillStyle = `rgb(${key})`;
+    g.beginPath();
+    g.arc(32, 32, 31, 0, Math.PI * 2);
+    g.fill();
+    discs.set(key, c);
+  }
+  discOf.set(rgb, c);
+  return c;
 }
 
 export class Skids {

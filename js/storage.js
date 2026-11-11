@@ -8,6 +8,7 @@ function defaults() {
   return {
     settings: {
       sound: true,
+      music: true, // the theme behind the menus and after the finish
       camera: 'chase', // 'chase' rotates with the car, 'fixed' keeps north up
       difficulty: 'normal',
       laps: 3,
@@ -15,7 +16,7 @@ function defaults() {
       steerSide: 'left', // phone: ‹ › under the 'left' or 'right' thumb, GAS and BRAKE under the other
       brakeHints: true, // corner calls and 3-2-1 boards before the big stops
       wear: true, // tyres wear and hits damage the car in races
-      batterySaver: false, // phones: at most 60 frames a second, drawn a little less sharp
+      batterySaver: false, // phones: drawn a little less sharp, fewer particles
       team: null, // id of the team you race for; null until picked
       seat: 1, // which of the team's two drivers you replace (0 or 1)
     },

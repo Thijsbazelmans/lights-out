@@ -12,6 +12,9 @@ let eng = null;
 let screech = null;
 let rumble = null;
 let pack = null;
+// Engine, tyre and road sounds go through this, so they can step back for
+// the music once you've crossed the line (duckEngines).
+let engBus = null;
 // Engine sounds already faded out (so silence() has nothing more to do).
 let quiet = false;
 
@@ -81,7 +84,7 @@ function loopNoise(type, freq, q) {
   f.frequency.value = freq;
   f.Q.value = q;
   const g = gainNode(0);
-  src.connect(f).connect(g).connect(master);
+  src.connect(f).connect(g).connect(engBus);
   src.start();
   return { f, g };
 }
@@ -91,6 +94,8 @@ function build() {
   noiseBuf = ctx.createBuffer(1, len, ctx.sampleRate);
   const d = noiseBuf.getChannelData(0);
   for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+  engBus = gainNode(1);
+  engBus.connect(master);
 
   // Player engine: three detuned oscillators through a resonant low-pass.
   const o1 = ctx.createOscillator();
@@ -107,7 +112,7 @@ function build() {
   o1.connect(gainNode(0.5)).connect(lp);
   o2.connect(gainNode(0.22)).connect(lp);
   o3.connect(gainNode(0.16)).connect(lp);
-  lp.connect(out).connect(master);
+  lp.connect(out).connect(engBus);
   [o1, o2, o3].forEach((o) => o.start());
   eng = { o1, o2, o3, lp, out };
 
@@ -121,17 +126,22 @@ function build() {
   plp.type = 'lowpass';
   plp.frequency.value = 700;
   const pg = gainNode(0);
-  po.connect(plp).connect(pg).connect(master);
+  po.connect(plp).connect(pg).connect(engBus);
   po.start();
   pack = { o: po, lp: plp, g: pg };
 }
 
-// Called every frame while racing.
+// Called every frame while racing; passed on to the sound about 30 times a
+// second (each change glides over 25-100 ms anyway, and fewer changes is
+// less work for a phone).
+let lastUpdate = -1;
 export function engineUpdate({ speedFrac, throttle, boost, active, slide, offroad, rival }) {
   if (!ctx || !eng) return;
   if (!enabled) return;
-  quiet = false;
   const t = ctx.currentTime;
+  if (!quiet && t - lastUpdate < 0.033 && t >= lastUpdate) return;
+  lastUpdate = t;
+  quiet = false;
   const { rpm } = gearInfo(speedFrac);
   const f = 62 + rpm * 250 * (boost ? 1.07 : 1);
   eng.o1.frequency.setTargetAtTime(f, t, 0.025);
@@ -150,6 +160,18 @@ export function engineUpdate({ speedFrac, throttle, boost, active, slide, offroa
   } else {
     pack.g.gain.setTargetAtTime(0, t, 0.1);
   }
+}
+
+// After the finish the cars carry on quietly under the music: `level` is
+// the share of their usual volume (1 = back to normal).
+export function duckEngines(level, glide = 0.6) {
+  if (!ctx || !engBus) return;
+  engBus.gain.setTargetAtTime(level, ctx.currentTime, glide / 3);
+}
+
+// For music.js: the shared sound graph (null until the first tap or key).
+export function soundGraph() {
+  return ctx ? { ctx, master, noise: noiseBuf } : null;
 }
 
 export function silence() {

@@ -7,6 +7,7 @@ import { AIDriver } from './ai.js';
 import { Pits, PIT_RULE, PIT_TEAMS } from './pit.js';
 import { GHOST_DT, QUALI, QualiSim, SPLITS, byLapTime } from './quali.js';
 import { Particles, Skids } from './particles.js';
+import { drawTiles } from './tiles.js';
 import { clamp, damp, formatTime, rand, wrapAngle } from './util.js';
 
 const STEP = 1 / 120; // physics runs at a fixed 120 Hz
@@ -17,7 +18,17 @@ const LIGHT_GAP = 0.8;
 // Only on a straight: both cars above `minSpeed` × top speed, pointing the
 // same way, and the road ahead bending less than 1 / `straight` px. It takes
 // a moment to build (`build`, per second) and goes quickly (`fade`).
-export const SLIPSTREAM = { range: 380, cone: 0.955, minSpeed: 0.73, straight: 1100, build: 1.3, fade: 5 };
+// (Build 30: longer reach and quicker to build, with a stronger pull in
+// car.js.)
+export const SLIPSTREAM = { range: 460, cone: 0.955, minSpeed: 0.72, straight: 1100, build: 1.8, fade: 5 };
+
+// Overtake mode, like Formula 1's from 2026: a car within `gap` s of the car
+// ahead at a detection point (just before each of the circuit's `zones`
+// longest straights) gets `power` more engine power for the next `time` s,
+// enough to close up and have a go down the straight. Pass, and the car you
+// passed is the one within a second next time: it's theirs. Every car gets
+// it, you included, from lap 2.
+export const OVERTAKE = { gap: 1.0, power: 0.1, time: 6, zones: 2 };
 
 // A car hit from behind: its share of the push (the rest goes to the car
 // doing the hitting) and how much of the twist it gets.
@@ -32,13 +43,19 @@ const CALL_WARN = 1.4;
 // the middle of that range (a proper first-lap scramble); during lap 1 each
 // car moves to its own race pace, so the field strings out into smaller
 // groups and one-on-one battles.
+// When you lead, the cars behind chase (rubberFor): `chaseNear` more power
+// right behind you, growing with the gap up to `chase`.
 // (Builds 26 and 27 raised normal and hard: the owner still won on normal
 // by seconds with mistakes. Corner pace is near what the computer can drive
-// (AI_PACE_TOP in ai.js), so most of the rest is engine power.)
+// (AI_PACE_TOP in ai.js), so most of the rest is engine power. Build 30 let
+// the computer cars past your top speed on straights (track.js, AI_FLAT),
+// so power now shows there: easy and normal got less of it, for the same lap
+// times as before; hard got a closer field, a harder chase and about 2.3%
+// quicker laps at the front.)
 export const DIFFICULTY = {
-  easy: { top: 0.82, spread: 0.13, power: 0.95, powerSpread: 0.07, chase: 0.08 },
-  normal: { top: 0.96, spread: 0.1, power: 1.12, powerSpread: 0.07, chase: 0.12 },
-  hard: { top: 0.97, spread: 0.08, power: 1.18, powerSpread: 0.05, chase: 0.15 },
+  easy: { top: 0.82, spread: 0.13, power: 0.9, powerSpread: 0.07, chase: 0.08, chaseNear: 0.03 },
+  normal: { top: 0.96, spread: 0.1, power: 1.08, powerSpread: 0.07, chase: 0.12, chaseNear: 0.03 },
+  hard: { top: 0.97, spread: 0.06, power: 1.2, powerSpread: 0.04, chase: 0.2, chaseNear: 0.07 },
 };
 
 // A computer driver's pace for a weekend: the team and driver (`skill`),
@@ -115,6 +132,9 @@ export class Race {
     // Qualifying: you start in your garage, and the pit lane takes you out.
     this.lane = mode === 'quali' && track.pit ? new Pits(this) : null;
     if (mode === 'quali') this.setupQuali(rivals, difficulty, field);
+    // Overtake mode's detection points, and when a car last passed each.
+    this.otZones = mode === 'race' ? track.overtakeZones(OVERTAKE.zones) : null;
+    this.otLast = this.otZones ? this.otZones.map(() => -Infinity) : null;
     this.prevPedal = false;
     this.focus = this.player || this.cars[0];
     this.rank();
@@ -442,6 +462,7 @@ export class Race {
     if (this.pits) this.pits.beforeStep();
 
     for (const car of this.cars) {
+      if (car.overtake > 0) car.overtake = Math.max(0, car.overtake - h);
       if (car.pit) {
         if (this.lane) this.garage(car, h);
         else this.pits.drive(car, h, car === this.player && tap);
@@ -462,13 +483,13 @@ export class Race {
         const rub = this.rubberFor(car);
         // A chase goes fully into power (corner pace is near its limit); a
         // runaway leader easing off only partly.
-        car.power = car.basePower * (1 + (rub - 1) * (rub > 1 ? 1 : 0.6));
+        car.power = car.basePower * (1 + (rub - 1) * (rub > 1 ? 1 : 0.6)) * (car.overtake > 0 ? 1 + OVERTAKE.power : 1);
         ctl = ai.control(h, this.cars, rub, racing ? this.time : -1);
         if (car.launchBoostAt != null && racing && this.time >= car.launchBoostAt) {
           car.startBoost(1, this.events, 'launch');
           car.launchBoostAt = null;
         }
-      }
+      } else if (this.otZones) car.power = (car.basePower ?? 1) * (car.overtake > 0 ? 1 + OVERTAKE.power : 1);
       car.update(h, ctl, this.track, this.events);
     }
     this.collide();
@@ -597,10 +618,11 @@ export class Race {
     // You're at the front: the next few cars chase, harder the further you
     // get away, so a lead has to be kept rather than just built once.
     if (d < 0 && p.pos <= 3 && car.pos <= p.pos + 3 && d > -0.45 * L) {
-      const chase = (DIFFICULTY[this.difficulty] || DIFFICULTY.normal).chase;
+      const D = DIFFICULTY[this.difficulty] || DIFFICULTY.normal;
+      const chase = D.chase;
       // The car right behind pushes hardest; less so when you're not leading.
       const lead = ([1, 0.75, 0.5][car.pos - p.pos - 1] ?? 0.5) * (p.pos === 1 ? 1 : 0.4);
-      return 1 + Math.min(chase, 0.03 + (-d / L) * 1.0) * lead;
+      return 1 + Math.min(chase, D.chaseNear + (-d / L) * 1.0) * lead;
     }
     return 1;
   }
@@ -809,6 +831,7 @@ export class Race {
       if (q.dist !== Infinity) idx = q.idx;
     }
     car.trackIdx = idx;
+    if (this.otZones && !car.pit) this.overtakeCheck(car, prev, idx);
     if (prev > n * 0.8 && idx < n * 0.2) this.crossForward(car);
     else if (prev < n * 0.2 && idx > n * 0.8 && car.lap >= 0) {
       car.lap -= 1;
@@ -843,6 +866,26 @@ export class Race {
           if (car === this.player && this.quali) this.qualiSplit(bucket);
         }
       }
+    }
+  }
+
+  // Overtake mode: did this car just pass a detection point, and within
+  // OVERTAKE.gap s of the car before it there?
+  overtakeCheck(car, prev, idx) {
+    const n = this.track.n;
+    const fwd = (idx - prev + n) % n;
+    if (fwd === 0 || fwd > n / 4) return;
+    for (let k = 0; k < this.otZones.length; k++) {
+      const past = (this.otZones[k] - prev + n) % n;
+      if (past === 0 || past > fwd) continue;
+      if (this.phase !== 'race' || car.finished) continue;
+      const gap = this.time - this.otLast[k];
+      this.otLast[k] = this.time;
+      if (car.lap < 1 || gap >= OVERTAKE.gap) continue;
+      car.overtake = OVERTAKE.time;
+      const p = this.player;
+      if (car === p) this.out.push({ t: 'overtake' });
+      else if (p && !p.finished && car.pos === p.pos + 1) this.msg(`▼ ${car.code} HAS OVERTAKE`, '#5dff9d', 1.6, 0.8);
     }
   }
 
@@ -1362,11 +1405,17 @@ export class Race {
     const view = cam.viewRect(w, h);
     cam.apply(ctx, dpr);
     const t = this.track;
-    t.drawGround(ctx, view);
-    t.drawSurface(ctx, view, this.hints !== false);
+    // Phones (`tiled`): the circuit's still picture comes from tiles drawn
+    // once (tiles.js); otherwise, or while a tile is still missing, it's
+    // drawn here.
+    const still = this.tiled && drawTiles(ctx, t, cam, w, h, dpr, this.hints !== false);
+    if (!still) {
+      t.drawGround(ctx, view);
+      t.drawSurface(ctx, view, this.hints !== false);
+    }
     this.skids.draw(ctx, view);
     if (this.pits) this.drawPitArrows(ctx);
-    t.drawDecor(ctx, view);
+    if (!still) t.drawDecor(ctx, view);
     const gp = this.ghostPose();
     this.ghostAt = gp; // (for the HUD's tag on the pole ghost)
     if (gp) {

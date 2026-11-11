@@ -10,6 +10,7 @@ import { clamp, hashString, mulberry32, wrapAngle } from './util.js';
 import { maxCornerSpeed, PHYS } from './car.js';
 
 const DS = 8; // centerline sample spacing in px
+const AI_FLAT = PHYS.TOP * 2; // faster than any car goes (power × tow × chase): no limit
 const CHUNK = 96; // samples per drawing chunk (only visible chunks are drawn)
 const KERB_CURV = 1 / 560; // corners tighter than this get kerbs...
 const KERB_TURN = 0.25; // ...if they turn at least this much in all, either way (rad): not a kink on a straight
@@ -138,7 +139,9 @@ function segHit(a, b, c, d) {
 // legs of a hairpin come close). Where it crosses itself within `win`
 // points, the loop between is cut out, leaving the edge you'd actually see.
 // Points are { x, y, i } (i: the centre-line sample they came from).
-function untangle(pts, win = 120) {
+// apart(i, j): lines from samples i and j are two stretches' barriers (a
+// hairpin's two legs) where they cross, not a fold: nothing is cut there.
+function untangle(pts, win = 120, apart = null) {
   const N = pts.length;
   const out = [];
   let i = 0;
@@ -151,7 +154,7 @@ function untangle(pts, win = 120) {
     const end = Math.min(N - 1, i + win);
     for (let j = i + 2; j < end; j++) {
       const h = segHit(a, b, pts[j], pts[j + 1]);
-      if (h) {
+      if (h && !(apart && apart(a.i, pts[j].i))) {
         cut = j;
         hit = h;
       }
@@ -652,9 +655,16 @@ export class Track {
     const vCar = new Float64Array(m);
     for (let q = 0; q < m; q++) {
       const i = H[q];
-      // Less margin for error where a barrier sits close: carry a bit less speed.
+      // AI: a corner a little under the grip limit and never above your top
+      // speed, with less margin for error where a barrier sits close. A
+      // straight (a bend it could take flat out at any speed a car reaches,
+      // AI_FLAT) sets no limit: there its own engine (power, a tow, a chase,
+      // overtake mode) decides, as for you. (Before build 30 straights were
+      // capped at your top speed too, so the computer cars couldn't use a
+      // tow or extra power there.)
       const roomy = clamp((Math.min(this.fenceL[i], this.fenceR[i]) - this.half) / 72, 0, 1);
-      vAI[q] = maxCornerSpeed(Math.abs(k[q]), 0.9) * (0.88 + 0.12 * roomy);
+      const vc = maxCornerSpeed(Math.abs(k[q]), 0.9, AI_FLAT);
+      vAI[q] = vc >= AI_FLAT - 1 ? AI_FLAT : Math.min(TOP, vc) * (0.88 + 0.12 * roomy);
       vCar[q] = maxCornerSpeed(Math.abs(k[q]), 1);
     }
     const brakeBack = (v, B) => {
@@ -1561,17 +1571,77 @@ export class Track {
     const edge = this.half - 5;
     const edgeL = beside(0, n, -1, () => edge);
     const edgeR = beside(0, n, 1, () => edge);
-    const barL = beside(0, n, -1, (k) => this.barrierL[k] + 3);
-    const barR = beside(0, n, 1, (k) => this.barrierR[k] + 3);
+    // Barriers. Two stretches' barriers that cross (a tight hairpin's legs,
+    // each with the barrier moved in between them) aren't a fold: both run on
+    // up to the tip, and the bits pulled in round the tip itself are left out.
+    const skip = Math.ceil((W * 3) / this.ds); // as in buildWalls: nearer along the lap = the same stretch
+    const barrier = (side) => {
+      const bar = side > 0 ? this.barrierR : this.barrierL;
+      const fence = side > 0 ? this.fenceR : this.fenceL;
+      const pts = [];
+      for (let i = 0; i <= n; i++) {
+        const k = i % n;
+        const o = bar[k] + 3;
+        pts.push({ x: this.px[k] + this.nx[k] * side * o, y: this.py[k] + this.ny[k] * side * o, i });
+      }
+      const pulled = (i) => bar[i % n] < fence[i % n] - 0.5;
+      const between = (i) => fence[i % n] < W - 6 && !pulled(i);
+      const apart = (i, j) => j - i >= skip && between(i) && between(j);
+      const drop = new Uint8Array(n + 1);
+      for (let a = 0; a < n; a++) {
+        for (let b = a + skip; b < Math.min(n, a + 120); b++) {
+          if (!apart(a, b) || !segHit(pts[a], pts[a + 1], pts[b], pts[b + 1])) continue;
+          for (let m = a + 1; m <= b; m++) if (pulled(m)) drop[m] = 1;
+        }
+      }
+      const out = [];
+      let run = [];
+      for (const p of pts) {
+        if (!drop[p.i]) {
+          run.push(p);
+          continue;
+        }
+        if (run.length) out.push(...untangle(run, 120, apart), { gap: true, i: p.i });
+        run = [];
+      }
+      if (run.length) out.push(...untangle(run, 120, apart));
+      return out;
+    };
+    const barL = barrier(-1);
+    const barR = barrier(1);
     // Two stretches side by side share one barrier: the one earlier in the
-    // lap draws it.
-    const shared = (fence, partner) => (k) => partner[k] >= 0 && partner[k] < k && fence[k] < W - 6;
-    const hideL = shared(this.fenceL, this.partnerL);
-    const hideR = shared(this.fenceR, this.partnerR);
+    // lap draws it, and the later one leaves its own out where it lies on
+    // that one. Where they splay apart (a hairpin's two legs), each draws its
+    // own: the car stops at its own stretch's barrier, so it has to be seen.
+    const barPt = (k, side) => {
+      const o = (side > 0 ? this.barrierR[k] : this.barrierL[k]) + 3;
+      return [this.px[k] + this.nx[k] * side * o, this.py[k] + this.ny[k] * side * o];
+    };
+    const onPartner = (k, side, j0) => {
+      const [x, y] = barPt(k, side);
+      for (let d = -24; d <= 24; d++) {
+        const m = (j0 + d + n) % n;
+        for (const s of [-1, 1]) {
+          const [bx, by] = barPt(m, s);
+          if ((bx - x) ** 2 + (by - y) ** 2 < 10 * 10) return true;
+        }
+      }
+      return false;
+    };
+    const shared = (fence, partner, side) => {
+      const memo = new Int8Array(n).fill(-1);
+      return (k) => {
+        if (!(partner[k] >= 0 && partner[k] < k && fence[k] < W - 6)) return false;
+        if (memo[k] < 0) memo[k] = onPartner(k, side, partner[k]) ? 1 : 0;
+        return memo[k] === 1;
+      };
+    };
+    const hideL = shared(this.fenceL, this.partnerL, -1);
+    const hideR = shared(this.fenceR, this.partnerR, 1);
     const trace = (path, pts, hide) => {
       let pen = false;
       for (const p of pts) {
-        if (hide && hide(p.i % n)) {
+        if (p.gap || (hide && hide(p.i % n))) {
           pen = false;
           continue;
         }
@@ -2036,6 +2106,44 @@ export class Track {
     return x > view.minX - margin && x < view.maxX + margin && y > view.minY - margin && y < view.maxY + margin;
   }
 
+  // Overtake mode's detection points (race.js): where each of the `count`
+  // longest straights starts (the racing line bending less than 1/1100 px
+  // over the next 224 px, as for the slipstream), at least a fifth of a lap
+  // apart, in lap order.
+  overtakeZones(count) {
+    if (this.otZoneCache && this.otZoneCache.count === count) return this.otZoneCache.zones;
+    const n = this.n;
+    const straight = new Uint8Array(n);
+    for (let i = 0; i < n; i++) {
+      let bend = 0;
+      for (let k = 0; k <= 28; k += 4) bend = Math.max(bend, Math.abs(this.rcurv[(i + k) % n]));
+      straight[i] = bend < 1 / 1100 ? 1 : 0;
+    }
+    let start = 0;
+    while (start < n && straight[start]) start++; // begin outside a straight
+    const runs = [];
+    if (start < n) {
+      for (let s = 1; s <= n; s++) {
+        const a = (start + s) % n;
+        if (!straight[a] || straight[(a - 1 + n) % n]) continue;
+        let b = a;
+        while (straight[(b + 1) % n] && b - a < n) b++;
+        runs.push({ a, len: b - a + 1 });
+      }
+    }
+    runs.sort((x, y) => y.len - x.len);
+    const zones = [];
+    for (const r of runs) {
+      if (zones.length >= count) break;
+      if (zones.some((z) => Math.min(Math.abs(z - r.a), n - Math.abs(z - r.a)) < n * 0.2)) continue;
+      zones.push(r.a);
+    }
+    if (!zones.length) zones.push(0);
+    zones.sort((x, y) => x - y);
+    this.otZoneCache = { count, zones };
+    return zones;
+  }
+
   // Stretch of the upper deck around each crossing (sample indices).
   bridgeRange(c) {
     return [c.upper - this.bridgeSpan, c.upper + this.bridgeSpan];
@@ -2262,35 +2370,51 @@ export class Track {
     const s = size / Math.max(w, h);
     const ox = x + (size - w * s) / 2 - b.minX * s;
     const oy = y + (size - h * s) / 2 - b.minY * s;
-    ctx.save();
-    ctx.translate(ox, oy);
-    ctx.scale(s, s);
-    ctx.lineJoin = 'round';
-    ctx.strokeStyle = 'rgba(0,0,0,0.6)';
-    ctx.lineWidth = 8 / s;
-    ctx.stroke(g.full);
-    ctx.strokeStyle = 'rgba(238,242,248,0.9)';
-    ctx.lineWidth = 3 / s;
-    ctx.stroke(g.full);
-    ctx.restore();
-    // Start line tick.
-    const sx = ox + this.px[0] * s;
-    const sy = oy + this.py[0] * s;
-    ctx.strokeStyle = '#ff2a1f';
-    ctx.lineWidth = 2.5;
+    // The outline and start line are drawn once into a picture of their own
+    // (again when the map's size or the screen's sharpness changes).
+    const tf = ctx.getTransform();
+    const pad = 6;
+    if (!tf.b && !tf.c && tf.a > 0) {
+      const d = tf.a;
+      const key = `${size}|${d}`;
+      let mc = this.mapCache;
+      if (!mc || mc.key !== key) {
+        const c = mc ? mc.canvas : document.createElement('canvas');
+        c.width = Math.ceil((size + pad * 2) * d);
+        c.height = Math.ceil((size + pad * 2) * d);
+        const g2 = c.getContext('2d');
+        g2.setTransform(d, 0, 0, d, (pad - x) * d, (pad - y) * d);
+        this.drawMapLines(g2, ox, oy, s);
+        mc = this.mapCache = { key, canvas: c, x, y };
+      }
+      ctx.save();
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.drawImage(mc.canvas, Math.round((x - pad) * d + tf.e), Math.round((y - pad) * d + tf.f));
+      ctx.restore();
+    } else this.drawMapLines(ctx, ox, oy, s);
+    // The other cars: one shadow shape for all, then the dots by colour.
+    ctx.fillStyle = 'rgba(0,0,0,0.55)';
     ctx.beginPath();
-    ctx.moveTo(sx - this.nx[0] * 6, sy - this.ny[0] * 6);
-    ctx.lineTo(sx + this.nx[0] * 6, sy + this.ny[0] * 6);
-    ctx.stroke();
     for (const c of cars) {
       if (c === focus) continue;
-      ctx.fillStyle = 'rgba(0,0,0,0.55)';
-      ctx.beginPath();
+      ctx.moveTo(ox + c.x * s + 3.4, oy + c.y * s);
       ctx.arc(ox + c.x * s, oy + c.y * s, 3.4, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.fillStyle = c.livery.color;
+    }
+    ctx.fill();
+    const byColor = new Map();
+    for (const c of cars) {
+      if (c === focus) continue;
+      const col = c.livery.color;
+      if (!byColor.has(col)) byColor.set(col, []);
+      byColor.get(col).push(c);
+    }
+    for (const [col, list] of byColor) {
+      ctx.fillStyle = col;
       ctx.beginPath();
-      ctx.arc(ox + c.x * s, oy + c.y * s, 2.4, 0, Math.PI * 2);
+      for (const c of list) {
+        ctx.moveTo(ox + c.x * s + 2.4, oy + c.y * s);
+        ctx.arc(ox + c.x * s, oy + c.y * s, 2.4, 0, Math.PI * 2);
+      }
       ctx.fill();
     }
     // You: a white arrow pointing the way you're going, in a pulsing red halo.
@@ -2320,6 +2444,30 @@ export class Track {
       ctx.stroke();
       ctx.restore();
     }
+  }
+
+  // The minimap's circuit outline and start line tick.
+  drawMapLines(ctx, ox, oy, s) {
+    const g = this.ensureGeo();
+    ctx.save();
+    ctx.translate(ox, oy);
+    ctx.scale(s, s);
+    ctx.lineJoin = 'round';
+    ctx.strokeStyle = 'rgba(0,0,0,0.6)';
+    ctx.lineWidth = 8 / s;
+    ctx.stroke(g.full);
+    ctx.strokeStyle = 'rgba(238,242,248,0.9)';
+    ctx.lineWidth = 3 / s;
+    ctx.stroke(g.full);
+    ctx.restore();
+    const sx = ox + this.px[0] * s;
+    const sy = oy + this.py[0] * s;
+    ctx.strokeStyle = '#ff2a1f';
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.moveTo(sx - this.nx[0] * 6, sy - this.ny[0] * 6);
+    ctx.lineTo(sx + this.nx[0] * 6, sy + this.ny[0] * 6);
+    ctx.stroke();
   }
 
   // Small preview for the circuit picker.

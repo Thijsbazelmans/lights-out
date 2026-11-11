@@ -26,8 +26,8 @@ export const PHYS = {
   LIFT: 0.32, // off the gas and off the brake: extra drag × speed, so a lift scrubs speed
   BOOST_TOP: 1.3,
   BOOST_ACC: 1.9,
-  SLIP_TOP: 0.18, // full slipstream: this much more top speed...
-  SLIP_ACC: 0.6, // ...and this much more pull
+  SLIP_TOP: 0.24, // full slipstream: this much more top speed...
+  SLIP_ACC: 0.9, // ...and this much more pull
   LEN: 44,
   R: 10, // each car is two collision circles of this radius
 };
@@ -73,11 +73,12 @@ export function steerRate(v) {
   return (PHYS.STEER_MAX / (1 + s / PHYS.STEER_VREF)) * Math.min(1, s / PHYS.STEER_LOWV);
 }
 
-// Fastest speed at which the car can follow a curve of curvature k (1/radius).
-export function maxCornerSpeed(k, margin = 1) {
-  if (k < 1e-5) return PHYS.TOP;
+// Fastest speed at which the car can follow a curve of curvature k (1/radius),
+// up to `top`.
+export function maxCornerSpeed(k, margin = 1, top = PHYS.TOP) {
+  if (k < 1e-5) return top;
   let lo = 0;
-  let hi = PHYS.TOP;
+  let hi = top;
   for (let i = 0; i < 24; i++) {
     const v = (lo + hi) / 2;
     if (steerRate(v) * margin >= v * k) lo = v;
@@ -114,6 +115,7 @@ export class Car {
     this.boost = 0;
     this.boostLevel = 0;
     this.slipstream = 0;
+    this.overtake = 0; // seconds of overtake mode left (see OVERTAKE in race.js)
     this.yawKick = 0;
     this.launchPenalty = 0;
 
@@ -372,6 +374,10 @@ export class Car {
   }
 
   draw(ctx, alpha = 1) {
+    if (sprite.scale) {
+      this.drawSprite(ctx, alpha);
+      return;
+    }
     // Shadow falls the same way for every car, whatever its heading.
     ctx.save();
     ctx.translate(this.x + 3, this.y + 5);
@@ -390,6 +396,79 @@ export class Car {
     drawF1(ctx, this.livery, this.steer, this.brake > 0.3 && !this.frozen);
     ctx.restore();
   }
+
+  // The same car from its pictures (see setCarSprites): shadow, flame, car.
+  drawSprite(ctx, alpha) {
+    const ca = Math.cos(this.angle);
+    const sa = Math.sin(this.angle);
+    ctx.save();
+    ctx.translate(this.x, this.y);
+    ctx.rotate(this.angle);
+    // The shadow's offset is in world space: turned into the car's own.
+    ctx.globalAlpha = alpha * 0.3;
+    const sh = shadowSprite();
+    ctx.drawImage(sh, 3 * ca + 5 * sa - 23, -3 * sa + 5 * ca - 11, 46, 22);
+    ctx.globalAlpha = alpha;
+    if (this.boost > 0) drawFlame(ctx, this.boostLevel);
+    ctx.drawImage(carSprite(this.livery, this.steer), SPRITE_BOX.x, SPRITE_BOX.y, SPRITE_BOX.w, SPRITE_BOX.h);
+    if (this.brake > 0.3 && !this.frozen) {
+      ctx.fillStyle = '#ff3030';
+      ctx.fillRect(-23.6, -1, 1.4, 2);
+    }
+    ctx.restore();
+  }
+}
+
+// Phones: each car is drawn from a picture made once per livery and wheel
+// angle (9 of them), one image instead of ~20 shapes. `scale` is the
+// picture's pixels per world px (a bit sharper than the camera ever gets
+// close); 0 draws the shapes every frame (computers).
+const SPRITE_BOX = { x: -25, y: -13, w: 48, h: 26 };
+const SPRITE_STEPS = 9;
+const sprite = { scale: 0, cars: new WeakMap(), shadow: null };
+
+export function setCarSprites(scale) {
+  const s = Math.round(scale * 20) / 20;
+  if (s === sprite.scale) return;
+  sprite.scale = s;
+  sprite.cars = new WeakMap();
+  sprite.shadow = null;
+}
+
+function spriteCanvas(w, h) {
+  const c = document.createElement('canvas');
+  c.width = Math.ceil(w * sprite.scale);
+  c.height = Math.ceil(h * sprite.scale);
+  const g = c.getContext('2d');
+  g.scale(c.width / w, c.height / h);
+  return { c, g };
+}
+
+function shadowSprite() {
+  if (sprite.shadow) return sprite.shadow;
+  const { c, g } = spriteCanvas(46, 22);
+  g.translate(23, 11);
+  g.fillStyle = '#000';
+  roundRect(g, -22, -10, 44, 20, 7);
+  g.fill();
+  sprite.shadow = c;
+  return c;
+}
+
+function carSprite(livery, steer) {
+  let set = sprite.cars.get(livery);
+  if (!set) {
+    set = [];
+    sprite.cars.set(livery, set);
+  }
+  const k = Math.round(((clamp(steer, -1, 1) + 1) / 2) * (SPRITE_STEPS - 1));
+  if (!set[k]) {
+    const { c, g } = spriteCanvas(SPRITE_BOX.w, SPRITE_BOX.h);
+    g.translate(-SPRITE_BOX.x, -SPRITE_BOX.y);
+    drawF1(g, livery, (k / (SPRITE_STEPS - 1)) * 2 - 1, false);
+    set[k] = c;
+  }
+  return set[k];
 }
 
 function drawFlame(ctx, level) {

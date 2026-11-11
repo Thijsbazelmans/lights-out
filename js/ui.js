@@ -105,6 +105,11 @@ export function createUI(root, h) {
           <div class="seg" data-setting="sound"><button data-val="true">On</button><button data-val="false">Off</button></div>
         </div>
         <div class="opt">
+          <span class="label">Music</span>
+          <div class="seg" data-setting="music"><button data-val="true">On</button><button data-val="false">Off</button></div>
+          <p class="hint">The theme behind the menus and once you've crossed the line (with Sound on).</p>
+        </div>
+        <div class="opt">
           <span class="label">Camera</span>
           <div class="seg" data-setting="camera"><button data-val="chase">Chase</button><button data-val="fixed">Fixed</button></div>
           <p class="hint">Chase turns the view with your car, so left is always left. Fixed keeps north at the top.</p>
@@ -127,7 +132,7 @@ export function createUI(root, h) {
         <div class="opt">
           <span class="label">Battery saver</span>
           <div class="seg" data-setting="batterySaver"><button data-val="false">Off</button><button data-val="true">On</button></div>
-          <p class="hint">On a phone or tablet: races run at most 60 frames a second and are drawn a little less sharp, so the phone stays cooler. Off: as smooth as the screen allows.</p>
+          <p class="hint">On a phone or tablet: drawn a little less sharp, with less smoke and dust, so the phone stays cooler. (Races on a phone run at an even 60 frames a second either way.)</p>
         </div>
         <div class="opt">
           <span class="label">Auto-gas</span>

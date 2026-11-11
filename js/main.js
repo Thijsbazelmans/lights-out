@@ -5,17 +5,18 @@ import { allDrivers, playerFor, rivalsFor } from './data/teams.js';
 import { Track } from './track.js';
 import { Race, rollForm } from './race.js';
 import { Camera } from './camera.js';
-import { PHYS } from './car.js';
+import { PHYS, setCarSprites } from './car.js';
 import { drawHUD } from './hud.js';
 import { createUI } from './ui.js';
 import { save } from './storage.js';
 import * as audio from './audio.js';
+import { musicState, musicTick, setMusic, setMusicEnabled } from './music.js';
 import { bindTouchControls, initInput, isTouchDevice, onFirstTouch, readInput, setGameActive, touchSnapshot } from './input.js';
 import { clamp, formatTime } from './util.js';
 import { POINTS, ROUNDS, abandonSeason, currentSeason, isComplete, nextTrack, playerStanding, recordRound, standings, startSeason, teamStanding } from './season.js';
 
 // Bump together with --build in css/style.css and CACHE in sw.js.
-const BUILD = '29';
+const BUILD = '30';
 
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d', { alpha: false });
@@ -30,13 +31,16 @@ let insets = { top: 0, right: 0, bottom: 0, left: 0 };
 
 // A phone or tablet (touch is its main input; a touchscreen laptop isn't).
 // To keep phones cooler the game is drawn at 1.5 pixels per point rather
-// than 2, and about 30 times a second behind the menus. Races run at the
-// screen's own rate; Battery saver (Settings) caps them at 60 frames a
-// second and draws at 1.25.
+// than 2, races at an even 60 frames a second at most (every other frame on
+// a 120 Hz screen: a phone trying for 120 heats up and slows to ~48 anyway),
+// about 30 behind the menus; the circuit comes from tiles drawn once
+// (tiles.js) and each car from a picture (car.js). Battery saver (Settings)
+// draws at 1.25 with fewer particles.
 const PHONE = !!window.matchMedia && matchMedia('(pointer: coarse)').matches;
 const PHONE_DPR = 1.5;
 const SAVER_DPR = 1.25;
 const PHONE_PARTICLES = 450; // most smoke, dust and sparks at once (900 elsewhere)
+const SAVER_PARTICLES = 260;
 const shade = { canvas: document.createElement('canvas'), key: '' }; // see shadeFor()
 let ctlRects; // see controlRects()
 let drawnStill = false; // the paused race is on screen and nothing moves
@@ -108,7 +112,11 @@ const ui = createUI(document.getElementById('ui'), {
   },
   onSetting: (key, v) => {
     if (key === 'sound') audio.setSoundEnabled(v);
-    if (key === 'batterySaver') resize();
+    if (key === 'music') setMusicEnabled(v);
+    if (key === 'batterySaver') {
+      resize();
+      for (const r of [state.race, state.attract]) if (r && PHONE) r.particles.max = phoneParticles();
+    }
     if (key === 'steerSide') applySide();
   },
 });
@@ -126,6 +134,7 @@ function resize() {
   canvas.height = Math.round(H * DPR);
   canvas.style.width = `${W}px`;
   canvas.style.height = `${H}px`;
+
   const cs = getComputedStyle(insetProbe);
   insets = {
     top: parseFloat(cs.paddingTop) || 0,
@@ -140,6 +149,10 @@ window.addEventListener('resize', () => {
 });
 window.visualViewport?.addEventListener('resize', resize);
 resize();
+
+function phoneParticles() {
+  return save.settings.batterySaver ? SAVER_PARTICLES : PHONE_PARTICLES;
+}
 
 function crossedLine() {
   return !!state.race && state.race.phase === 'finished';
@@ -204,7 +217,11 @@ function startAttract() {
   const def = TRACKS[state.attractIdx % TRACKS.length];
   state.attractIdx++;
   state.attract = new Race({ track: getTrack(def.id), mode: 'attract', rivals: allDrivers() });
-  if (PHONE) state.attract.particles.max = PHONE_PARTICLES;
+  if (PHONE) {
+    state.attract.particles.max = phoneParticles();
+    state.attract.particles.sprites = true;
+    state.attract.tiled = true;
+  }
   state.attractT = 0;
   state.focusIdx = 0;
   cam.snap(state.attract.cars[0], W, H, 0.8);
@@ -247,6 +264,8 @@ function startSeasonRace() {
 
 function launch({ mode, trackId, laps, difficulty, team, seat, grid = null, form = null, field = null }) {
   audio.unlockAudio();
+  setMusic(null); // the music fades out as the cars line up
+  audio.duckEngines(1, 0.1);
   lockLandscape();
   state.mode = mode;
   state.trackId = trackId;
@@ -265,7 +284,11 @@ function launch({ mode, trackId, laps, difficulty, team, seat, grid = null, form
     form,
     field,
   });
-  if (PHONE) state.race.particles.max = PHONE_PARTICLES;
+  if (PHONE) {
+    state.race.particles.max = phoneParticles();
+    state.race.particles.sprites = true;
+    state.race.tiled = true;
+  }
   // What's being raced, for the title card, HUD, pause and results.
   const season = mode === 'season' || mode === 'quali' ? currentSeason() : null;
   state.race.event = {
@@ -300,7 +323,7 @@ function pause() {
         ? `lap ${Math.max(1, p.lap + 1)}`
         : `lap ${Math.min(Math.max(1, p.lap + 1), ev.laps)} of ${ev.laps}`;
     // (and how many frames a second the game was drawing, to check phones)
-    ui.setPauseInfo(`${ev.round ? `Round ${ev.round} of ${ev.rounds} · ` : ''}${ev.gp}${ev.gp.startsWith(ev.name) ? '' : ` · ${ev.name}`} · ${lap}${fps.now ? ` · ${fps.now} fps` : ''}`);
+    ui.setPauseInfo(`${ev.round ? `Round ${ev.round} of ${ev.rounds} · ` : ''}${ev.gp}${ev.gp.startsWith(ev.name) ? '' : ` · ${ev.name}`} · ${lap}${fps.now ? ` · ${fps.now} fps (screen ${Math.round(1 / screenGap)} Hz)` : ''}`);
   }
   ui.show('pause');
   syncChrome();
@@ -315,6 +338,7 @@ function resume() {
 
 function quitToMenu(screen) {
   if (state.race && state.race.recordDirty) save.write();
+  setMusic('intro'); // (already playing after a finish: it just carries on)
   state.race = null;
   state.paused = false;
   state.resultsShown = false;
@@ -372,6 +396,9 @@ function handleOut(r) {
       case 'boost':
         audio.sfxBoost(e.tier);
         break;
+      case 'overtake':
+        audio.sfxChime([740, 988, 1319], 0.05, 'square', 0.05);
+        break;
       case 'brakeCue':
         audio.sfxBeep(1180, 0.1, 'square', 0.08);
         break;
@@ -385,6 +412,7 @@ function handleOut(r) {
       case 'finish':
         recordFinish(r, e.pos);
         syncChrome(); // controls away: the race is over
+        finishMusic();
         audio.sfxChime(e.pos === 1 ? [523, 659, 784, 1047, 1319] : e.pos <= 3 ? [523, 659, 784, 1047] : [523, 659, 784], 0.12);
         break;
       case 'results':
@@ -401,6 +429,7 @@ function handleOut(r) {
         break;
       }
       case 'qualiDone': {
+        finishMusic();
         const wk = save.weekend;
         if (wk) {
           const res = r.qualiResults();
@@ -437,6 +466,13 @@ function handleOut(r) {
     save.write();
     r.recordDirty = false;
   }
+}
+
+// Over the line: straight into the big part of the theme, and the cars
+// carry on quietly underneath.
+function finishMusic() {
+  setMusic('B');
+  audio.duckEngines(0.25, 1.5);
 }
 
 function recordFinish(r, pos) {
@@ -538,15 +574,14 @@ let screenGap = 1 / 60; // the screen's frame interval, measured as we go
 let skipped = 0;
 const fps = { frames: 0, time: 0, now: 0 }; // frames drawn per second (shown when paused)
 
-// Every how many screen frames a frame is drawn: every one while racing
-// (with Battery saver, at most 60 a second); on a phone behind the menus,
-// results and pause screen, about 30 a second. Counting screen frames keeps
-// the drawn ones evenly spaced.
+// Every how many screen frames a frame is drawn: on a phone at most 60 a
+// second while racing and about 30 behind the menus, results and pause
+// screen (every one on a computer). Counting screen frames keeps the drawn
+// ones evenly spaced.
 function frameEvery() {
   if (!PHONE) return 1;
   const racing = state.race && !state.paused && !state.resultsShown;
-  const most = racing ? (save.settings.batterySaver ? 60 : 0) : 30;
-  return most ? Math.max(1, Math.round(1 / most / screenGap)) : 1;
+  return Math.max(1, Math.round(1 / (racing ? 60 : 30) / screenGap));
 }
 
 function frame(now) {
@@ -560,6 +595,7 @@ function frame(now) {
     owed = 0;
     fps.frames++;
   }
+  musicTick();
   fps.time += gap;
   if (fps.time >= 1) {
     fps.now = Math.round(fps.frames / fps.time);
@@ -629,6 +665,9 @@ function render(dt, input) {
     }
   }
   r.hints = save.settings.brakeHints;
+  // Phones draw each car from a picture (car.js), a little sharper than the
+  // closest the camera comes.
+  if (PHONE) setCarSprites(DPR * cam.baseZoom(W, H) * 1.25);
   r.draw(ctx, cam, W, H, DPR);
 
   ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -689,7 +728,7 @@ function updateEngineSound(r, input) {
   audio.engineUpdate({
     speedFrac,
     throttle: p.gas,
-    boost: p.boost > 0,
+    boost: p.boost > 0 || p.overtake > 0,
     active: true,
     slide: p.offTrack ? 0 : clamp((p.slide - 60) / 200, 0, 1) + (p.drifting ? 0.3 : 0),
     offroad: p.offTrack ? clamp(p.speed / 400, 0, 1) : p.onKerb ? 0.35 : 0,
@@ -708,6 +747,8 @@ onFirstTouch(() => {
   if (ui.current === 'title') ui.show('title');
 });
 audio.setSoundEnabled(save.settings.sound);
+setMusicEnabled(save.settings.music !== false);
+setMusic('intro'); // behind the menus, from the first tap (browsers wait for one)
 applySide();
 
 if (document.fonts && document.fonts.load) {
@@ -717,7 +758,7 @@ if (document.fonts && document.fonts.load) {
 }
 
 // Handle for poking at the game from the browser console while testing.
-window.lightsOut = { state, startRace, save, getTrack, tick, resume, touchSnapshot, BUILD, versionMatches };
+window.lightsOut = { state, startRace, save, getTrack, tick, resume, touchSnapshot, BUILD, versionMatches, music: musicState };
 
 startAttract();
 ui.show('title');
