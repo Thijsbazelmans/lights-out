@@ -139,7 +139,7 @@ export function createUI(root, h) {
           <button class="btn danger" id="btn-reset" data-act="reset"><span>Erase records</span><small>lap times, ghosts, stats</small></button>
         </div>
       </div>
-      <p class="fine">Everything is saved on this device only.</p>
+      <p class="fine">Everything is saved on this device only. · Build ${esc(h.build || '')}</p>
     </div>
   </section>
 
