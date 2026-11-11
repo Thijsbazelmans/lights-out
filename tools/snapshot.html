@@ -91,6 +91,26 @@ const scenes = [
       return { gas: 1, steer: 0, pedal: !!g && g.phase === 'wheels' && g.gun <= 0 && Math.abs(g.m - g.zone) < 0.05 };
     });
   }],
+  ['monza', 'pit stop: a car waits to let you out', (r, t, p, run) => {
+    // A line of cars comes down the lane as your light is due: held for a
+    // moment, then the next car stops behind your box until you're out.
+    placeK(r, t, p, t.pit.start - 20, 620, t.half - 8);
+    let train = false;
+    run(2400, (k) => {
+      const g = r.pits.game;
+      if (g && g.phase === 'light' && !train) {
+        train = true;
+        const boxK = t.pit.boxes[p.box];
+        r.cars.filter((c) => c !== p && c.box > p.box).slice(0, 7).forEach((c, i) => {
+          const kk = boxK - (40 + 62 * i) / t.ds;
+          c.frozen = false;
+          c.pit = { stage: 'in', k: kk, lat: t.pitLane(kk), err: 0, v: 230, t: 0, swung: 0, braking: false, at: r.time };
+        });
+      }
+      if (g && g.green && r.cars.some((c) => c.pit && c.pit.stage === 'in' && c.pit.v < 3 && r.pits.inLane(c))) return { stop: true };
+      return { gas: 1, steer: 0, pedal: !!g && g.phase === 'wheels' && g.gun <= 0 && Math.abs(g.m - g.zone) < 0.05 };
+    });
+  }],
   ['monza', 'pit stop: release, front wing', (r, t, p, run) => {
     p.damage = 0.32;
     placeK(r, t, p, t.pit.start - 20, 620, t.half - 8);

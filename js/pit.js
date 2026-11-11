@@ -15,13 +15,23 @@ import { clamp, rand, wrapAngle } from './util.js';
 
 // Driving in the pit lane (px/s, px/s²): the speed limit, how hard cars
 // brake down to it and into the box, how quickly they pull away (`out`:
-// after the limit line), the closest two cars follow each other, and how
-// long (px) the swing into and out of a box is.
-export const PIT_DRIVE = { limit: 230, brake: 950, stop: 520, pull: 420, out: 560, gap: 62, swing: 60 };
+// after the limit line), the closest two cars follow each other, how long
+// (px) the swing into and out of a box is, and how quickly (1/s) a car that
+// is closer than `gap` drops back.
+export const PIT_DRIVE = { limit: 230, brake: 950, stop: 520, pull: 420, out: 560, gap: 62, swing: 60, fallBack: 4 };
 
 // The rule. A stop counts once `after` of a lap is done and with more than
 // `before` of a lap still to go; finishing without one adds `penalty` s.
 export const PIT_RULE = { penalty: 20, after: 0.5, before: 0.6 };
+
+// Letting a car out of its box (every car, yours too). The light goes green
+// once nobody coming down the lane is within `behind` px of the box (or
+// `beside` px past it). Held up by traffic for `claim` s, the car takes the
+// next gap: cars further up the lane than `behind` slow and wait behind the
+// box for it, so only the ones already close go by first. Your green light
+// keeps the gap the same way while you react. Pulling out, a car waits a
+// moment if someone is right beside it (`go` px behind).
+export const PIT_RELEASE = { behind: 100, beside: 20, claim: 1, go: 45 };
 
 // The stop you play, in rhythm; the race keeps running, so the time it
 // takes is your stop time. For each wheel the marker crosses the bar once,
@@ -97,10 +107,17 @@ export class Pits {
     this.chances = [];
     const laps = Number.isFinite(race.totalLaps) ? race.totalLaps : 0; // none outside a race
     for (let m = 0; m <= laps + 1; m++) if (this.allowed(m)) this.chances.push(m);
-    // Computer cars pick when they'll come in: around halfway, give or take.
+    // Computer cars pick when they'll come in: around halfway, give or take
+    // a lap or so, and teammates on different laps where there's a choice
+    // (so they don't queue for the same box).
     const c = this.chances.length;
+    const picked = new Map(); // box -> chance index
     for (const car of race.cars) {
-      const k = c <= 1 ? 0 : clamp(Math.round((c - 1) / 2 + rand(-0.65, 0.65)), 0, c - 1);
+      car.mate = race.cars.find((o) => o !== car && o.box === car.box) || null;
+      let k = c <= 1 ? 0 : clamp(Math.round((c - 1) / 2 + rand(-1.2, 1.2)), 0, c - 1);
+      const j = picked.get(car.box);
+      if (j != null && j === k && c > 1) k = j + 1 < c && (j < (c - 1) / 2 || j === 0) ? j + 1 : j - 1;
+      picked.set(car.box, k);
       car.pitPlan = c ? this.chances[k] : null;
     }
   }
@@ -136,7 +153,14 @@ export class Pits {
       if (car.pit || car.finished || car === this.race.player) continue;
       const m = this.visit(car);
       const to = m * L + this.gate - car.progress;
-      if (to > -10 && to < 900 && this.wants(car, m)) ai.toPit = t.pit.side;
+      if (to < -10 || to > 900) continue;
+      // Teammate in the pits: stay out a lap rather than queue behind them.
+      const mate = car.mate;
+      if (m === car.pitPlan && mate && mate.pit && mate.pit.stage !== 'out' && car.damage <= 0.35 && to > 0) {
+        const next = this.chances.find((x) => x > m);
+        if (next != null) car.pitPlan = next;
+      }
+      if (this.wants(car, m)) ai.toPit = t.pit.side;
     }
   }
 
@@ -222,28 +246,70 @@ export class Pits {
     return s.stage !== 'box' && s.lat < this.track.pit.laneO + 30;
   }
 
-  // Safe to pull out of the box at boxK: nobody coming down the lane right there.
-  laneClear(car) {
+  // In the lane, or pulling out of a box into it.
+  moving(car) {
+    return car.pit.stage === 'out' || this.inLane(car);
+  }
+
+  // How long a car standing in its box has been held for traffic (s).
+  held(car) {
+    const s = car.pit;
+    if (!s || s.stage !== 'box') return 0;
+    if (car === this.race.player && this.game) return this.game.traffic;
+    return s.service != null ? Math.max(0, s.t - s.service) : 0;
+  }
+
+  // Keeping a gap in the lane: held long enough, or (you) on a green light.
+  claiming(car) {
+    const s = car.pit;
+    if (!s || s.stage !== 'box') return false;
+    if (car === this.race.player && this.game && this.game.green) return true;
+    return this.held(car) >= PIT_RELEASE.claim;
+  }
+
+  // Safe to pull out of the box: nobody coming down the lane within `behind`
+  // px of it (or just past it), not counting cars waiting to let it out.
+  laneClear(car, behind = PIT_RELEASE.behind) {
     const t = this.track;
     const boxK = t.pit.boxes[car.box];
-    const a = boxK - 110 / t.ds;
-    const b = boxK + 20 / t.ds;
+    const a = boxK - behind / t.ds;
+    const b = boxK + PIT_RELEASE.beside / t.ds;
+    const yields = car.pit.yields;
     for (const o of this.race.cars) {
-      if (o === car || !o.pit || !this.inLane(o)) continue;
+      if (o === car || !o.pit || !this.moving(o) || (yields && yields.has(o))) continue;
       if (o.pit.k > a && o.pit.k < b) return false;
     }
     return true;
   }
 
-  // Top speed allowed by the car ahead in the lane.
+  // Top speed allowed by the car ahead in the lane, or by a car waiting to
+  // pull out of its box in front (see PIT_RELEASE).
   laneRoom(car) {
-    if (!this.inLane(car)) return Infinity;
+    if (!this.moving(car)) return Infinity;
     const ds = this.track.ds;
+    const s = car.pit;
     let room = Infinity;
     for (const o of this.race.cars) {
-      if (o === car || !o.pit || !this.inLane(o) || o.pit.k <= car.pit.k) continue;
-      const gap = (o.pit.k - car.pit.k) * ds - PIT_DRIVE.gap;
-      room = Math.min(room, gap <= 0 ? 0 : o.pit.v + Math.sqrt(2 * PIT_DRIVE.stop * gap));
+      if (o === car || !o.pit) continue;
+      let k = o.pit.k;
+      let v = o.pit.v;
+      if (!this.moving(o)) {
+        if (o.box === car.box || !this.claiming(o)) continue;
+        k = this.track.pit.boxes[o.box];
+        v = 0;
+        // Only cars far enough up the lane to slow in time; once one is
+        // waiting, it keeps waiting until the car is out.
+        const yields = (o.pit.yields ||= new Set());
+        if (!yields.has(car)) {
+          if (k <= s.k || (k - s.k) * ds < PIT_RELEASE.behind) continue;
+          yields.add(car);
+        }
+      }
+      if (k <= s.k) continue;
+      const gap = (k - s.k) * ds - PIT_DRIVE.gap;
+      // Too close (two cars came in side by side): drop back behind it
+      // rather than stopping dead.
+      room = Math.min(room, gap <= 0 ? Math.max(0, v - PIT_DRIVE.fallBack * -gap) : v + Math.sqrt(2 * PIT_DRIVE.stop * gap));
     }
     return room;
   }
@@ -342,6 +408,12 @@ export class Pits {
       updateGame(g, h, tap, s, this.laneClear(car), this.race.out);
       s.done = g.done;
       if (g.phase === 'go') {
+        // Someone right beside the box: pull out as soon as they're by.
+        g.waiting = !this.laneClear(car, PIT_RELEASE.go);
+        if (g.waiting) {
+          g.traffic += h;
+          return;
+        }
         s.traffic = g.traffic;
         s.wingWait = g.wingWait;
         this.release(car, g.t);
