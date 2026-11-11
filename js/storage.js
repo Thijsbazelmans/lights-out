@@ -21,6 +21,7 @@ function defaults() {
     records: {},
     stats: { races: 0, wins: 0, podiums: 0, championships: 0 },
     season: null, // championship in progress (see season.js)
+    weekend: null, // this round's qualifying, until its race is done (see main.js)
   };
 }
 
@@ -35,6 +36,7 @@ function load() {
       records: d.records || {},
       stats: { ...def.stats, ...(d.stats || {}) },
       season: d.season || null,
+      weekend: d.weekend || null,
     };
   } catch (e) {
     return def;
@@ -56,6 +58,12 @@ export const save = {
   },
   set season(v) {
     data.season = v;
+  },
+  get weekend() {
+    return data.weekend;
+  },
+  set weekend(v) {
+    data.weekend = v;
   },
   // Record for one circuit; created on first use.
   record(trackId) {

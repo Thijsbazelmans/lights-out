@@ -36,7 +36,9 @@ const ONLY = q.get('only');
 const grid = document.getElementById('grid');
 await document.fonts.load('900 20px "Saira Condensed"').catch(() => {});
 
-// Each scene: a circuit, then a script that sets up the moment.
+// Each scene: a circuit, then a script that sets up the moment (and for a
+// qualifying scene, QUALI).
+const QUALI = { mode: 'quali' };
 const scenes = [
   ['monza', 'corner call: chicane ahead', (r, t, p, run) => { place(r, t, p, 0.06, 740); run(30, () => ({ gas: 1 })); }],
   ['monza', 'BRAKE! at the 1 board', (r, t, p, run) => { place(r, t, p, 0.07, 740); run(400, (k) => ({ gas: 1, stop: r.call && r.call.stage === 'brake' })); }],
@@ -83,6 +85,13 @@ const scenes = [
   }],
   ['monza', 'last chance to stop', (r, t, p, run) => { p.lap = 1; placeK(r, t, p, t.pit.start - 150, 650, 20); run(10, () => ({ gas: 1 })); }],
   ['monaco', 'pit lane, outside of the lap', (r, t, p, run) => { placeK(r, t, p, t.pit.start - 2, 620, t.half - 6); run(150, () => ({ gas: 1, steer: 0 })); }],
+  // Qualifying: the whole session driven by the bot (`auto`).
+  ['monza', 'qualifying: in the garage', (r, t, p, run) => run(50, () => ({ auto: true })), QUALI],
+  ['monza', 'qualifying: leaving the pit lane', (r, t, p, run) => run(330, () => ({ auto: true })), QUALI],
+  ['monza', 'qualifying: out-lap, times coming in', (r, t, p, run) => run(9000, () => ({ auto: true, stop: r.time > 24 })), QUALI],
+  ['monza', 'qualifying: flying lap', (r, t, p, run) => run(9000, () => ({ auto: true, stop: r.quali.stage === 'flying' && r.time - p.lapStart > 21 })), QUALI],
+  ['monza', 'qualifying: lap done', (r, t, p, run) => run(9000, () => ({ auto: true, stop: r.phase === 'finished' && r.finishReal > 1.7 })), QUALI],
+  ['monaco', 'qualifying: garage, outside of the lap', (r, t, p, run) => run(250, () => ({ auto: true })), QUALI],
 ];
 
 // Like placeCar, at signed sample k (negative before the line), `lat` px
@@ -144,13 +153,17 @@ if (q.has('calls')) {
   grid.appendChild(fig);
 }
 
-for (const [id, label, script] of q.has('calls') ? [] : scenes) {
+for (const [id, label, script, opts] of q.has('calls') ? [] : scenes) {
   if (ONLY && !ONLY.split(',').includes(id)) continue;
   const t = new Track(ALL_REAL.find((d) => d.id === id));
-  const r = new Race({ track: t, mode: 'race', laps: 3, player: playerFor('ferrari', 1), rivals: rivalsFor('ferrari', 1) });
-  r.ai.clear();
+  const quali = opts === QUALI;
+  const r = new Race({ track: t, mode: quali ? 'quali' : 'race', laps: 3, player: playerFor('ferrari', 1), rivals: rivalsFor('ferrari', 1) });
   const p = r.player;
-  p.lap = 0;
+  if (quali) r.event = { gp: t.def.gp, name: t.def.name, country: t.def.country, accent: t.def.theme.thumb, mode: 'quali', laps: 3, round: 5, rounds: 24 };
+  else {
+    r.ai.clear();
+    p.lap = 0;
+  }
   const cam = new Camera();
   const cv = document.createElement('canvas');
   cv.width = W; cv.height = H;
@@ -160,8 +173,13 @@ for (const [id, label, script] of q.has('calls') ? [] : scenes) {
     for (let k = 0; k < frames; k++) {
       const c = ctl(k);
       if (c.stop) break;
-      const steer = c.steer ?? (p.pit ? 0 : bot.control(1 / 60, r.cars, 1, r.time).steer);
-      r.update(1 / 60, { gas: c.gas || 0, brake: c.brake || 0, steer, analog: true, pedal: !!c.pedal });
+      if (c.auto) {
+        const drive = r.phase === 'race' && !p.pit && !p.finished;
+        r.update(1 / 60, drive ? { ...bot.control(1 / 60, r.cars, 1, r.time), pedal: false } : { gas: 0, brake: 0, steer: 0, analog: true });
+      } else {
+        const steer = c.steer ?? (p.pit ? 0 : bot.control(1 / 60, r.cars, 1, r.time).steer);
+        r.update(1 / 60, { gas: c.gas || 0, brake: c.brake || 0, steer, analog: true, pedal: !!c.pedal });
+      }
       each?.(1 / 60);
       cam.update(1 / 60, p, { w: W, h: H, mode: 'chase', touchUI: phone, speedFrac: Math.max(0, p.forwardSpeed) / PHYS.TOP, boost: p.boost > 0, zoomMul: ZOOM });
     }
@@ -171,7 +189,7 @@ for (const [id, label, script] of q.has('calls') ? [] : scenes) {
   r.draw(ctx, cam, W, H, 1);
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   const ctl = phone ? { steer: new DOMRect(16, H - 108, 196, 92), pedal: new DOMRect(W - 120, H - 204, 104, 188), gas: new DOMRect(W - 120, H - 204, 104, 84) } : null;
-  drawHUD(ctx, r, cam, W, H, { top: 0, left: 0, right: 0, bottom: 0 }, { touchUI: phone, ctl, dt: 1 / 60 });
+  drawHUD(ctx, r, cam, W, H, { top: 0, left: 0, right: 0, bottom: 0 }, { touchUI: phone, ctl, dt: 1 / 60, season: quali });
   const fig = document.createElement('figure');
   fig.appendChild(cv);
   const cap = document.createElement('figcaption');

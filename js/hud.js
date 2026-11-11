@@ -55,6 +55,7 @@ export function drawHUD(ctx, race, cam, w, h, ins, opts) {
   const B = h - ins.bottom - 12;
   const narrow = w < 560;
   const isRace = race.mode === 'race';
+  const qs = race.quali;
   const total = race.totalLaps;
 
   drawSpeedLines(ctx, p, w, h);
@@ -69,6 +70,15 @@ export function drawHUD(ctx, race, cam, w, h, ins, opts) {
     text(ctx, `/${race.cars.length}`, L + 15 + pwid, T + 41, `700 18px ${F_DISPLAY}`, C.muted);
     const lapN = clamp(p.lap + 1, 1, total);
     text(ctx, `LAP ${lapN}/${total}`, L + 13, T + 56, `700 11px ${F_UI}`, C.muted);
+  } else if (qs) {
+    // Out-lap, then your provisional place as the flying lap goes on.
+    text(ctx, qs.stage === 'out' ? 'QUALIFYING' : 'FLYING LAP', L + 12, T + 20, `700 11px ${F_UI}`, C.muted);
+    if (qs.stage !== 'out' && qs.live) {
+      text(ctx, `P${qs.live}`, L + 12, T + 52, `900 italic 34px ${F_DISPLAY}`, C.text);
+      ctx.font = `900 italic 34px ${F_DISPLAY}`;
+      const pwid = ctx.measureText(`P${qs.live}`).width;
+      text(ctx, `/${race.cars.length + qs.order.length}`, L + 15 + pwid, T + 51, `700 16px ${F_DISPLAY}`, C.muted);
+    } else text(ctx, qs.stage === 'out' ? 'OUT LAP' : 'P–', L + 12, T + 50, `900 italic ${narrow ? 26 : 30}px ${F_DISPLAY}`, C.text);
   } else {
     text(ctx, 'TIME TRIAL', L + 12, T + 20, `700 11px ${F_UI}`, C.muted);
     text(ctx, `LAP ${Math.max(1, p.lap + 1)}`, L + 12, T + 50, `900 italic 30px ${F_DISPLAY}`, C.text);
@@ -81,11 +91,18 @@ export function drawHUD(ctx, race, cam, w, h, ins, opts) {
   } else {
     const tw = narrow ? 150 : 184;
     panel(ctx, cx - tw / 2, T, tw, 54);
-    let cur = 0;
-    if (race.phase === 'race' || race.phase === 'finished') cur = p.lap >= 0 || isRace ? race.time - p.lapStart : 0;
-    if (p.finished) cur = p.laps[p.laps.length - 1] || 0;
-    text(ctx, formatTime(cur), cx, T + 27, `700 ${narrow ? 19 : 22}px ${F_DATA}`, C.text, 'center');
-    if (isRace) {
+    const cur = lapClock(race, p);
+    text(ctx, formatTime(cur), cx, T + 27, `700 ${narrow ? 19 : 22}px ${F_DATA}`, qs && qs.stage === 'out' ? C.muted : C.text, 'center');
+    if (qs) {
+      // The time to beat, and on the flying lap how you're doing against it.
+      const pole = qs.pole ? `POLE ${formatTime(qs.pole.time)}` : 'POLE -:--.---';
+      const d = race.delta;
+      const font = `500 ${narrow ? 10 : 11}px ${F_DATA}`;
+      if (d != null && qs.stage === 'flying') {
+        text(ctx, pole, cx - tw / 2 + 10, T + 45, font, C.purple);
+        text(ctx, formatGap(d), cx + tw / 2 - 10, T + 45, `700 ${narrow ? 10 : 11}px ${F_DATA}`, d <= 0 ? C.green : C.red, 'right');
+      } else text(ctx, qs.pole ? `${pole} ${qs.pole.code}` : pole, cx, T + 45, font, qs.pole ? C.purple : C.muted, 'center');
+    } else if (isRace) {
       const best = p.bestLap;
       const isFastest = race.fastest && race.fastest.car === p;
       text(ctx, `BEST ${formatTime(best)}`, cx, T + 45, `500 ${narrow ? 10 : 11}px ${F_DATA}`, isFastest ? C.purple : C.muted, 'center');
@@ -122,6 +139,9 @@ export function drawHUD(ctx, race, cam, w, h, ins, opts) {
   if (isRace) {
     if (!narrow && h > 440) drawTower(ctx, race, L, T + 70, p);
     else drawNearby(ctx, race, L, T + 70, p, pw);
+  } else if (qs) {
+    if (!narrow && h > 440) drawQualiBoard(ctx, race, L, T + 70, 168, 12);
+    else drawQualiBoard(ctx, race, L, T + 70, pw, 4);
   } else if (p.laps.length) {
     drawLapList(ctx, race, L, T + 70, pw, p);
   }
@@ -672,7 +692,7 @@ function drawSideHUD(ctx, race, cam, w, h, ins, opts) {
 
   // ---- gaps to the cars around you (or recent laps in a time trial), then
   // messages (overtakes, fastest lap...) underneath ----
-  const gh = isRace ? drawNearby(ctx, race, colX, y, p, colW) : drawLapList(ctx, race, colX, y, colW, p);
+  const gh = isRace ? drawNearby(ctx, race, colX, y, p, colW) : race.quali ? drawQualiBoard(ctx, race, colX, y, colW, 4) : drawLapList(ctx, race, colX, y, colW, p);
   let my = y + (gh ? gh + 8 : 0) + 16;
   for (const m of race.messages.slice(-2).reverse()) {
     if (my > colBottom - 10) break;
@@ -762,12 +782,24 @@ function drawSideHUD(ctx, race, cam, w, h, ins, opts) {
 function drawSideTimes(ctx, race, p, x, y, w) {
   panel(ctx, x, y, w, 62);
   const isRace = race.mode === 'race';
+  const qs = race.quali;
   const total = race.totalLaps;
-  let cur = 0;
-  if (race.phase === 'race' || race.phase === 'finished') cur = p.lap >= 0 || isRace ? race.time - p.lapStart : 0;
-  if (p.finished) cur = p.laps[p.laps.length - 1] || 0;
+  const cur = lapClock(race, p);
   const rx = x + w - 10;
-  text(ctx, formatTime(cur), rx, y + 23, `700 14px ${F_DATA}`, C.text, 'right');
+  text(ctx, formatTime(cur), rx, y + 23, `700 14px ${F_DATA}`, qs && qs.stage === 'out' ? C.muted : C.text, 'right');
+  if (qs) {
+    if (qs.stage !== 'out' && qs.live) {
+      text(ctx, `P${qs.live}`, x + 12, y + 40, `900 italic 32px ${F_DISPLAY}`, C.text);
+      ctx.font = `900 italic 32px ${F_DISPLAY}`;
+      const pwid = ctx.measureText(`P${qs.live}`).width;
+      text(ctx, `/${race.cars.length + qs.order.length}`, x + 15 + pwid, y + 39, `700 14px ${F_DISPLAY}`, C.muted);
+    } else text(ctx, qs.stage === 'out' ? 'OUT LAP' : 'P–', x + 12, y + 38, `900 italic 24px ${F_DISPLAY}`, C.text);
+    text(ctx, qs.stage === 'out' ? 'QUALIFYING' : 'FLYING LAP', x + 12, y + 54, `700 9px ${F_UI}`, C.muted);
+    text(ctx, qs.pole ? `POLE ${formatTime(qs.pole.time)}` : 'POLE -:--.---', rx, y + 39, `500 10px ${F_DATA}`, qs.pole ? C.purple : C.muted, 'right');
+    if (race.delta != null && qs.stage === 'flying') text(ctx, formatGap(race.delta), rx, y + 54, `700 10px ${F_DATA}`, race.delta <= 0 ? C.green : C.red, 'right');
+    else if (qs.pole) text(ctx, qs.pole.code, rx, y + 54, `700 10px ${F_DISPLAY}`, C.muted, 'right');
+    return;
+  }
   if (isRace) {
     text(ctx, `P${p.pos}`, x + 12, y + 42, `900 italic 36px ${F_DISPLAY}`, C.text);
     ctx.font = `900 italic 36px ${F_DISPLAY}`;
@@ -783,6 +815,81 @@ function drawSideTimes(ctx, race, p, x, y, w) {
     text(ctx, `PB ${formatTime(rec)}`, rx, y + 39, `500 10px ${F_DATA}`, rec ? C.purple : C.muted, 'right');
     if (race.delta != null) text(ctx, formatGap(race.delta), rx, y + 54, `700 10px ${F_DATA}`, race.delta <= 0 ? C.green : C.red, 'right');
   }
+}
+
+// The time on the lap clock: this lap so far (or the last one, once you've
+// finished). In qualifying it only runs on the flying lap.
+function lapClock(race, p) {
+  const qs = race.quali;
+  if (p.finished) return p.laps[p.laps.length - 1] || 0;
+  if (race.phase !== 'race' && race.phase !== 'finished') return 0;
+  if (qs) return qs.stage === 'flying' ? race.time - p.lapStart : 0;
+  return p.lap >= 0 || race.mode === 'race' ? race.time - p.lapStart : 0;
+}
+
+// Qualifying timing board: the times set so far, fastest first, with you
+// where your flying lap would put you right now (at the bottom on your
+// out-lap). Up to `limit` rows, following you, plus pole and your teammate.
+function drawQualiBoard(ctx, race, x, y, w, limit) {
+  const qs = race.quali;
+  const p = race.player;
+  const rows = qs.board.slice();
+  let at = rows.length;
+  if (qs.stage === 'done') at = rows.filter((r) => r.time != null && r.time < qs.time).length;
+  else if (qs.stage === 'flying' && qs.live) at = Math.min(rows.length, qs.live - 1);
+  rows.splice(at, 0, { you: true, code: p.code, livery: p.livery, teamId: p.teamId, time: qs.time });
+  const mate = rows.findIndex((r) => !r.you && r.teamId && r.teamId === p.teamId);
+  const show = followRows(rows.length, at, limit, [0, mate]);
+  const rowH = 20;
+  const height = show.reduce((hgt, i) => hgt + (i < 0 ? 8 : rowH), 0) + 10;
+  const wide = w >= 150;
+  panel(ctx, x, y, w, height, 10);
+  // Gaps are to the fastest time on the board (yours, once it's in and quickest).
+  const best = rows.find((r) => !r.you && r.time != null);
+  const ref = qs.stage === 'done' && (!best || qs.time < best.time) ? qs.time : best ? best.time : null;
+  let ry = y + 5;
+  for (const i of show) {
+    if (i < 0) {
+      ctx.fillStyle = C.line;
+      ctx.fillRect(x + 12, ry + 3, w - 24, 2);
+      ry += 8;
+      continue;
+    }
+    const r = rows[i];
+    if (r.you || i === mate) {
+      ctx.fillStyle = r.you ? 'rgba(255,255,255,0.13)' : 'rgba(255,210,63,0.13)';
+      roundRect(ctx, x + 4, ry, w - 8, rowH - 1, 5);
+      ctx.fill();
+    }
+    text(ctx, String(i + 1), x + (wide ? 18 : 14), ry + 14, `700 ${wide ? 12 : 11}px ${F_DATA}`, C.muted, 'center');
+    ctx.fillStyle = r.livery.color;
+    ctx.fillRect(x + (wide ? 30 : 25), ry + 4, 3, rowH - 9);
+    text(ctx, r.code, x + (wide ? 40 : 33), ry + 14, `800 ${wide ? 14 : 13}px ${F_DISPLAY}`, i === mate ? C.yellow : C.text);
+    let val = '';
+    let col = C.text;
+    if (r.you) {
+      if (qs.stage === 'out') {
+        val = wide ? 'OUT LAP' : 'OUT';
+        col = C.muted;
+      } else if (qs.stage === 'flying') {
+        // Where the lap would put you; the gap to pole so far is on the timer.
+        val = 'LIVE';
+        col = C.muted;
+      } else if (r.time === ref) {
+        val = formatTime(r.time);
+        col = C.purple;
+      } else val = formatGap(r.time - ref);
+    } else if (r.time == null) {
+      val = wide ? 'NO TIME' : '–';
+      col = C.muted;
+    } else if (r.time === ref) {
+      val = formatTime(r.time);
+      col = C.purple;
+    } else val = formatGap(r.time - ref);
+    text(ctx, val, x + w - (wide ? 10 : 7), ry + 14, `500 ${wide ? 11 : 10}px ${F_DATA}`, col, 'right');
+    ry += rowH;
+  }
+  return height;
 }
 
 function drawBanner(ctx, s, color, x, y, size) {
@@ -807,7 +914,7 @@ function drawEventCard(ctx, ev, cx, y, cw, alpha, narrow) {
   ctx.fillStyle = ev.accent || C.lights;
   roundRect(ctx, x + 8, y + 10, 4, ch - 20, 2);
   ctx.fill();
-  const eyebrow = ev.round ? `ROUND ${ev.round} OF ${ev.rounds}` : ev.mode === 'trial' ? 'TIME TRIAL' : 'RACE';
+  const eyebrow = ev.round ? `ROUND ${ev.round} OF ${ev.rounds}${ev.mode === 'quali' ? ' · QUALIFYING' : ''}` : ev.mode === 'trial' ? 'TIME TRIAL' : 'RACE';
   text(ctx, eyebrow, x + 22, y + (narrow ? 19 : 22), `800 ${narrow ? 10 : 11}px ${F_DISPLAY}`, C.muted);
   ctx.save();
   ctx.beginPath();
@@ -815,7 +922,7 @@ function drawEventCard(ctx, ev, cx, y, cw, alpha, narrow) {
   ctx.clip();
   text(ctx, ev.gp.toUpperCase(), x + 22, y + (narrow ? 41 : 48), `900 italic ${narrow ? 21 : 26}px ${F_DISPLAY}`, C.text);
   const place = ev.name === ev.country ? ev.name : `${ev.name} · ${ev.country}`;
-  const sub = ev.mode === 'trial' ? place : `${place} · ${ev.laps} laps`;
+  const sub = ev.mode === 'trial' ? place : ev.mode === 'quali' ? `${place} · out-lap, then one flying lap` : `${place} · ${ev.laps} laps`;
   text(ctx, sub, x + 22, y + (narrow ? 56 : 65), `600 ${narrow ? 11 : 12}px ${F_UI}`, C.muted);
   ctx.restore();
   ctx.restore();
@@ -1026,7 +1133,8 @@ function drawFinish(ctx, race, w, h, ins, opts) {
   ctx.textBaseline = 'middle';
   ctx.font = `800 ${narrow ? 13 : 15}px ${F_DISPLAY}`;
   ctx.fillStyle = C.muted;
-  ctx.fillText('C H E Q U E R E D   F L A G', 0, -big * 0.62);
+  const qs = race.quali;
+  ctx.fillText(qs ? 'Q U A L I F Y I N G' : 'C H E Q U E R E D   F L A G', 0, -big * 0.62);
   ctx.font = `900 italic ${big}px ${F_DISPLAY}`;
   ctx.lineJoin = 'round';
   ctx.lineWidth = big * 0.08;
@@ -1034,17 +1142,39 @@ function drawFinish(ctx, race, w, h, ins, opts) {
   ctx.strokeText(`P${pos}`, 0, -big * 0.08);
   ctx.fillStyle = POS_COLOR[pos] || '#ffffff';
   ctx.fillText(`P${pos}`, 0, -big * 0.08);
-  const head = pos === 1 ? 'YOU WIN!' : pos <= 3 ? 'PODIUM!' : pos <= 10 ? 'IN THE POINTS' : 'FINISHED';
+  const head = qs
+    ? pos === 1
+      ? 'POLE POSITION!'
+      : pos === 2
+        ? 'FRONT ROW!'
+        : pos <= 10
+          ? 'TOP TEN'
+          : 'QUALIFIED'
+    : pos === 1
+      ? 'YOU WIN!'
+      : pos <= 3
+        ? 'PODIUM!'
+        : pos <= 10
+          ? 'IN THE POINTS'
+          : 'FINISHED';
   ctx.font = `900 italic ${narrow ? 26 : 32}px ${F_DISPLAY}`;
   ctx.fillStyle = '#ffffff';
   ctx.fillText(head, 0, big * 0.5);
-  const bits = [formatTime(p.finishTime + (p.penalty || 0))];
-  if (p.penalty) bits.push(`+${p.penalty}s no pit stop`);
+  const bits = [formatTime(qs ? qs.time : p.finishTime + (p.penalty || 0))];
+  if (qs) {
+    const next = qs.board.find((r) => r.time != null && r.time >= qs.time);
+    if (pos === 1 && next) bits.push(`${(next.time - qs.time).toFixed(3)}s clear of ${next.code}`);
+    else if (qs.pole && pos > 1) bits.push(`${formatGap(qs.time - qs.pole.time)} to pole`);
+  } else if (p.penalty) bits.push(`+${p.penalty}s no pit stop`);
   else if (p.bestLap) bits.push(`best lap ${formatTime(p.bestLap)}`);
   ctx.font = `500 ${narrow ? 12 : 14}px ${F_DATA}`;
-  ctx.fillStyle = p.penalty ? C.red : race.fastest && race.fastest.car === p ? C.purple : C.muted;
+  ctx.fillStyle = qs ? (pos === 1 ? C.purple : C.muted) : p.penalty ? C.red : race.fastest && race.fastest.car === p ? C.purple : C.muted;
   ctx.fillText(bits.join('  ·  '), 0, big * 0.5 + (narrow ? 28 : 34));
-  if (opts.season) {
+  if (opts.season && qs) {
+    ctx.font = `800 ${narrow ? 15 : 17}px ${F_DISPLAY}`;
+    ctx.fillStyle = pos <= 10 ? C.green : C.muted;
+    ctx.fillText(`YOU START P${pos} ON THE GRID`, 0, big * 0.5 + (narrow ? 52 : 62));
+  } else if (opts.season) {
     const pts = POINTS[pos - 1] || 0;
     ctx.font = `800 ${narrow ? 15 : 17}px ${F_DISPLAY}`;
     ctx.fillStyle = pts ? C.green : C.muted;
@@ -1052,8 +1182,8 @@ function drawFinish(ctx, race, w, h, ins, opts) {
   }
   ctx.restore();
 
-  // Confetti for a podium.
-  if (pos <= 3) drawConfetti(ctx, race, w, h, opts.dt || 1 / 60, pos);
+  // Confetti for a podium (or pole).
+  if (qs ? pos === 1 : pos <= 3) drawConfetti(ctx, race, w, h, opts.dt || 1 / 60, pos);
 
   if (t > 1.5 && Math.floor(t * 2) % 2 === 0) {
     text(ctx, opts.touchUI ? 'Tap to continue' : 'Press Enter or click to continue', w / 2, h - ins.bottom - 34, `600 14px ${F_UI}`, 'rgba(238,242,248,0.8)', 'center');

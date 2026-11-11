@@ -3,7 +3,7 @@
 import { ALL_REAL, TRACKS } from './data/tracks.js';
 import { allDrivers, playerFor, rivalsFor } from './data/teams.js';
 import { Track } from './track.js';
-import { Race } from './race.js';
+import { Race, rollForm } from './race.js';
 import { Camera } from './camera.js';
 import { PHYS } from './car.js';
 import { drawHUD } from './hud.js';
@@ -15,7 +15,7 @@ import { clamp, formatTime } from './util.js';
 import { POINTS, ROUNDS, abandonSeason, currentSeason, isComplete, nextTrack, playerStanding, recordRound, standings, startSeason, teamStanding } from './season.js';
 
 // Bump together with --build in css/style.css and CACHE in sw.js.
-const BUILD = '21';
+const BUILD = '22';
 
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d', { alpha: false });
@@ -66,14 +66,21 @@ const ui = createUI(document.getElementById('ui'), {
   },
   onStart: (mode, trackId) => startRace(mode, trackId),
   onResume: () => resume(),
-  onRestart: () => (state.mode === 'season' ? startSeasonRace() : startRace(state.mode, state.trackId)),
+  onRestart: () => (state.mode === 'season' || state.mode === 'quali' ? startSeasonRace() : startRace(state.mode, state.trackId)),
   onSeasonStart: (opts) => {
     startSeason(opts);
+    clearWeekend();
     ui.openSeason();
   },
   onSeasonRace: () => startSeasonRace(),
+  onQualiRace: () => startSeasonRace(),
+  weekend: () => {
+    const s = currentSeason();
+    return s && !isComplete(s) ? weekendFor(s, false) : null;
+  },
   onSeasonAbandon: () => {
     abandonSeason();
+    clearWeekend();
     ui.openSeason();
   },
   onSeasonContinue: () => {
@@ -180,14 +187,38 @@ function startRace(mode, trackId) {
   launch({ mode, trackId, laps: save.settings.laps, difficulty: save.settings.difficulty, team: save.settings.team, seat: save.settings.seat });
 }
 
-// The next round of the championship, with the season's own settings.
+// A season weekend: qualifying, then the race. What qualifying decided (and
+// the other drivers' laps, so a restart replays the same session) is kept on
+// this device next to the season, until the race is done.
+function weekendFor(s, create = true) {
+  let wk = save.weekend;
+  if (wk && wk.season === s.startedAt && wk.round === s.round) return wk;
+  if (!create) return null;
+  const form = {};
+  for (const d of s.lineup) if (d.id !== 'you') form[d.id] = Math.round(rollForm() * 1000) / 1000;
+  wk = { season: s.startedAt, round: s.round, track: nextTrack(s).id, form, field: null, grid: null, pos: null, time: null };
+  save.weekend = wk;
+  save.write();
+  return wk;
+}
+
+function clearWeekend() {
+  save.weekend = null;
+  save.write();
+}
+
+// The next session of the championship, with the season's own settings:
+// qualifying, or the race once you've qualified.
 function startSeasonRace() {
   const s = currentSeason();
   if (!s || isComplete(s)) return;
-  launch({ mode: 'season', trackId: nextTrack(s).id, laps: s.laps, difficulty: s.difficulty, team: s.team, seat: s.seat });
+  const wk = weekendFor(s);
+  const base = { trackId: nextTrack(s).id, laps: s.laps, difficulty: s.difficulty, team: s.team, seat: s.seat, form: wk.form };
+  if (wk.grid) launch({ ...base, mode: 'season', grid: wk.grid });
+  else launch({ ...base, mode: 'quali', field: wk.field });
 }
 
-function launch({ mode, trackId, laps, difficulty, team, seat }) {
+function launch({ mode, trackId, laps, difficulty, team, seat, grid = null, form = null, field = null }) {
   audio.unlockAudio();
   lockLandscape();
   state.mode = mode;
@@ -203,9 +234,12 @@ function launch({ mode, trackId, laps, difficulty, team, seat }) {
     rivals: rivalsFor(team, seat),
     record: rec,
     wear: save.settings.wear !== false,
+    grid,
+    form,
+    field,
   });
   // What's being raced, for the title card, HUD, pause and results.
-  const season = mode === 'season' ? currentSeason() : null;
+  const season = mode === 'season' || mode === 'quali' ? currentSeason() : null;
   state.race.event = {
     gp: track.def.gp,
     name: track.def.name,
@@ -231,7 +265,12 @@ function pause() {
   const ev = state.race.event;
   const p = state.race.player;
   if (ev) {
-    const lap = ev.mode === 'trial' ? `lap ${Math.max(1, p.lap + 1)}` : `lap ${Math.min(Math.max(1, p.lap + 1), ev.laps)} of ${ev.laps}`;
+    const q = state.race.quali;
+    const lap = q
+      ? `qualifying, ${q.stage === 'out' ? 'out-lap' : 'flying lap'}`
+      : ev.mode === 'trial'
+        ? `lap ${Math.max(1, p.lap + 1)}`
+        : `lap ${Math.min(Math.max(1, p.lap + 1), ev.laps)} of ${ev.laps}`;
     ui.setPauseInfo(`${ev.round ? `Round ${ev.round} of ${ev.rounds} · ` : ''}${ev.gp}${ev.gp.startsWith(ev.name) ? '' : ` · ${ev.name}`} · ${lap}`);
   }
   ui.show('pause');
@@ -320,8 +359,31 @@ function handleOut(r) {
         audio.sfxChime(e.pos === 1 ? [523, 659, 784, 1047, 1319] : e.pos <= 3 ? [523, 659, 784, 1047] : [523, 659, 784], 0.12);
         break;
       case 'results':
-        showResults(r);
+        if (r.quali) showQuali(r);
+        else showResults(r);
         break;
+      case 'qualiField': {
+        // The other drivers' laps: kept, so a restart replays the same session.
+        const wk = save.weekend;
+        if (wk && !wk.field) {
+          wk.field = r.quali.results;
+          save.write();
+        }
+        break;
+      }
+      case 'qualiDone': {
+        const wk = save.weekend;
+        if (wk) {
+          const res = r.qualiResults();
+          wk.grid = res.grid;
+          wk.pos = res.playerPos;
+          wk.time = res.playerTime;
+          save.write();
+        }
+        syncChrome();
+        audio.sfxChime(e.pos === 1 ? [523, 659, 784, 1047, 1319] : e.pos <= 3 ? [523, 659, 784, 1047] : [523, 659, 784], 0.12);
+        break;
+      }
       case 'pitIn':
       case 'boxCall':
         audio.sfxBeep(740, 0.09, 'square', 0.07);
@@ -376,8 +438,15 @@ function showResults(r) {
     chips.push({ kind: 'purple', text: `Circuit record: ${formatTime(rec.bestLap)}` });
   }
   if (r.prevBestPos == null || res.playerPos < r.prevBestPos) chips.push({ kind: 'green', text: `Best finish here: P${res.playerPos}` });
+  if (r.fromGrid && p.gridPos) {
+    const gained = p.gridPos - res.playerPos;
+    chips.push({ kind: gained > 0 ? 'green' : 'wear', text: `Started P${p.gridPos}${gained ? ` · ${gained > 0 ? 'gained' : 'lost'} ${Math.abs(gained)} place${Math.abs(gained) > 1 ? 's' : ''}` : ''}` });
+  }
   if (res.playerPenalty) chips.push({ kind: 'red', text: `No pit stop: +${res.playerPenalty}s` });
-  if (res.playerStops.length) chips.push({ kind: 'wear', text: `Pit stop${res.playerStops.length > 1 ? 's' : ''}: ${res.playerStops.map((t) => `${t.toFixed(1)}s`).join(', ')}` });
+  if (res.playerStops.length) {
+    const field = res.fieldStop != null ? ` (field average ${res.fieldStop.toFixed(1)}s)` : '';
+    chips.push({ kind: 'wear', text: `Pit stop${res.playerStops.length > 1 ? 's' : ''}: ${res.playerStops.map((t) => `${t.toFixed(1)}s`).join(', ')}${field}` });
+  }
   if (p.wears) chips.push({ kind: 'wear', text: `Tyres ${Math.round(p.tyres * 100)}% · Car ${Math.round((1 - p.damage) * 100)}%` });
   let season = null;
   const s = currentSeason();
@@ -385,6 +454,8 @@ function showResults(r) {
     const order = res.rows.map((row) => row.driver);
     const before = s.results.length ? playerStanding(s) : null; // no position before round 1
     recordRound(s, order);
+    save.weekend = null; // on to the next round
+    save.write();
     const after = playerStanding(s);
     const mine = teamStanding(s);
     season = {
@@ -403,6 +474,22 @@ function showResults(r) {
     };
   }
   ui.showResults(res, { trackName: r.track.name, event: r.event, chips, season });
+  syncChrome();
+}
+
+// After qualifying: the classification, then on to the race.
+function showQuali(r) {
+  state.resultsShown = true;
+  const res = r.results;
+  const chips = [];
+  const p = r.player;
+  const rec = save.record(r.track.id);
+  if (rec.bestLap != null && p.bestLap != null && Math.abs(rec.bestLap - p.bestLap) < 1e-6) {
+    chips.push({ kind: 'purple', text: `Circuit record: ${formatTime(rec.bestLap)}` });
+  }
+  const mate = res.rows.findIndex((row) => !row.isPlayer && row.team === p.teamId);
+  if (mate >= 0) chips.push({ kind: res.playerPos < mate + 1 ? 'green' : 'wear', text: `${res.playerPos < mate + 1 ? 'Ahead of' : 'Behind'} your teammate (P${mate + 1})` });
+  ui.showQuali(res, { trackName: r.track.name, event: r.event, chips });
   syncChrome();
 }
 
@@ -485,7 +572,7 @@ function render(dt, input) {
     drawHUD(ctx, r, cam, W, H, insets, {
       touchUI: crossedLine() ? isTouchDevice() : touchVisible(),
       ctl: controlRects(),
-      season: state.mode === 'season',
+      season: state.mode === 'season' || state.mode === 'quali',
       dt,
     });
   }

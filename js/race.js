@@ -1,14 +1,15 @@
-// One session on one circuit: a race against the field, a solo time trial
-// against your own ghost, or the "attract" race that plays behind the menus.
+// One session on one circuit: a race against the field, qualifying (a season
+// weekend's first session, see quali.js), a solo time trial against your own
+// ghost, or the "attract" race that plays behind the menus.
 
 import { Car, PHYS, TIER_COLORS, WEAR } from './car.js';
 import { AIDriver } from './ai.js';
 import { Pits, PIT_RULE, PIT_TEAMS } from './pit.js';
+import { QUALI, QualiSim, SPLITS, byLapTime } from './quali.js';
 import { Particles, Skids } from './particles.js';
 import { clamp, damp, formatTime, rand, wrapAngle } from './util.js';
 
 const STEP = 1 / 120; // physics runs at a fixed 120 Hz
-const SPLITS = 40; // timing points per lap (gaps and live delta)
 const GHOST_DT = 0.05;
 const LIGHT_GAP = 0.8;
 
@@ -38,12 +39,29 @@ export const DIFFICULTY = {
   hard: { top: 0.915, spread: 0.12, power: 1.02, powerSpread: 0.06, chase: 0.15 },
 };
 
+// A computer driver's pace for a weekend: the team and driver (`skill`),
+// plus a little form on the day (`form`, about ±0.1, the same in qualifying
+// and the race), as corner pace and engine power for this difficulty.
+export function aiPace(skill, difficulty, form = 0) {
+  const D = DIFFICULTY[difficulty] || DIFFICULTY.normal;
+  const q = clamp(clamp((skill - 0.94) / 0.068, 0, 1) + form, 0, 1);
+  return { pace: D.top - D.spread * (1 - q), power: D.power - D.powerSpread * (1 - q) };
+}
+
+export function rollForm() {
+  return rand(-0.1, 0.1);
+}
+
 const GHOST_LIVERY = { color: '#cfe8ff', color2: '#6fb7ff', helmet: '#ffffff' };
 
 export class Race {
-  constructor({ track, mode, laps = 3, difficulty = 'normal', player = null, rivals = [], record = null, wear = true, autoPit = false }) {
+  // grid: driver ids in starting order ('you' for you), from qualifying;
+  // without one, the field lines up by pace with you in the midfield.
+  // form: each computer driver's form this weekend (see aiPace). field: the
+  // computer drivers' qualifying laps from an earlier run of this session.
+  constructor({ track, mode, laps = 3, difficulty = 'normal', player = null, rivals = [], record = null, wear = true, autoPit = false, grid = null, form = null, field = null }) {
     this.track = track;
-    this.mode = mode; // 'race' | 'trial' | 'attract'
+    this.mode = mode; // 'race' | 'quali' | 'trial' | 'attract'
     this.totalLaps = mode === 'race' ? laps : Infinity;
     this.difficulty = difficulty;
     this.record = record;
@@ -79,7 +97,9 @@ export class Race {
     this.lastPos = 0;
     this.posMsgT = 0;
     this.recordDirty = false;
-    this.setupGrid(player, rivals);
+    this.form = form;
+    this.fromGrid = !!grid;
+    this.setupGrid(player, rivals, grid);
     // Tyres and damage count in races (not time trials, so lap records compare),
     // and with them the one pit stop everyone has to make.
     if (mode === 'race' && wear) {
@@ -90,15 +110,18 @@ export class Race {
     }
     track.pitTeams = PIT_TEAMS;
     this.pits = mode === 'race' && wear && track.pit ? new Pits(this, { auto: autoPit }) : null;
+    // Qualifying: you start in your garage, and the pit lane takes you out.
+    this.lane = mode === 'quali' && track.pit ? new Pits(this) : null;
+    if (mode === 'quali') this.setupQuali(rivals, difficulty, field);
     this.prevPedal = false;
     this.focus = this.player || this.cars[0];
     this.rank();
   }
 
-  setupGrid(player, rivals) {
+  setupGrid(player, rivals, grid) {
     const t = this.track;
     const D = DIFFICULTY[this.difficulty] || DIFFICULTY.normal;
-    if (this.mode === 'trial') {
+    if (this.mode === 'trial' || this.mode === 'quali') {
       const back = Math.round(240 / t.ds);
       const i = t.n - back;
       const car = new Car({
@@ -112,33 +135,44 @@ export class Race {
       });
       car.trackIdx = i;
       car.basePower = 1;
+      car.teamId = player.teamId || (player.team ? player.team.id : null);
+      car.driverId = player.id || 'you';
       this.cars.push(car);
       this.player = car;
       return;
     }
-    const field = rivals.slice().sort((a, b) => b.skill - a.skill);
-    const total = field.length + (player ? 1 : 0);
-    const playerSlot = player ? Math.min(total - 1, Math.floor(total * 0.55)) : -1; // start in the midfield
-    let r = 0;
+    const idOf = (d) => d.driverId || d.id;
+    let order;
+    if (grid) {
+      // Qualifying order; anyone it doesn't list goes to the back.
+      const byId = new Map(rivals.map((d) => [idOf(d), d]));
+      order = grid.map((id) => (id === 'you' ? player : byId.get(id))).filter(Boolean);
+      for (const d of [player, ...rivals]) if (d && !order.includes(d)) order.push(d);
+    } else {
+      order = rivals.slice().sort((a, b) => b.skill - a.skill);
+      if (player) order.splice(Math.min(order.length, Math.floor((order.length + 1) * 0.55)), 0, player); // start in the midfield
+    }
     this.player = null;
-    for (let k = 0; k < total; k++) {
+    for (let k = 0; k < order.length; k++) {
       const s = t.gridSlot(k);
-      if (k === playerSlot) {
+      if (order[k] === player) {
         const car = new Car({ x: s.x, y: s.y, angle: s.angle, name: player.name, code: player.code, livery: player.livery, isPlayer: true });
         car.teamId = player.teamId || (player.team ? player.team.id : null);
         car.driverId = player.id || 'you';
         car.trackIdx = s.idx;
         car.basePower = 1;
+        car.gridPos = k + 1;
         this.cars.push(car);
         this.player = car;
       } else {
-        const d = field[r++];
+        const d = order[k];
         const skillN = clamp((d.skill - 0.94) / 0.068, 0, 1);
         const attract = this.mode === 'attract';
         // Race pace: team and driver, plus a little form on the day.
-        const q = clamp(skillN + rand(-0.1, 0.1), 0, 1);
-        const pace = attract ? 0.9 + 0.04 * skillN : D.top - D.spread * (1 - q);
-        const power = attract ? 0.92 + 0.05 * skillN : D.power - D.powerSpread * (1 - q);
+        const f = this.form && this.form[idOf(d)] != null ? this.form[idOf(d)] : rollForm();
+        const ap = aiPace(d.skill, this.difficulty, f);
+        const pace = attract ? 0.9 + 0.04 * skillN : ap.pace;
+        const power = attract ? 0.92 + 0.05 * skillN : ap.power;
         // Lap 1: halfway between the field average and the car's own pace.
         const startPace = attract ? pace : (D.top - D.spread * 0.5 + pace) / 2;
         const startPower = attract ? power : (D.power - D.powerSpread * 0.5 + power) / 2;
@@ -146,12 +180,175 @@ export class Race {
         car.teamId = d.teamId || d.id;
         car.driverId = d.driverId || d.id;
         car.trackIdx = s.idx;
+        car.gridPos = k + 1;
         car.basePower = startPower;
         Object.assign(car, { racePace: pace, racePower: power, startPace, startPower });
         this.cars.push(car);
         this.ai.set(car, new AIDriver(car, t, { pace: startPace }));
       }
     }
+  }
+
+  // Qualifying: your car waits in the garage, and the other drivers' laps
+  // are simulated in the background (or come from an earlier run).
+  setupQuali(rivals, difficulty, field) {
+    const p = this.player;
+    this.quali = { stage: 'out', sim: null, results: null, order: [], revealAt: [], shown: 0, board: [], pole: null, best: null, live: null, time: null };
+    if (field && field.length) this.fieldReady(field);
+    else {
+      const entries = rivals.map((d) => {
+        const id = d.driverId || d.id;
+        const ap = aiPace(d.skill, difficulty, this.form && this.form[id] != null ? this.form[id] : 0);
+        return { driverId: id, code: d.code, name: d.name, teamId: d.teamId, livery: d.livery, pace: ap.pace, power: ap.power };
+      });
+      this.quali.sim = new QualiSim(this.track, entries);
+    }
+    if (this.lane) {
+      const t = this.track;
+      const pit = t.pit;
+      const boxK = pit.boxes[p.box];
+      const q = t.pitPoint(boxK, pit.boxO, {});
+      p.x = q.x;
+      p.y = q.y;
+      p.angle = t.pitAngle(boxK);
+      p.trackIdx = q.idx;
+      // In the box with the crew round it; the light goes green at the start.
+      p.pit = { stage: 'box', k: boxK, lat: pit.boxO, err: 0, v: 0, t: 0, swung: 1, braking: false, at: 0, service: Infinity, done: [true, true, true, true] };
+    }
+  }
+
+  // The computer drivers' laps are in: they come up on the board one by one.
+  fieldReady(results) {
+    const qs = this.quali;
+    qs.results = results;
+    qs.best = results.slice().sort(byLapTime)[0] || null;
+    qs.order = results.slice().sort(() => Math.random() - 0.5);
+    const times = results.map((r) => r.time).filter((v) => v != null).sort((a, b) => a - b);
+    const lap = times.length ? times[Math.floor(times.length / 2)] : 60;
+    const from = Math.max(this.time, QUALI.revealFrom);
+    qs.revealAt = qs.order.map((r, i) => from + ((i + rand(0.2, 0.8)) / qs.order.length) * QUALI.reveal * lap);
+  }
+
+  // Every lap time in now (you're starting your flying lap or finished).
+  fieldNow() {
+    const qs = this.quali;
+    if (qs.sim && !qs.results) {
+      qs.sim.finish();
+      this.fieldReady(qs.sim.results());
+      this.out.push({ t: 'qualiField' });
+    }
+    qs.shown = qs.order.length;
+    this.updateBoard();
+  }
+
+  updateBoard() {
+    const qs = this.quali;
+    qs.board = qs.order.slice(0, qs.shown).sort(byLapTime);
+    qs.pole = qs.board.find((r) => r.time != null) || null;
+  }
+
+  // Once a frame: run the background laps, put new times on the board.
+  updateQuali() {
+    const qs = this.quali;
+    if (qs.sim && !qs.results) {
+      qs.sim.run();
+      if (qs.sim.done) {
+        this.fieldReady(qs.sim.results());
+        this.out.push({ t: 'qualiField' });
+      }
+    }
+    if (!qs.results) return;
+    let shown = qs.shown;
+    while (shown < qs.order.length && (qs.stage !== 'out' || qs.revealAt[shown] <= this.time)) shown++;
+    if (shown !== qs.shown) {
+      qs.shown = shown;
+      this.updateBoard();
+    }
+  }
+
+  // Your car in the pit lane in qualifying: in the box until the green
+  // light, then out along the lane onto the track.
+  garage(car, h) {
+    const s = car.pit;
+    if (s.stage === 'box') {
+      car.pitPrev = car.trackIdx;
+      if (this.phase === 'race' && this.time >= QUALI.release) {
+        s.stage = 'out';
+        s.t = 0;
+      }
+      return;
+    }
+    this.lane.drive(car, h, false);
+  }
+
+  // Crossing the line in qualifying: the first time after the out-lap starts
+  // your flying lap, the next one ends it.
+  qualiLine(car) {
+    const qs = this.quali;
+    const armed = car.lapArmed;
+    car.lap += 1;
+    car.lapArmed = false;
+    if (car !== this.player || car.pit || this.phase !== 'race' || !armed) return;
+    const now = this.time;
+    if (qs.stage === 'out') {
+      qs.stage = 'flying';
+      car.lapStart = now;
+      car.curSplits = [];
+      this.delta = null;
+      qs.live = null;
+      this.ghostFrames = [];
+      this.ghostT = 0;
+      this.fieldNow();
+      this.msg('FLYING LAP', '#ffffff', 1.5, 1.1);
+      if (qs.pole) this.msg(`POLE ${formatTime(qs.pole.time)} · ${qs.pole.code}`, '#b65cff', 2.2, 0.7);
+    } else if (qs.stage === 'flying') {
+      const lt = now - car.lapStart;
+      car.laps.push(lt);
+      car.lastLap = lt;
+      car.bestLap = lt;
+      this.onLap(car, lt, true, false);
+      this.finishQuali(car, lt);
+    }
+  }
+
+  // At each timing point of your flying lap: the gap to pole, and where
+  // you'd be on the board if the lap ended here.
+  qualiSplit(b) {
+    const qs = this.quali;
+    if (qs.stage !== 'flying' || !qs.results || b === 0) return;
+    const mine = this.player.curSplits[b];
+    if (qs.best && qs.best.splits[b] != null) this.delta = mine - qs.best.splits[b];
+    let pos = 1;
+    for (const r of qs.results) if (r.time != null && r.splits[b] != null && r.splits[b] < mine) pos++;
+    qs.live = pos;
+  }
+
+  finishQuali(car, lt) {
+    const qs = this.quali;
+    this.fieldNow();
+    qs.stage = 'done';
+    qs.time = lt;
+    car.finished = true;
+    car.finishTime = this.time;
+    car.finishPos = 1 + qs.results.filter((r) => r.time != null && r.time < lt).length;
+    this.phase = 'finished';
+    this.finishReal = 0;
+    this.messages.length = 0;
+    this.ai.set(car, new AIDriver(car, this.track, { pace: 0.72 }));
+    car.basePower = 0.85;
+    this.out.push({ t: 'qualiDone', pos: car.finishPos });
+  }
+
+  // The qualifying classification: everyone's lap, fastest first (a tie
+  // goes to you), and from it the grid.
+  qualiResults() {
+    const qs = this.quali;
+    const p = this.player;
+    const rows = qs.results.map((r) => ({ driver: r.driverId, code: r.code, name: r.name, team: r.teamId, livery: r.livery, time: r.time, isPlayer: false }));
+    rows.push({ driver: p.driverId || 'you', code: p.code, name: p.name, team: p.teamId, livery: p.livery, time: qs.time, isPlayer: true });
+    rows.sort((a, b) => byLapTime(a, b) || b.isPlayer - a.isPlayer);
+    const mine = rows.findIndex((r) => r.isPlayer);
+    return { quali: true, rows, playerPos: mine + 1, playerTime: qs.time, grid: rows.map((r) => r.driver) };
   }
 
   msg(text, color = '#fff', dur = 1.4, scale = 1) {
@@ -167,7 +364,7 @@ export class Race {
       this.finishReal += dt;
       scaled = dt * (0.3 + 0.7 * clamp((this.finishReal - 0.9) / 1.2, 0, 1));
       if (!this.results && (this.finishReal > 4.2 || (this.skipFinish && this.finishReal > 0.6))) {
-        this.results = this.buildResults();
+        this.results = this.quali ? this.qualiResults() : this.buildResults();
         this.out.push({ t: 'results' });
       }
     }
@@ -179,6 +376,7 @@ export class Race {
       steps++;
     }
     if (steps >= 10) this.acc = 0;
+    if (this.quali) this.updateQuali();
     this.particles.update(scaled);
     this.updateBeside(dt);
     this.updateCall(dt);
@@ -230,7 +428,8 @@ export class Race {
 
     for (const car of this.cars) {
       if (car.pit) {
-        this.pits.drive(car, h, car === this.player && tap);
+        if (this.lane) this.garage(car, h);
+        else this.pits.drive(car, h, car === this.player && tap);
         continue;
       }
       const ai = this.ai.get(car);
@@ -304,6 +503,10 @@ export class Race {
       for (const [car, ai] of this.ai) if (ai.reaction < 0.25) car.launchBoostAt = ai.reaction;
     } else if (this.mode === 'trial') {
       this.msg('GO!', '#ffffff', 1, 1.25);
+    } else if (this.mode === 'quali') {
+      const s = this.player.pit;
+      if (s) s.service = 0; // green light: off you go
+      this.msg('OUT LAP', '#ffffff', 1.6, 1.1);
     }
   }
 
@@ -563,6 +766,7 @@ export class Race {
             const ref = this.record.splits[bucket];
             if (ref != null) this.delta = this.time - car.lapStart - ref;
           }
+          if (car === this.player && this.quali) this.qualiSplit(bucket);
         }
       }
     }
@@ -572,6 +776,10 @@ export class Race {
     if (car.reversedOver) {
       car.reversedOver = false;
       car.lap += 1;
+      return;
+    }
+    if (this.mode === 'quali') {
+      this.qualiLine(car);
       return;
     }
     if (car.lap >= 0 && !car.lapArmed) return;
@@ -607,7 +815,7 @@ export class Race {
       if (fastest && this.mode === 'race' && car.lap >= 1) this.msg(`${car.code} FASTEST LAP ${formatTime(lt)}`, '#b65cff', 1.6, 0.7);
       return;
     }
-    const flying = this.mode === 'trial' || car.lap >= 1;
+    const flying = this.mode === 'trial' || this.mode === 'quali' || car.lap >= 1;
     const rec = this.record;
     let label = `LAP ${formatTime(lt)}`;
     let color = '#ffffff';
@@ -989,8 +1197,15 @@ export class Race {
       playerBest: p ? p.bestLap : null,
       playerPenalty: p ? p.penalty || 0 : 0,
       playerStops: p && p.stopTimes ? p.stopTimes.slice() : [],
+      fieldStop: this.fieldStop(),
       laps: this.totalLaps,
     };
+  }
+
+  // The computer cars' average time standing in the box this race.
+  fieldStop() {
+    const all = this.cars.filter((c) => c !== this.player).flatMap((c) => c.stopTimes || []);
+    return all.length ? all.reduce((a, b) => a + b, 0) / all.length : null;
   }
 
   // Pit crews: waiting in the box as their car comes in, one at each wheel
@@ -1048,7 +1263,7 @@ export class Race {
       }
       // Release light, on the lane side of the nose.
       if (s.stage === 'box') {
-        const g = c === this.player ? this.pits.game : null;
+        const g = c === this.player && this.pits ? this.pits.game : null;
         const green = g ? g.green : s.t >= (s.service || 0);
         const ly = p.side > 0 ? -24 : 24; // toward the lane
         ctx.fillStyle = '#16181c';
@@ -1085,7 +1300,7 @@ export class Race {
       g.draw(ctx, 0.4);
     }
     const m = 60;
-    if (this.pits) this.drawCrews(ctx, view);
+    if (this.pits || this.lane) this.drawCrews(ctx, view);
     for (const c of this.cars) {
       if (c === this.player) continue;
       if (c.x < view.minX - m || c.x > view.maxX + m || c.y < view.minY - m || c.y > view.maxY + m) continue;

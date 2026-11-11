@@ -52,9 +52,13 @@ export const PIT_GAME = {
 };
 
 // Computer stops by difficulty: time standing in the box (s), and now and
-// then a slow one. A perfect stop of yours takes about 2.3 s, a tidy one
-// about 2.7 s; a missed wheel costs most of a second.
-export const AI_STOP = { easy: [2.7, 3.7], normal: [2.4, 3.2], hard: [2.2, 2.9], slowChance: 0.06, slow: [1.5, 3.5] };
+// then a slow one. Yours, measured with `node tools/sim-stops.mjs`: perfect
+// taps about 2.5 s, a sharp player 2.9 s, a good one on a phone 3.5 s, a
+// typical one 4.1 s (every pass of the marker you let go by, and every miss,
+// costs about half a second or more). So on normal a good stop of yours
+// matches the computer crews, a sharp one gains, a messy one loses. A stop
+// under the range shows GREAT STOP, over it by `slowOver` s SLOW STOP.
+export const AI_STOP = { easy: [3.7, 4.7], normal: [2.9, 3.9], hard: [2.6, 3.4], slowChance: 0.06, slow: [1.5, 3.5], slowOver: 0.3 };
 
 // Garage colours and names, in box order (the same as the team list).
 export const PIT_TEAMS = TEAMS.map((t) => ({ id: t.id, color: t.livery.color, color2: t.livery.color2, short: t.code }));
@@ -86,7 +90,8 @@ export class Pits {
     }
     // Which visits to the entry count (m: 0 for the first time round).
     this.chances = [];
-    for (let m = 0; m <= race.totalLaps + 1; m++) if (this.allowed(m)) this.chances.push(m);
+    const laps = Number.isFinite(race.totalLaps) ? race.totalLaps : 0; // none outside a race
+    for (let m = 0; m <= laps + 1; m++) if (this.allowed(m)) this.chances.push(m);
     // Computer cars pick when they'll come in: around halfway, give or take.
     const c = this.chances.length;
     for (const car of race.cars) {
@@ -353,8 +358,9 @@ export class Pits {
     car.missedMsg = false;
     if (car === this.race.player) {
       this.game = null;
-      const great = standing < 2.5;
-      const slow = standing > 3.4;
+      const [lo, hi] = AI_STOP[this.race.difficulty] || AI_STOP.normal;
+      const great = standing < lo;
+      const slow = standing > hi + AI_STOP.slowOver;
       this.race.msg(`${great ? 'GREAT STOP' : slow ? 'SLOW STOP' : 'PIT STOP'}  ${standing.toFixed(1)}s`, great ? '#31d67b' : slow ? '#ffd23f' : '#ffffff', 2.2, 0.85);
       this.race.out.push({ t: 'pitGo', great });
     }

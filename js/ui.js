@@ -47,6 +47,7 @@ export function createUI(root, h) {
         <p><b>Corners:</b> a call tells you what's coming (LEFT, HARD RIGHT, HAIRPIN, CHICANE) and flashes BRAKE! where you need to; 3-2-1 boards count down to every big stop, brake at the red <b>1</b>. Long bends are flat out, quicker ones need a lift off the gas. The yellow-and-black kerbs in a chicane are solid: go round them, not over them.</p>
         <p><b>Launch:</b> wait for the five red lights to go out, then hit the gas. Hold it too early and you'll spin the wheels.</p>
         <p><b>Tyres &amp; damage:</b> your tyres wear a little every lap, faster when you drift and much faster off the road; hits with walls and cars damage the car. Both cost top speed, so look after them: TYRES and CAR next to your speed show how you're doing.</p>
+        <p><b>Qualifying:</b> in a season, every round starts with qualifying. You leave your garage for an out-lap, then one flying lap; the board shows everyone's times and where your lap would put you. That lap sets your place on the grid.</p>
         <p><b>Slipstream:</b> on a straight at speed, tuck in right behind a car. After a moment <b>SLIPSTREAM!</b> shows up under your car and you get extra pull and top speed, so you can pull out and pass.</p>
       </section>
     </div>
@@ -354,7 +355,7 @@ export function createUI(root, h) {
       const mate = team.drivers[save.settings.seat === 0 ? 1 : 0];
       body.innerHTML = `
         ${hasOutdatedSeason() ? '<p class="hint"><b>Your earlier season was for 11 cars, so it can\'t continue in the new 22-car format.</b> Starting a new season replaces it.</p>' : ''}
-        <p class="hint">The full calendar: ${ROUNDS} rounds from Melbourne to Abu Dhabi. 22 drivers in 11 teams, points for the top ten (${POINTS.join(', ')}), with a Drivers' and a Constructors' championship. Saved on this device.</p>
+        <p class="hint">The full calendar: ${ROUNDS} rounds from Melbourne to Abu Dhabi. 22 drivers in 11 teams, points for the top ten (${POINTS.join(', ')}), with a Drivers' and a Constructors' championship. Every round starts with qualifying: an out-lap, then one flying lap that sets your place on the grid. Saved on this device.</p>
         <div class="opts">
           <div class="opt">
             <span class="label">Laps per race</span>
@@ -393,6 +394,7 @@ export function createUI(root, h) {
       const mine = teamStanding(s);
       const team = teamById(s.team);
       const mate = s.lineup.find((d) => d.teamId === s.team && d.id !== 'you');
+      const wk = h.weekend();
       body.innerHTML = `
         <div class="season-next">
           <canvas class="thumb" aria-hidden="true"></canvas>
@@ -402,7 +404,11 @@ export function createUI(root, h) {
             <span class="meta">${esc(next.name)}${next.country !== next.name ? ` · ${esc(next.country)}` : ''} · ${s.laps} laps</span>
           </div>
         </div>
-        <button class="btn primary" data-act="season-race" data-primary><span>Race round ${s.round + 1}</span><small class="kbd">Enter</small></button>
+        ${
+          wk && wk.grid
+            ? `<button class="btn primary" data-act="season-race" data-primary><span>Race round ${s.round + 1}</span><small>you start P${wk.pos}</small></button>`
+            : `<button class="btn primary" data-act="season-race" data-primary><span>Qualifying</span><small>round ${s.round + 1} · out-lap, then one flying lap</small></button>`
+        }
         ${
           last
             ? `<p class="hint">Last race: P${last.playerPos} in the ${esc(last.track.gp)}, won by ${last.winner.id === 'you' ? 'you' : esc(last.winner.name)}. You're P${me.pos} in the Drivers' and ${esc(team.name)} P${mine.pos} in the Constructors'.</p>`
@@ -547,6 +553,45 @@ export function createUI(root, h) {
     show('results');
   }
 
+  function showQuali(res, info) {
+    const pos = res.playerPos;
+    const head = pos === 1 ? 'Pole position!' : pos === 2 ? 'Front row!' : pos <= 10 ? 'Top ten' : `Qualified P${pos}`;
+    const pole = res.rows[0].time;
+    const rows = res.rows
+      .map((r, i) => {
+        const time = r.time == null ? 'no time' : i === 0 ? formatTime(r.time) : formatGap(r.time - pole);
+        return `<tr class="${r.isPlayer ? 'me' : ''}">
+          <td class="num">${i + 1}</td>
+          <td><span class="swatch" style="background:${r.livery.color}"></span>${esc(r.code)} <span class="nm">${esc(r.isPlayer ? 'You' : r.name)}</span></td>
+          <td class="num ${i === 0 ? 'purple' : ''}">${time}</td>
+        </tr>`;
+      })
+      .join('');
+    const gap = pos === 1 ? (res.rows[1] && res.rows[1].time != null ? `${(res.rows[1].time - res.playerTime).toFixed(3)}s clear` : '') : `${formatGap(res.playerTime - pole)} to pole`;
+    const chips = info.chips.map((c) => `<li class="${c.kind}">${esc(c.text)}</li>`).join('');
+    $('#results').innerHTML = `
+      <div class="res-head">
+        <div class="res-pos pos-${Math.min(pos, 4)}">P${pos}</div>
+        <div>
+          ${info.event ? `<span class="eyebrow">${info.event.round ? `Round ${info.event.round} of ${info.event.rounds} · ` : ''}${esc(info.event.gp)} · Qualifying</span>` : ''}
+          <h2>${head}</h2>
+          <p>${esc(info.trackName)} · ${formatTime(res.playerTime)}${gap ? ` · ${gap}` : ''}</p>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table class="res-table">
+          <thead><tr><th>Pos</th><th>Driver</th><th>Time</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
+      ${chips ? `<ul class="chips">${chips}</ul>` : ''}
+      <div class="menu">
+        <button class="btn primary" data-act="quali-race" data-primary><span>Start the race</span><small>from P${pos} on the grid</small></button>
+        <button class="btn" data-act="quit"><span>Menu</span><small></small></button>
+      </div>`;
+    show('results');
+  }
+
   root.addEventListener('change', (e) => {
     if (e.target.id === 'track-select') selectTrack(e.target.value);
   });
@@ -610,6 +655,7 @@ export function createUI(root, h) {
     else if (act === 'season') openSeason();
     else if (act === 'season-start') h.onSeasonStart({ laps: seasonSetup.laps, difficulty: seasonSetup.difficulty, team: save.settings.team || TEAMS[0].id, seat: save.settings.seat });
     else if (act === 'season-race') h.onSeasonRace();
+    else if (act === 'quali-race') h.onQualiRace();
     else if (act === 'season-continue') h.onSeasonContinue();
     else if (act === 'season-new') h.onSeasonAbandon();
     else if (act === 'season-abandon') {
@@ -686,6 +732,7 @@ export function createUI(root, h) {
     openTeam,
     openSeason,
     showResults,
+    showQuali,
     get current() {
       return current;
     },
