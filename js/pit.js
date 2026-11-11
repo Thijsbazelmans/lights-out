@@ -416,7 +416,7 @@ export class Pits {
     if (!this.allowed(m)) return null;
     const to = m * this.track.length + this.gate - p.progress;
     const v = Math.max(200, p.forwardSpeed);
-    if (to < -40 || to / v > 2.6) return null;
+    if (to < -40 || to / v > 3.6) return null;
     return { side: this.track.pit.side, last: m === this.lastChance, to };
   }
 

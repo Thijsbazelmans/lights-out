@@ -165,13 +165,13 @@ export function drawHUD(ctx, race, cam, w, h, ins, opts) {
 
   drawCarTags(ctx, race, cam, w, h);
 
-  // ---- corner call: under the timer (under the speed panel when sideways) ----
+  // ---- your pit stop call, then the corner call: under the timer (under
+  // the speed panel when sideways) ----
   const callY = shortLandscape ? sy + sh + 8 + below : T + 62;
-  const callW = Math.min(narrow ? 172 : 214, Math.min(cx - (L + pw) - 8, mx - 6 - cx - 8) * 2);
-  if (race.call) drawCall(ctx, race.call, cx, callY, callW, race.time);
-  // ---- pit entry coming up (under the corner call) ----
-  const hint = race.pits && race.pits.hint();
-  if (hint) drawPitHint(ctx, hint, cx, callY + (race.call ? 50 : 0), callW, race.time);
+  const room = Math.min(cx - (L + pw) - 8, mx - 6 - cx - 8) * 2;
+  const callW = Math.min(narrow ? 172 : 214, room);
+  const pitH = drawPitCall(ctx, race, cx, callY, Math.min(300, room), race.time);
+  if (race.call) drawCall(ctx, race.call, cx, callY + pitH, callW, race.time);
   // ---- the pit stop you play: above the speed panel (at the bottom when sideways) ----
   if (race.pits && race.pits.game) {
     const gw = Math.min(320, w - 24);
@@ -456,34 +456,66 @@ function drawPitStatus(ctx, race, p, x, y, w, h, time, compact = false) {
 }
 
 // PIT ENTRY coming up: an arrow to the side the entry is on.
+// The pit stop you still owe: close to the entry, a big card with the side
+// to keep to; before that, all through your last chance, BOX THIS LAP.
+// Returns the height it took.
+function drawPitCall(ctx, race, cx, y, w, time) {
+  const pits = race.pits;
+  const p = race.player;
+  if (!pits || !p || p.pit || p.finished || race.phase !== 'race') return 0;
+  const hint = pits.hint();
+  if (hint) return drawPitHint(ctx, hint, cx, y, w, time) + 8;
+  if (!pits.lastLap()) return 0;
+  const bh = 40;
+  const x = cx - w / 2;
+  const on = Math.floor(time * 2.5) % 2 === 0;
+  ctx.fillStyle = on ? C.yellow : '#c9a224';
+  roundRect(ctx, x, y, w, bh, 10);
+  ctx.fill();
+  ctx.lineWidth = 2;
+  ctx.strokeStyle = 'rgba(0,0,0,0.35)';
+  ctx.stroke();
+  text(ctx, 'BOX THIS LAP', cx, y + 27, `900 italic 26px ${F_DISPLAY}`, '#14161b', 'center');
+  return bh + 8;
+}
+
 function drawPitHint(ctx, hint, cx, y, pw, time) {
-  const ph = 42;
+  const ph = 58;
   const x = cx - pw / 2;
   const right = hint.side > 0;
   const col = hint.last ? C.yellow : '#4fa3ff';
-  panel(ctx, x, y, pw, ph, 10);
+  const flash = hint.last && Math.floor(time * 5) % 2 === 0;
+  panel(ctx, x, y, pw, ph, 12);
+  if (flash) {
+    ctx.fillStyle = 'rgba(255,210,63,0.25)';
+    roundRect(ctx, x, y, pw, ph, 12);
+    ctx.fill();
+  }
   ctx.strokeStyle = col;
-  ctx.lineWidth = 2;
-  roundRect(ctx, x + 1, y + 1, pw - 2, ph - 2, 9);
+  ctx.lineWidth = 3;
+  roundRect(ctx, x + 1.5, y + 1.5, pw - 3, ph - 3, 11);
   ctx.stroke();
-  // Arrow, nudging toward the entry.
-  const nudge = Math.sin(time * 8) * 2;
-  const ax = right ? x + pw - 24 + nudge : x + 24 - nudge;
-  ctx.save();
-  ctx.translate(ax, y + ph / 2);
-  ctx.scale(right ? 1 : -1, 1);
-  ctx.fillStyle = col;
-  ctx.beginPath();
-  ctx.moveTo(-9, -9);
-  ctx.lineTo(4, 0);
-  ctx.lineTo(-9, 9);
-  ctx.lineTo(-5, 0);
-  ctx.closePath();
-  ctx.fill();
-  ctx.restore();
-  const tx = right ? x + 12 : x + 40;
-  text(ctx, hint.last ? 'LAST CHANCE' : 'PIT ENTRY', tx, y + 17, `800 10px ${F_UI}`, col);
-  text(ctx, `KEEP ${right ? 'RIGHT' : 'LEFT'}`, tx, y + 35, `900 italic 18px ${F_DISPLAY}`, C.text);
+  // Two arrows, nudging toward the entry.
+  const nudge = Math.sin(time * 8) * 3;
+  for (const off of [0, 14]) {
+    const ax = right ? x + pw - 40 + off + nudge : x + 40 - off - nudge;
+    ctx.save();
+    ctx.translate(ax, y + ph / 2);
+    ctx.scale(right ? 1 : -1, 1);
+    ctx.fillStyle = col;
+    ctx.beginPath();
+    ctx.moveTo(-11, -14);
+    ctx.lineTo(5, 0);
+    ctx.lineTo(-11, 14);
+    ctx.lineTo(-6, 0);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+  }
+  const tx = right ? x + 14 : x + 66;
+  text(ctx, hint.last ? 'BOX NOW · LAST CHANCE' : 'PIT ENTRY', tx, y + 20, `800 11px ${F_UI}`, col);
+  text(ctx, `KEEP ${right ? 'RIGHT' : 'LEFT'}`, tx, y + 47, `900 italic 27px ${F_DISPLAY}`, C.text);
+  return ph;
 }
 
 // The stop you play: four wheel guns, then the release light.
@@ -746,9 +778,8 @@ function drawSideHUD(ctx, race, cam, w, h, ins, opts) {
     const cw = Math.min(gapR - gapL, 440);
     drawEventCard(ctx, ev, (gapL + gapR) / 2, T + (isRace ? 68 : 0), cw, fade, true);
   }
-  if (race.call && !before) drawCall(ctx, race.call, mid, T, Math.min(214, gapR - gapL), race.time);
-  const hint = race.pits && !before && race.pits.hint();
-  if (hint) drawPitHint(ctx, hint, mid, T + (race.call ? 50 : 0), Math.min(214, gapR - gapL), race.time);
+  const pitH = before ? 0 : drawPitCall(ctx, race, mid, T, Math.min(280, gapR - gapL), race.time);
+  if (race.call && !before) drawCall(ctx, race.call, mid, T + pitH, Math.min(214, gapR - gapL), race.time);
   if (race.pits && race.pits.game) {
     // Top middle, where the corner calls go, so the car and crew stay in view.
     const gw = Math.min(320, gapR - gapL);
@@ -976,12 +1007,87 @@ function teammateOf(race, p) {
   return race.cars.find((c) => c !== p && c.teamId && c.teamId === p.teamId) || null;
 }
 
+// The timing tower: a window of the order that follows you, plus the leader
+// and your teammate. You and the cars right ahead of and behind you get big
+// rows with the gap to you; the rest are small, with their gap to the leader.
 function drawTower(ctx, race, x, y, p) {
-  const rowH = 20;
-  const w = 168;
+  const w = 184;
   const order = race.order;
   const mate = teammateOf(race, p);
-  // Gap to the leader for everyone, built from car-to-car intervals.
+  const me = order.indexOf(p);
+  const gaps = towerGaps(order);
+  const rows = followRows(order.length, me, 9, [0, order.indexOf(mate)]);
+  const big = (i) => i >= me - 1 && i <= me + 1;
+  const rowH = (i) => (i < 0 ? 8 : big(i) ? 28 : 17);
+  const height = rows.reduce((hgt, i) => hgt + rowH(i), 0) + 10;
+  panel(ctx, x, y, w, height, 10);
+  let ry = y + 5;
+  for (const i of rows) {
+    if (i < 0) {
+      ctx.fillStyle = C.line;
+      ctx.fillRect(x + 12, ry + 3, w - 24, 2);
+      ry += 8;
+      continue;
+    }
+    const c = order[i];
+    const h = rowH(i);
+    const isBig = big(i);
+    if (c === p) {
+      ctx.fillStyle = 'rgba(255,255,255,0.16)';
+      roundRect(ctx, x + 4, ry, w - 8, h - 2, 6);
+      ctx.fill();
+      ctx.fillStyle = C.lights;
+      roundRect(ctx, x + 4, ry, 4, h - 2, 2);
+      ctx.fill();
+    } else if (isBig) {
+      ctx.fillStyle = 'rgba(255,255,255,0.05)';
+      roundRect(ctx, x + 4, ry, w - 8, h - 2, 6);
+      ctx.fill();
+    } else if (c === mate) {
+      ctx.fillStyle = 'rgba(255,210,63,0.1)';
+      roundRect(ctx, x + 4, ry, w - 8, h - 1, 5);
+      ctx.fill();
+    }
+    const base = ry + h / 2;
+    if (isBig) {
+      text(ctx, String(i + 1), x + 22, base + 6, `700 15px ${F_DATA}`, c === p ? C.text : C.muted, 'center');
+      ctx.fillStyle = c.livery.color;
+      ctx.fillRect(x + 37, ry + 5, 4, h - 12);
+      text(ctx, c.code, x + 48, base + 7, `800 19px ${F_DISPLAY}`, c === mate ? C.yellow : C.text);
+      let g;
+      let col = C.text;
+      if (c === p) {
+        g = i === 0 ? (c.finished ? 'FINISH' : 'LEADER') : formatGap(gaps[i]);
+        col = C.muted;
+      } else if (i < me) {
+        g = `▲ ${(gaps[me] - gaps[i]).toFixed(1)}s`; // ahead of you by
+        col = C.green;
+      } else {
+        g = `▼ ${(gaps[i] - gaps[me]).toFixed(1)}s`; // behind you by
+        col = C.red;
+      }
+      text(ctx, g, x + w - 10, base + 5, `700 14px ${F_DATA}`, col, 'right');
+    } else {
+      text(ctx, String(i + 1), x + 22, base + 4, `700 10px ${F_DATA}`, C.muted, 'center');
+      ctx.fillStyle = c.livery.color;
+      ctx.fillRect(x + 37, ry + 4, 3, h - 8);
+      text(ctx, c.code, x + 48, base + 4, `700 12px ${F_DISPLAY}`, c === mate ? C.yellow : 'rgba(238,242,248,0.75)');
+      const g = i === 0 ? (c.finished ? 'FINISH' : 'LEADER') : formatGap(gaps[i]);
+      text(ctx, g, x + w - 10, base + 4, `500 10px ${F_DATA}`, C.muted, 'right');
+    }
+    if (race.fastest && race.fastest.car === c) {
+      ctx.fillStyle = C.purple;
+      ctx.beginPath();
+      ctx.arc(x + (isBig ? 96 : 84), base, 3, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ry += h;
+  }
+}
+
+// Gap to the leader for everyone in race order, built from car-to-car
+// intervals (distance apart over speed), or finishing times once both are home.
+function towerGaps(order) {
   const gaps = [0];
   for (let i = 1; i < order.length; i++) {
     const prev = order[i - 1];
@@ -994,70 +1100,40 @@ function drawTower(ctx, race, x, y, p) {
     }
     gaps.push(gaps[i - 1] + g);
   }
-  // A window of ten that follows you (you in the middle, unless you're near
-  // the front or the back), plus the leader and your teammate if they're
-  // outside it. Gaps in the order are marked.
-  const rows = followRows(order.length, order.indexOf(p), 10, [0, order.indexOf(mate)]);
-  const height = rows.reduce((hgt, i) => hgt + (i < 0 ? 8 : rowH), 0) + 10;
-  panel(ctx, x, y, w, height, 10);
-  let ry = y + 5;
-  for (const i of rows) {
-    if (i < 0) {
-      ctx.fillStyle = C.line;
-      ctx.fillRect(x + 12, ry + 3, w - 24, 2);
-      ry += 8;
-      continue;
-    }
-    const c = order[i];
-    if (c === p || c === mate) {
-      ctx.fillStyle = c === p ? 'rgba(255,255,255,0.13)' : 'rgba(255,210,63,0.13)';
-      roundRect(ctx, x + 4, ry, w - 8, rowH - 1, 5);
-      ctx.fill();
-    }
-    text(ctx, String(i + 1), x + 18, ry + 14, `700 12px ${F_DATA}`, C.muted, 'center');
-    ctx.fillStyle = c.livery.color;
-    ctx.fillRect(x + 30, ry + 4, 3, rowH - 9);
-    text(ctx, c.code, x + 40, ry + 14, `800 14px ${F_DISPLAY}`, c === mate ? C.yellow : C.text);
-    const g = i === 0 ? (c.finished ? 'FINISH' : 'LEADER') : formatGap(gaps[i]);
-    text(ctx, g, x + w - 10, ry + 14, `500 11px ${F_DATA}`, i === 0 ? C.muted : C.text, 'right');
-    if (race.fastest && race.fastest.car === c) {
-      ctx.fillStyle = C.purple;
-      ctx.beginPath();
-      ctx.arc(x + 82, ry + 10, 3, 0, Math.PI * 2);
-      ctx.fill();
-    }
-    ry += rowH;
-  }
+  return gaps;
 }
 
+// Phone held sideways: the car ahead of you and behind you (and your
+// teammate), big, with the gap to you.
 function drawNearby(ctx, race, x, y, p, w) {
-  const idx = race.order.indexOf(p);
-  const ahead = race.order[idx - 1];
-  const behind = race.order[idx + 1];
-  // Interval from the distance between the cars and how fast they're going.
-  const interval = (a, b) => {
-    const v = Math.max(150, (Math.max(0, a.forwardSpeed) + Math.max(0, b.forwardSpeed)) / 2);
-    return `${(Math.abs(a.progress - b.progress) / v).toFixed(1)}s`;
-  };
+  const order = race.order;
+  const idx = order.indexOf(p);
+  const gaps = towerGaps(order);
+  const ahead = order[idx - 1];
+  const behind = order[idx + 1];
   const lines = [];
-  if (ahead && !ahead.finished) lines.push(['▲', ahead, interval(ahead, p)]);
-  if (behind) lines.push(['▼', behind, interval(p, behind)]);
+  if (ahead && !ahead.finished) lines.push(['▲', ahead, gaps[idx] - gaps[idx - 1]]);
+  if (behind) lines.push(['▼', behind, gaps[idx + 1] - gaps[idx]]);
   const mate = teammateOf(race, p);
-  if (mate && mate !== ahead && mate !== behind) {
-    const matesAhead = race.order.indexOf(mate) < idx;
-    lines.push(['TM', mate, `${matesAhead ? '▲' : '▼'}${matesAhead ? interval(mate, p) : interval(p, mate)}`]);
-  }
+  if (mate && mate !== ahead && mate !== behind) lines.push(['TM', mate, Math.abs(gaps[order.indexOf(mate)] - gaps[idx])]);
   if (!lines.length) return 0;
-  panel(ctx, x, y, w, lines.length * 20 + 8, 10);
+  const wide = w >= 150; // room for positions
+  const rh = wide ? 26 : 22;
+  panel(ctx, x, y, w, lines.length * rh + 8, 10);
   lines.forEach(([arrow, c, g], i) => {
-    const ry = y + 4 + i * 20;
-    text(ctx, arrow, x + 8, ry + 15, `700 ${arrow === 'TM' ? 8 : 10}px ${F_UI}`, arrow === '▲' ? C.green : arrow === 'TM' ? C.yellow : C.red);
+    const ry = y + 4 + i * rh;
+    const mid = ry + rh / 2;
+    const col = arrow === '▲' ? C.green : arrow === 'TM' ? C.yellow : C.red;
+    const matesAhead = arrow === 'TM' && order.indexOf(c) < idx;
+    text(ctx, arrow, x + 9, mid + 5, `700 ${arrow === 'TM' ? 9 : 12}px ${F_UI}`, col);
+    const cx0 = wide ? x + 45 : x + 25;
+    if (wide) text(ctx, String(order.indexOf(c) + 1), x + 34, mid + 5, `700 11px ${F_DATA}`, C.muted, 'center');
     ctx.fillStyle = c.livery.color;
-    ctx.fillRect(x + 23, ry + 4, 3, 13);
-    text(ctx, c.code, x + 31, ry + 15, `800 13px ${F_DISPLAY}`, C.text);
-    text(ctx, g, x + w - 8, ry + 15, `500 10px ${F_DATA}`, C.text, 'right');
+    ctx.fillRect(cx0, ry + 5, 3, rh - 10);
+    text(ctx, c.code, cx0 + 8, mid + 6, `800 ${wide ? 17 : 14}px ${F_DISPLAY}`, arrow === 'TM' ? C.yellow : C.text);
+    text(ctx, `${arrow === 'TM' ? (matesAhead ? '▲' : '▼') : ''}${g.toFixed(1)}s`, x + w - 8, mid + 5, `700 ${wide ? 13 : 11}px ${F_DATA}`, C.text, 'right');
   });
-  return lines.length * 20 + 8;
+  return lines.length * rh + 8;
 }
 
 function drawLapList(ctx, race, x, y, w, p) {

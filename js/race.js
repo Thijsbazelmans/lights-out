@@ -33,10 +33,11 @@ const CALL_WARN = 1.4;
 // the middle of that range (a proper first-lap scramble); during lap 1 each
 // car moves to its own race pace, so the field strings out into smaller
 // groups and one-on-one battles.
+// (Build 26 raised normal and hard: the owner won on normal without trying.)
 export const DIFFICULTY = {
   easy: { top: 0.82, spread: 0.13, power: 0.95, powerSpread: 0.07, chase: 0.08 },
-  normal: { top: 0.88, spread: 0.13, power: 1.0, powerSpread: 0.07, chase: 0.12 },
-  hard: { top: 0.915, spread: 0.12, power: 1.02, powerSpread: 0.06, chase: 0.15 },
+  normal: { top: 0.93, spread: 0.12, power: 1.05, powerSpread: 0.07, chase: 0.1 },
+  hard: { top: 0.95, spread: 0.1, power: 1.09, powerSpread: 0.06, chase: 0.12 },
 };
 
 // A computer driver's pace for a weekend: the team and driver (`skill`),
@@ -471,17 +472,74 @@ export class Race {
 
   }
 
-  // Your pit reminder: on the last lap you can still stop on, BOX THIS LAP.
+  // Your pit reminder (the HUD shows BOX THIS LAP all through your last
+  // chance): a double beep as that lap starts, and again as the entry comes
+  // into view on it.
   pitNotes() {
     const p = this.player;
     const pits = this.pits;
-    if (!p || p.finished || this.boxMsg || !pits.lastLap() || this.time < 3) return;
-    const to = pits.lastChance * this.track.length + pits.gate - p.progress;
-    if (to < this.track.length * 0.6) {
+    if (!p || p.finished || this.time < 3) return;
+    if (!this.boxMsg && pits.lastLap()) {
       this.boxMsg = true;
-      this.msg('BOX THIS LAP', '#ffd23f', 2.4, 1);
       this.out.push({ t: 'boxCall' });
     }
+    const hint = pits.hint();
+    if (hint && hint.last && !this.entryBeep) {
+      this.entryBeep = true;
+      this.out.push({ t: 'boxCall' });
+    }
+  }
+
+  // Yellow arrows on the road leading into the pit lane, while you still owe
+  // your stop and the entry is coming up.
+  drawPitArrows(ctx) {
+    const pits = this.pits;
+    const p = this.player;
+    const t = this.track;
+    if (!p || p.pit || p.finished || this.phase !== 'race' || !pits.due(p)) return;
+    const m = pits.visit(p);
+    if (!pits.allowed(m)) return;
+    const to = m * t.length + pits.gate - p.progress;
+    if (to < -60 || to > 1600) return;
+    const n = t.n;
+    const side = t.pit.side;
+    const COUNT = 12;
+    const STEP = 55; // px between arrows
+    const pt = (j) => {
+      const k = t.pit.start - Math.round((j * STEP) / t.ds);
+      const i = ((k % n) + n) % n;
+      const u = 1 - j / COUNT;
+      const lat = side * (t.half - 20) * u * u * (3 - 2 * u); // drifting over to the pit side
+      return [t.px[i] + t.nx[i] * lat, t.py[i] + t.ny[i] * lat];
+    };
+    const wave = (performance.now() / 1000) * 2.2;
+    ctx.save();
+    ctx.lineJoin = 'round';
+    ctx.lineCap = 'round';
+    for (let j = COUNT; j >= 0; j--) {
+      const [x, y] = pt(j);
+      // Pointing on to the next arrow (the last one: the way the last pair goes).
+      const [xa, ya] = j > 0 ? [x, y] : pt(1);
+      const [xb, yb] = j > 0 ? pt(j - 1) : [x, y];
+      const a = Math.atan2(yb - ya, xb - xa);
+      // A pulse running along the arrows toward the entry.
+      const glow = 0.45 + 0.55 * Math.max(0, Math.cos((j / COUNT) * Math.PI * 2 + wave * Math.PI));
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.rotate(a);
+      ctx.beginPath();
+      ctx.moveTo(-9, -13);
+      ctx.lineTo(5, 0);
+      ctx.lineTo(-9, 13);
+      ctx.lineWidth = 9;
+      ctx.strokeStyle = 'rgba(10,10,12,0.5)';
+      ctx.stroke();
+      ctx.lineWidth = 5;
+      ctx.strokeStyle = `rgba(255,210,63,${glow})`;
+      ctx.stroke();
+      ctx.restore();
+    }
+    ctx.restore();
   }
 
   go(input) {
@@ -1294,6 +1352,7 @@ export class Race {
     t.drawGround(ctx, view);
     t.drawSurface(ctx, view, this.hints !== false);
     this.skids.draw(ctx, view);
+    if (this.pits) this.drawPitArrows(ctx);
     t.drawDecor(ctx, view);
     const gp = this.ghostPose();
     if (gp) {

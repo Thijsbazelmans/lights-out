@@ -2149,20 +2149,41 @@ export class Track {
     ctx.stroke();
     for (const c of cars) {
       if (c === focus) continue;
+      ctx.fillStyle = 'rgba(0,0,0,0.55)';
+      ctx.beginPath();
+      ctx.arc(ox + c.x * s, oy + c.y * s, 3.4, 0, Math.PI * 2);
+      ctx.fill();
       ctx.fillStyle = c.livery.color;
       ctx.beginPath();
-      ctx.arc(ox + c.x * s, oy + c.y * s, 3, 0, Math.PI * 2);
+      ctx.arc(ox + c.x * s, oy + c.y * s, 2.4, 0, Math.PI * 2);
       ctx.fill();
     }
+    // You: a white arrow pointing the way you're going, in a pulsing red halo.
     if (focus) {
-      ctx.fillStyle = '#fff';
+      const fx = ox + focus.x * s;
+      const fy = oy + focus.y * s;
+      const k = Math.max(0.8, Math.min(1.2, size / 120));
+      const pulse = 0.5 + 0.5 * Math.sin((typeof performance !== 'undefined' ? performance.now() : 0) / 180);
+      ctx.fillStyle = `rgba(255,42,31,${0.28 + 0.2 * pulse})`;
       ctx.beginPath();
-      ctx.arc(ox + focus.x * s, oy + focus.y * s, 5, 0, Math.PI * 2);
+      ctx.arc(fx, fy, (9 + 3 * pulse) * k, 0, Math.PI * 2);
       ctx.fill();
-      ctx.fillStyle = focus.livery.color;
+      ctx.save();
+      ctx.translate(fx, fy);
+      ctx.rotate(focus.angle);
+      ctx.scale(k, k);
       ctx.beginPath();
-      ctx.arc(ox + focus.x * s, oy + focus.y * s, 3.2, 0, Math.PI * 2);
+      ctx.moveTo(8, 0);
+      ctx.lineTo(-6, -6);
+      ctx.lineTo(-3, 0);
+      ctx.lineTo(-6, 6);
+      ctx.closePath();
+      ctx.fillStyle = '#ffffff';
       ctx.fill();
+      ctx.lineWidth = 1.5;
+      ctx.strokeStyle = '#ff2a1f';
+      ctx.stroke();
+      ctx.restore();
     }
   }
 

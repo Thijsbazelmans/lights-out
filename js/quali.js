@@ -26,7 +26,7 @@ export const SPLITS = 40;
 // a lap after `timeout` s gets no time. You leave the garage `release` s
 // after the green light.
 export const QUALI = {
-  push: { easy: [1.06, 1.04], normal: [1.1, 1.08], hard: [1.13, 1.13] },
+  push: { easy: [1.06, 1.04], normal: [1.04, 1.03], hard: [1.03, 1.06] },
   paceTop: 0.97,
   scatter: 0.004,
   scrappy: 0.08,

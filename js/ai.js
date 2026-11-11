@@ -8,6 +8,10 @@ import { clamp, damp, rand, wrapAngle } from './util.js';
 // How close (px) an AI car aims to pass a chicane's sausage kerb.
 export const AI_KERB = { gap: 36 };
 
+// The most a computer driver takes of the racing line's corner speeds when
+// a chase pushes it up: beyond about this they overshoot corners.
+export const AI_PACE_TOP = 0.97;
+
 export class AIDriver {
   constructor(car, track, { pace = 0.93 } = {}) {
     this.car = car;
@@ -125,7 +129,7 @@ export class AIDriver {
     let vt = Infinity;
     const win = Math.round((40 + Math.abs(v) * 0.12) / t.ds);
     for (let k = 0; k <= win; k += 2) vt = Math.min(vt, t.vProfile[(idx + k) % n]);
-    vt *= this.pace * rubber;
+    vt *= rubber > 1 ? Math.min(Math.max(this.pace, AI_PACE_TOP), this.pace * rubber) : this.pace * rubber;
     if (c.offTrack) vt = Math.min(vt, 320);
     if (Math.abs(err) > 0.7) vt = Math.min(vt, 240);
     if (ahead && aheadF < (boxedIn || following ? 105 : 70) && ahead.forwardSpeed < v) vt = Math.min(vt, ahead.forwardSpeed * (boxedIn ? 0.94 : 0.985));
