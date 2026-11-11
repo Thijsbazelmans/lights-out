@@ -23,7 +23,7 @@ Top-down arcade Formula racing that runs in the browser and installs to a phone'
 
 On a phone the game is played sideways; held upright, it asks you to turn the phone (and pauses a race). An installed home-screen app on Android opens in landscape by itself. The controls are buttons, like the arrow keys on a computer: ‹ and › under one thumb, GAS above BRAKE under the other. A thumb can rock from one button to its neighbour without lifting; the gap between GAS and BRAKE, or lifting off, is coasting. Each half of the screen belongs to one pair of buttons, so a thumb doesn't need to land exactly. Settings → Phone layout puts steering under the left thumb (default) or the right.
 
-To keep a phone cool the game draws at 1.5 pixels per point there (2 on a computer), at most 60 frames a second while racing and 30 behind the menus, nothing new while paused, and the sound rests when nothing is playing.
+To keep a phone cool the game draws at 1.5 pixels per point there (2 on a computer), about 30 frames a second behind the menus and nothing new while paused; races run at the screen's own rate. Settings → Battery saver caps races at 60 frames a second and draws a little less sharp, for a cooler phone. With sound off the audio is switched off altogether. The pause screen shows how many frames a second the game was drawing.
 
 With the phone sideways the middle of the screen stays clear for the road: position, lap times, gaps and messages sit in the column above the steering controls, the speed sits right next to GAS, the map sits next to the pause button above the pedals, and only the start lights appear in the middle.
 

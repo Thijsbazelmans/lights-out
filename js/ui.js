@@ -125,6 +125,11 @@ export function createUI(root, h) {
           <p class="hint">Steer left: ‹ and › under your left thumb, GAS above BRAKE under your right. Steer right: the other way round. Rock your thumb from one button to the other, or lift it to coast.</p>
         </div>
         <div class="opt">
+          <span class="label">Battery saver</span>
+          <div class="seg" data-setting="batterySaver"><button data-val="false">Off</button><button data-val="true">On</button></div>
+          <p class="hint">On a phone or tablet: races run at most 60 frames a second and are drawn a little less sharp, so the phone stays cooler. Off: as smooth as the screen allows.</p>
+        </div>
+        <div class="opt">
           <span class="label">Auto-gas</span>
           <div class="seg" data-setting="autoGas"><button data-val="false">Off</button><button data-val="true">On</button></div>
           <p class="hint">The car accelerates by itself; you only steer and brake. Handy on a phone.</p>

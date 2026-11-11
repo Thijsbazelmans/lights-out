@@ -15,7 +15,7 @@ import { clamp, formatTime } from './util.js';
 import { POINTS, ROUNDS, abandonSeason, currentSeason, isComplete, nextTrack, playerStanding, recordRound, standings, startSeason, teamStanding } from './season.js';
 
 // Bump together with --build in css/style.css and CACHE in sw.js.
-const BUILD = '23';
+const BUILD = '24';
 
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d', { alpha: false });
@@ -29,10 +29,13 @@ let DPR = 1;
 let insets = { top: 0, right: 0, bottom: 0, left: 0 };
 
 // A phone or tablet (touch is its main input; a touchscreen laptop isn't).
-// To keep phones cooler: the game is drawn at 1.5 pixels per point rather
-// than 2, at most 60 times a second while racing and 30 behind the menus.
+// To keep phones cooler the game is drawn at 1.5 pixels per point rather
+// than 2, and about 30 times a second behind the menus. Races run at the
+// screen's own rate; Battery saver (Settings) caps them at 60 frames a
+// second and draws at 1.25.
 const PHONE = !!window.matchMedia && matchMedia('(pointer: coarse)').matches;
 const PHONE_DPR = 1.5;
+const SAVER_DPR = 1.25;
 const PHONE_PARTICLES = 450; // most smoke, dust and sparks at once (900 elsewhere)
 const shade = { canvas: document.createElement('canvas'), key: '' }; // see shadeFor()
 let ctlRects; // see controlRects()
@@ -104,6 +107,7 @@ const ui = createUI(document.getElementById('ui'), {
   },
   onSetting: (key, v) => {
     if (key === 'sound') audio.setSoundEnabled(v);
+    if (key === 'batterySaver') resize();
     if (key === 'steerSide') applySide();
   },
 });
@@ -111,7 +115,7 @@ const ui = createUI(document.getElementById('ui'), {
 // ---------- layout ----------
 
 function resize() {
-  DPR = Math.min(PHONE ? PHONE_DPR : 2, window.devicePixelRatio || 1);
+  DPR = Math.min(PHONE ? (save.settings.batterySaver ? SAVER_DPR : PHONE_DPR) : 2, window.devicePixelRatio || 1);
   shade.key = ''; // rebuild the tint and vignette for the new size
   ctlRects = undefined;
   drawnStill = false; // a resized canvas is blank: draw it again
@@ -294,7 +298,8 @@ function pause() {
       : ev.mode === 'trial'
         ? `lap ${Math.max(1, p.lap + 1)}`
         : `lap ${Math.min(Math.max(1, p.lap + 1), ev.laps)} of ${ev.laps}`;
-    ui.setPauseInfo(`${ev.round ? `Round ${ev.round} of ${ev.rounds} · ` : ''}${ev.gp}${ev.gp.startsWith(ev.name) ? '' : ` · ${ev.name}`} · ${lap}`);
+    // (and how many frames a second the game was drawing, to check phones)
+    ui.setPauseInfo(`${ev.round ? `Round ${ev.round} of ${ev.rounds} · ` : ''}${ev.gp}${ev.gp.startsWith(ev.name) ? '' : ` · ${ev.name}`} · ${lap}${fps.now ? ` · ${fps.now} fps` : ''}`);
   }
   ui.show('pause');
   syncChrome();
@@ -527,21 +532,38 @@ function showQuali(r) {
 // ---------- loop ----------
 
 let last = performance.now();
-let owed = 0; // time not yet played out (a frame skipped on a phone)
+let owed = 0; // time not yet played out (screen frames skipped on a phone)
+let screenGap = 1 / 60; // the screen's frame interval, measured as we go
+let skipped = 0;
+const fps = { frames: 0, time: 0, now: 0 }; // frames drawn per second (shown when paused)
 
-// The fewest seconds between frames: a phone draws at most 60 frames a
-// second while racing and 30 behind the menus, results and pause screen.
-function frameGap() {
-  if (!PHONE) return 0;
-  return state.race && !state.paused && !state.resultsShown ? 1 / 60 : 1 / 30;
+// Every how many screen frames a frame is drawn: every one while racing
+// (with Battery saver, at most 60 a second); on a phone behind the menus,
+// results and pause screen, about 30 a second. Counting screen frames keeps
+// the drawn ones evenly spaced.
+function frameEvery() {
+  if (!PHONE) return 1;
+  const racing = state.race && !state.paused && !state.resultsShown;
+  const most = racing ? (save.settings.batterySaver ? 60 : 0) : 30;
+  return most ? Math.max(1, Math.round(1 / most / screenGap)) : 1;
 }
 
 function frame(now) {
-  owed += (now - last) / 1000;
+  const gap = (now - last) / 1000;
   last = now;
-  if (owed >= frameGap() - 0.004) {
+  if (gap > 0.002 && gap < 0.1) screenGap += (gap - screenGap) * 0.05;
+  owed += gap;
+  if (++skipped >= frameEvery()) {
+    skipped = 0;
     tick(Math.min(0.05, owed));
     owed = 0;
+    fps.frames++;
+  }
+  fps.time += gap;
+  if (fps.time >= 1) {
+    fps.now = Math.round(fps.frames / fps.time);
+    fps.frames = 0;
+    fps.time = 0;
   }
   requestAnimationFrame(frame);
 }
