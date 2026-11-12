@@ -19,8 +19,10 @@ function defaults() {
       batterySaver: false, // phones: drawn a little less sharp, fewer particles
       team: null, // id of the team you race for; null until picked
       seat: 1, // which of the team's two drivers you replace (0 or 1)
+      name: '', // on the challenges you send (see challenge.js)
     },
     records: {},
+    challenges: {}, // circuit id -> the last lap someone sent you there (challenge.js)
     stats: { races: 0, wins: 0, podiums: 0, championships: 0 },
     season: null, // championship in progress (see season.js)
     weekend: null, // this round's qualifying, until its race is done (see main.js)
@@ -36,6 +38,7 @@ function load() {
     return {
       settings: { ...def.settings, ...(d.settings || {}) },
       records: d.records || {},
+      challenges: d.challenges || {},
       stats: { ...def.stats, ...(d.stats || {}) },
       season: d.season || null,
       weekend: d.weekend || null,
@@ -86,6 +89,14 @@ export const save = {
   peek(trackId) {
     return data.records[trackId] || null;
   },
+  // Laps people sent you, one per circuit (the latest).
+  challenge(trackId) {
+    return data.challenges[trackId] || null;
+  },
+  setChallenge(c) {
+    data.challenges[c.track] = c;
+    this.write();
+  },
   // A circuit whose layout changed: its lap records, ghost and best race
   // time no longer compare, so they go (wins and best finishes stay).
   checkLayouts(current) {
@@ -108,6 +119,7 @@ export const save = {
   },
   resetRecords() {
     data.records = {};
+    data.challenges = {};
     data.stats = defaults().stats;
     this.write();
   },

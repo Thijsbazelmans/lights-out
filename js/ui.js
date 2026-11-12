@@ -8,6 +8,7 @@ import { drawTrackThumb } from './track.js';
 import { save } from './storage.js';
 import { POINTS, ROUNDS, constructorStandings, currentSeason, hasOutdatedSeason, isComplete, lastRound, nextTrack, playerStanding, standings, teamStanding } from './season.js';
 import { followRows, formatGap, formatTime } from './util.js';
+import { challengeFrom, challengeLink, challengeProblem, cleanName, codeFrom, encodeChallenge } from './challenge.js';
 
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
 
@@ -89,7 +90,34 @@ export function createUI(root, h) {
           </div>
         </div>
       </div>
+      <div class="opts" id="trial-opts" hidden>
+        <div class="opt" id="vs-opt" hidden>
+          <span class="label">Race against</span>
+          <div class="seg" id="vs-seg"><button data-vs="own">Your best</button><button data-vs="them"></button></div>
+          <p class="hint" id="vs-hint"></p>
+        </div>
+      </div>
       <button class="btn primary go" id="btn-start" data-act="start" data-primary><span>Start</span><small class="kbd">Enter</small></button>
+      <div class="opts challenge-box" id="challenge-box" hidden>
+        <div class="opt">
+          <span class="label">Challenge someone</span>
+          <div class="field-row" id="name-row">
+            <input class="field" id="name-input" type="text" maxlength="16" placeholder="Your name" autocomplete="nickname" enterkeyhint="done" aria-label="Your name">
+            <button class="btn small" data-act="name-save"><span>Save</span></button>
+          </div>
+          <button class="btn" data-act="send" data-send><span>Send your lap</span><small></small></button>
+          <p class="hint">They get a link, race your lap as a ghost and can send theirs back.</p>
+          <div class="field-row" data-link-row hidden><input class="field" type="text" readonly aria-label="Challenge link"></div>
+        </div>
+        <div class="opt">
+          <button class="btn" data-act="paste"><span>Paste a challenge</span><small>from a link</small></button>
+          <div class="field-row" id="paste-row" hidden>
+            <input class="field" id="paste-input" type="text" placeholder="Paste the link here" autocomplete="off" enterkeyhint="go" aria-label="Challenge link">
+            <button class="btn small" data-act="paste-go"><span>Open</span></button>
+          </div>
+        </div>
+        <p class="hint note" id="challenge-note" aria-live="polite"></p>
+      </div>
     </div>
   </section>
 
@@ -140,6 +168,11 @@ export function createUI(root, h) {
           <p class="hint">The car accelerates by itself; you only steer and brake. Handy on a phone.</p>
         </div>
         <div class="opt">
+          <span class="label">Your name</span>
+          <div class="field-row"><input class="field" id="settings-name" type="text" maxlength="16" placeholder="Your name" autocomplete="nickname" enterkeyhint="done" aria-label="Your name"></div>
+          <p class="hint">Shown on the time-trial challenges you send.</p>
+        </div>
+        <div class="opt">
           <span class="label">Saved data</span>
           <button class="btn danger" id="btn-reset" data-act="reset"><span>Erase records</span><small>lap times, ghosts, stats</small></button>
         </div>
@@ -182,9 +215,16 @@ export function createUI(root, h) {
       <div class="menu">
         <button class="btn primary" data-act="resume" data-primary><span>Resume</span><small class="kbd">Esc</small></button>
         <button class="btn" data-act="restart"><span>Restart</span><small></small></button>
+        <button class="btn" id="btn-send-pause" data-act="send" data-send hidden><span>Send your lap</span><small></small></button>
         <button class="btn" data-act="quit"><span>Quit to menu</span><small></small></button>
       </div>
+      <div class="field-row" data-link-row hidden><input class="field" type="text" readonly aria-label="Challenge link"></div>
+      <p class="hint note" id="pause-note" aria-live="polite"></p>
     </div>
+  </section>
+
+  <section class="screen center" data-screen="challenge" hidden>
+    <div class="modal challenge" id="challenge"></div>
   </section>
 
   <section class="screen center" data-screen="results" hidden>
@@ -200,6 +240,7 @@ export function createUI(root, h) {
     for (const [k, el] of Object.entries(screens)) el.hidden = k !== name;
     if (name === 'title') refreshTitle();
     if (name === 'settings' || name === 'setup') refreshSegs();
+    if (name === 'settings') $('#settings-name').value = save.settings.name || '';
     const first = screens[name] && screens[name].querySelector('[data-primary]');
     if (first && !matchMedia('(pointer: coarse)').matches) first.focus({ preventScroll: true });
   }
@@ -231,7 +272,12 @@ export function createUI(root, h) {
       ? `<i class="dot" style="background:${team.livery.color}"></i>${esc(team.name)}, with ${esc(mate.name.split(' ').slice(-1)[0])}`
       : 'pick one';
     const anyPB = TRACKS.map((t) => save.peek(t.id)).filter((r) => r && r.bestLap);
-    $('#btn-trial small').textContent = anyPB.length ? `${anyPB.length} ghost${anyPB.length > 1 ? 's' : ''} saved` : 'race your own ghost';
+    const fresh = TRACKS.map((t) => save.challenge(t.id)).filter((c) => c && !c.raced).sort((a, b) => b.received - a.received)[0];
+    $('#btn-trial small').textContent = fresh
+      ? `${fresh.name} challenged you`
+      : anyPB.length
+        ? `${anyPB.length} ghost${anyPB.length > 1 ? 's' : ''} saved`
+        : 'race your own ghost';
   }
 
   function refreshSegs() {
@@ -253,6 +299,10 @@ export function createUI(root, h) {
     setupMode = mode;
     $('#setup-title').textContent = mode === 'race' ? 'Race' : 'Time trial';
     $('#race-opts').hidden = mode !== 'race';
+    $('#trial-opts').hidden = mode !== 'trial';
+    $('#challenge-box').hidden = mode !== 'trial';
+    $('#paste-row').hidden = true;
+    note('#challenge-note', '');
     // One dropdown in calendar order (on a phone it opens the system picker),
     // with the chosen circuit shown underneath.
     const sel = $('#track-select');
@@ -497,6 +547,209 @@ export function createUI(root, h) {
     const sel = $('#track-select');
     if (sel && sel.value !== def.id) sel.value = def.id;
     showTrackCard(def);
+    if (setupMode === 'trial') refreshTrial();
+  }
+
+  // ---------- challenges (challenge.js) ----------
+
+  const vsChoice = {}; // circuit id -> 'own' | 'them'
+  let send = null; // { trackId, url, text }: the link for your lap, ready to share
+  let sendToken = 0;
+  let challengeShown = null; // { c, link } on the challenge screen
+
+  function note(sel, msg) {
+    const el = $(sel);
+    if (el) el.textContent = msg;
+  }
+
+  function lapToSend(trackId) {
+    const rec = save.peek(trackId);
+    return rec && rec.bestLap != null && rec.ghost && rec.ghost.frames.length >= 90 ? rec : null;
+  }
+
+  // Your ghost or theirs, when someone sent you a lap here.
+  function vsFor(trackId) {
+    const c = save.challenge(trackId);
+    if (!c || challengeProblem(c)) return 'own';
+    return vsChoice[trackId] || 'them';
+  }
+
+  function refreshTrial() {
+    const id = selected;
+    const c = save.challenge(id);
+    const problem = c && challengeProblem(c);
+    $('#vs-opt').hidden = !c;
+    if (c) {
+      const vs = vsFor(id);
+      const mine = save.peek(id);
+      const them = $('#vs-seg [data-vs="them"]');
+      them.textContent = `${c.name} ${formatTime(c.time)}`;
+      them.disabled = !!problem;
+      $('#vs-seg').querySelectorAll('button').forEach((b) => b.classList.toggle('on', b.dataset.vs === vs));
+      $('#vs-hint').textContent = problem
+        ? problem
+        : vs === 'them'
+          ? `${c.name}'s lap drives as a ghost in their colours.${mine && mine.bestLap ? ` Your best here: ${formatTime(mine.bestLap)} (${formatGap(mine.bestLap - c.time)}).` : ''}`
+          : 'Your own best lap drives as the ghost.';
+    }
+    const named = !!save.settings.name;
+    $('#name-row').hidden = named;
+    if (!named) $('#name-input').value = '';
+    $('[data-link-row]').hidden = true;
+    prepareSend(id);
+  }
+
+  // Packs your lap into a link ahead of time, so the button can share it
+  // straight away (phones only allow sharing right as you tap).
+  async function prepareSend(trackId) {
+    const token = ++sendToken;
+    send = null;
+    const rec = lapToSend(trackId);
+    const named = !!save.settings.name;
+    const sub = !rec ? 'set a lap here first' : !named ? 'add your name first' : '…';
+    setSendButtons(false, sub);
+    if (!rec || !named) return;
+    const c = challengeFrom(trackId, rec, { name: save.settings.name, team: save.settings.team, build: h.build });
+    try {
+      const code = await encodeChallenge(c);
+      if (token !== sendToken) return;
+      const def = TRACKS.find((t) => t.id === trackId);
+      send = { trackId, url: challengeLink(code), text: `Beat my ${formatTime(c.time)} at ${def.name} in Lights Out` };
+      setSendButtons(true, `your ${formatTime(c.time)} as a link`);
+    } catch (e) {
+      if (token === sendToken) setSendButtons(false, "couldn't make the link");
+    }
+  }
+
+  function setSendButtons(ready, sub) {
+    root.querySelectorAll('[data-send]').forEach((b) => {
+      b.disabled = !ready;
+      b.querySelector('small').textContent = sub;
+    });
+  }
+
+  // The share sheet where there is one (phones, Macs), else copy the link.
+  function shareSend(noteSel) {
+    const s = send;
+    if (!s) return;
+    const showLink = () => {
+      root.querySelectorAll('[data-link-row]').forEach((row) => {
+        if (row.closest('.screen').hidden) return;
+        row.hidden = false;
+        const input = row.querySelector('input');
+        input.value = s.url;
+        input.focus();
+        input.select();
+      });
+      note(noteSel, 'Copy this link and send it to them.');
+    };
+    const copy = () => {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(`${s.text}: ${s.url}`).then(() => note(noteSel, 'Link copied: paste it into a message to them.'), showLink);
+      } else showLink();
+    };
+    if (navigator.share) {
+      navigator.share({ title: 'Lights Out challenge', text: s.text, url: s.url }).then(
+        () => note(noteSel, 'Sent! They open the link to race your lap.'),
+        (e) => {
+          if (!e || e.name !== 'AbortError') copy();
+        }
+      );
+    } else copy();
+  }
+
+  async function pasteChallenge() {
+    let text = '';
+    try {
+      if (navigator.clipboard && navigator.clipboard.readText) text = await navigator.clipboard.readText();
+    } catch (e) {
+      /* not allowed: paste it by hand below */
+    }
+    if (codeFrom(text)) {
+      h.onChallengeText(text);
+      return;
+    }
+    $('#paste-row').hidden = false;
+    $('#paste-input').value = '';
+    $('#paste-input').focus();
+    note('#challenge-note', 'Press and hold in the box, tap Paste, then Open.');
+  }
+
+  function saveName(input) {
+    const v = cleanName(input.value);
+    if (!v) {
+      note('#challenge-note', 'Type your name first.');
+      return;
+    }
+    save.settings.name = v;
+    save.write();
+    note('#challenge-note', '');
+    refreshTrial();
+  }
+
+  // Someone's lap, opened from a link: who, where, the time to beat.
+  // inBrowser: opened in the browser on a phone that plays from its home
+  // screen (separate records), so offer to copy it across.
+  function showChallenge(c, { error = null, link = null, inBrowser = false } = {}) {
+    const box = $('#challenge');
+    if (error) {
+      challengeShown = null;
+      box.innerHTML = `
+        <div class="res-head"><div>
+          <span class="eyebrow">Challenge</span>
+          <h2>Can't open it</h2>
+          <p>${esc(error)}</p>
+        </div></div>
+        <div class="menu"><button class="btn primary" data-act="challenge-later" data-primary><span>OK</span><small class="kbd">Enter</small></button></div>`;
+      show('challenge');
+      return;
+    }
+    challengeShown = { c, link };
+    const def = TRACKS.find((t) => t.id === c.track);
+    const problem = challengeProblem(c);
+    const mine = save.peek(c.track);
+    const first = c.name.split(' ')[0];
+    const place = def.name === def.country ? def.name : `${def.name} · ${def.country}`;
+    box.innerHTML = `
+      <div class="res-head">
+        <canvas class="thumb" aria-hidden="true"></canvas>
+        <div>
+          <span class="eyebrow">Time trial challenge</span>
+          <h2>${esc(c.name)} challenges you</h2>
+          <p>${esc(place)} · beat <b class="purple">${formatTime(c.time)}</b></p>
+        </div>
+      </div>
+      ${
+        problem
+          ? `<p class="hint warn">${esc(problem)}</p>`
+          : `<p class="hint">${
+              mine && mine.bestLap
+                ? `Your best here: ${formatTime(mine.bestLap)} (${formatGap(mine.bestLap - c.time)}).`
+                : "You haven't set a lap here yet."
+            } ${esc(first)}'s lap drives as a ghost in their team's colours, and the timer shows how you're doing against it.</p>`
+      }
+      ${inBrowser && !problem ? '<p class="hint">Playing from your home screen? This opened in the browser, which keeps its own records. Tap Copy, then in the game on your home screen: Time trial → Paste a challenge.</p>' : ''}
+      <div class="menu">
+        ${problem ? '' : `<button class="btn primary" data-act="challenge-go" data-primary><span>Race ${esc(first)}'s lap</span><small class="kbd">Enter</small></button>`}
+        ${inBrowser && link && !problem ? '<button class="btn" data-act="challenge-copy"><span>Copy</span><small>for the game on your home screen</small></button>' : ''}
+        ${
+          problem
+            ? '<button class="btn primary" data-act="challenge-later" data-primary><span>OK</span><small class="kbd">Enter</small></button>'
+            : `<button class="btn" data-act="challenge-later"><span>Not now</span><small>it's kept under Time trial</small></button>`
+        }
+      </div>
+      <p class="hint note" id="challenge-copy-note" aria-live="polite"></p>`;
+    show('challenge');
+    requestAnimationFrame(() => drawTrackThumb(box.querySelector('canvas'), def));
+  }
+
+  // Pause menu in a time trial: send your best lap here.
+  function pauseSend(trackId) {
+    const btn = $('#btn-send-pause');
+    root.querySelectorAll('[data-link-row]').forEach((r) => (r.hidden = true));
+    note('#pause-note', '');
+    btn.hidden = !trackId || !lapToSend(trackId) || !save.settings.name;
+    if (!btn.hidden) prepareSend(trackId);
   }
 
   function stepTrack(by) {
@@ -633,6 +886,14 @@ export function createUI(root, h) {
       updateTeamDone();
       return;
     }
+    const vsBtn = e.target.closest('#vs-seg button');
+    if (vsBtn) {
+      if (vsBtn.disabled) return;
+      h.click();
+      vsChoice[selected] = vsBtn.dataset.vs;
+      refreshTrial();
+      return;
+    }
     const seasonSeg = e.target.closest('.seg[data-season] button');
     if (seasonSeg) {
       const key = seasonSeg.parentElement.dataset.season;
@@ -689,7 +950,24 @@ export function createUI(root, h) {
       else show('title');
     }
     else if (act === 'back') show('title');
-    else if (act === 'start') h.onStart(setupMode, selected);
+    else if (act === 'start') h.onStart(setupMode, selected, setupMode === 'trial' && vsFor(selected) === 'them' ? save.challenge(selected) : null);
+    else if (act === 'send') shareSend(current === 'pause' ? '#pause-note' : '#challenge-note');
+    else if (act === 'name-save') saveName($('#name-input'));
+    else if (act === 'paste') pasteChallenge();
+    else if (act === 'paste-go') h.onChallengeText($('#paste-input').value);
+    else if (act === 'challenge-go' && challengeShown) {
+      const c = challengeShown.c;
+      setupMode = 'trial';
+      selected = c.track;
+      save.settings.lastTrack = c.track;
+      vsChoice[c.track] = 'them';
+      h.onStart('trial', c.track, c);
+    } else if (act === 'challenge-later') show('title');
+    else if (act === 'challenge-copy' && challengeShown && challengeShown.link) {
+      const done = (ok) => note('#challenge-copy-note', ok ? 'Copied. Now open the game from your home screen: Time trial → Paste a challenge.' : 'Press and hold the link in your message, tap Copy, then open the game from your home screen.');
+      if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(challengeShown.link).then(() => done(true), () => done(false));
+      else done(false);
+    }
     else if (act === 'resume') h.onResume();
     else if (act === 'restart') h.onRestart();
     else if (act === 'quit') h.onQuit();
@@ -713,8 +991,23 @@ export function createUI(root, h) {
     }
   });
 
+  root.addEventListener('keydown', (e) => {
+    if (e.target.tagName !== 'INPUT' || (e.code !== 'Enter' && e.code !== 'NumpadEnter')) return;
+    e.preventDefault();
+    if (e.target.id === 'name-input') saveName(e.target);
+    else if (e.target.id === 'paste-input') h.onChallengeText(e.target.value);
+    else e.target.blur();
+  });
+  root.addEventListener('change', (e) => {
+    if (e.target.id !== 'settings-name') return;
+    save.settings.name = cleanName(e.target.value);
+    e.target.value = save.settings.name;
+    save.write();
+  });
+
   window.addEventListener('keydown', (e) => {
     if (!current) return;
+    if (e.target && e.target.tagName === 'INPUT') return; // typing
     if (e.code === 'Enter' || e.code === 'NumpadEnter') {
       const btn = screens[current].querySelector('[data-primary]');
       if (btn && document.activeElement === document.body) {
@@ -743,6 +1036,8 @@ export function createUI(root, h) {
     openSeason,
     showResults,
     showQuali,
+    showChallenge,
+    pauseSend,
     get current() {
       return current;
     },

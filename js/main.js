@@ -12,11 +12,12 @@ import { save } from './storage.js';
 import * as audio from './audio.js';
 import { musicState, musicTick, setMusic, setMusicEnabled } from './music.js';
 import { bindTouchControls, initInput, isTouchDevice, onFirstTouch, readInput, setGameActive, touchSnapshot } from './input.js';
-import { clamp, formatTime } from './util.js';
+import { clamp, formatGap, formatTime } from './util.js';
+import { challengeLink, challengeProblem, codeFrom, decodeChallenge } from './challenge.js';
 import { POINTS, ROUNDS, abandonSeason, currentSeason, isComplete, nextTrack, playerStanding, recordRound, standings, startSeason, teamStanding } from './season.js';
 
 // Bump together with --build in css/style.css and CACHE in sw.js.
-const BUILD = '31';
+const BUILD = '32';
 
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d', { alpha: false });
@@ -70,6 +71,7 @@ const state = {
   focusIdx: 0,
   paused: false,
   mode: 'race',
+  challenge: null, // the lap someone sent you, in a time trial against it
   trackId: TRACKS.some((t) => t.id === save.settings.lastTrack) ? save.settings.lastTrack : TRACKS[0].id,
   resultsShown: false,
 };
@@ -82,9 +84,10 @@ const ui = createUI(document.getElementById('ui'), {
     audio.unlockAudio();
     audio.sfxClick();
   },
-  onStart: (mode, trackId) => startRace(mode, trackId),
+  onStart: (mode, trackId, challenge) => startRace(mode, trackId, challenge),
   onResume: () => resume(),
-  onRestart: () => (state.mode === 'season' || state.mode === 'quali' ? startSeasonRace() : startRace(state.mode, state.trackId)),
+  onRestart: () => (state.mode === 'season' || state.mode === 'quali' ? startSeasonRace() : startRace(state.mode, state.trackId, state.challenge)),
+  onChallengeText: (text) => openChallenge(text, false),
   onSeasonStart: (opts) => {
     startSeason(opts);
     clearWeekend();
@@ -227,8 +230,35 @@ function startAttract() {
   cam.snap(state.attract.cars[0], W, H, 0.8);
 }
 
-function startRace(mode, trackId) {
-  launch({ mode, trackId, laps: save.settings.laps, difficulty: save.settings.difficulty, team: save.settings.team, seat: save.settings.seat });
+// challenge: a time trial against a lap someone sent you (challenge.js).
+function startRace(mode, trackId, challenge = null) {
+  state.challenge = mode === 'trial' ? challenge : null;
+  if (state.challenge && !state.challenge.raced) {
+    state.challenge.raced = true; // (the menu stops calling it new)
+    save.write();
+  }
+  launch({ mode, trackId, laps: save.settings.laps, difficulty: save.settings.difficulty, team: save.settings.team, seat: save.settings.seat, challenge: state.challenge });
+}
+
+// A challenge link: opened with the game (#c=...) or pasted under Time
+// trial. It's kept (one per circuit) and shown: who, where, the time to beat.
+async function openChallenge(text, fromLink) {
+  let c;
+  try {
+    c = await decodeChallenge(text);
+  } catch (e) {
+    ui.showChallenge(null, { error: e.message });
+    return;
+  }
+  if (!challengeProblem(c)) {
+    const had = save.challenge(c.track);
+    if (had && had.name === c.name && Math.abs(had.time - c.time) < 1e-6) c.raced = had.raced; // the same lap again
+    save.setChallenge(c);
+  }
+  // Opened in the browser on a phone: if the game lives on the home screen,
+  // that's a separate copy with its own records, so offer to copy it across.
+  const standalone = navigator.standalone === true || (window.matchMedia && matchMedia('(display-mode: standalone)').matches);
+  ui.showChallenge(c, { link: challengeLink(codeFrom(text)), inBrowser: fromLink && PHONE && !standalone });
 }
 
 // A season weekend: qualifying, then the race. What qualifying decided (and
@@ -262,7 +292,7 @@ function startSeasonRace() {
   else launch({ ...base, mode: 'quali', field: wk.field });
 }
 
-function launch({ mode, trackId, laps, difficulty, team, seat, grid = null, form = null, field = null }) {
+function launch({ mode, trackId, laps, difficulty, team, seat, grid = null, form = null, field = null, challenge = null }) {
   audio.unlockAudio();
   setMusic(null); // the music fades out as the cars line up
   audio.duckEngines(1, 0.1);
@@ -283,6 +313,7 @@ function launch({ mode, trackId, laps, difficulty, team, seat, grid = null, form
     grid,
     form,
     field,
+    challenge,
   });
   if (PHONE) {
     state.race.particles.max = phoneParticles();
@@ -300,6 +331,7 @@ function launch({ mode, trackId, laps, difficulty, team, seat, grid = null, form
     laps,
     round: season ? season.round + 1 : null,
     rounds: ROUNDS,
+    challenge: state.race.challenge ? { name: state.race.challenge.name, time: state.race.challenge.time } : null,
   };
   state.paused = false;
   state.resultsShown = false;
@@ -323,8 +355,11 @@ function pause() {
         ? `lap ${Math.max(1, p.lap + 1)}`
         : `lap ${Math.min(Math.max(1, p.lap + 1), ev.laps)} of ${ev.laps}`;
     // (and how many frames a second the game was drawing, to check phones)
-    ui.setPauseInfo(`${ev.round ? `Round ${ev.round} of ${ev.rounds} · ` : ''}${ev.gp}${ev.gp.startsWith(ev.name) ? '' : ` · ${ev.name}`} · ${lap}${fps.now ? ` · ${fps.now} fps (screen ${Math.round(1 / screenGap)} Hz)` : ''}`);
+    const ch = state.race.challenge;
+    const vs = ch ? ` · vs ${ch.name} ${formatTime(ch.time)}${state.race.challengeBest != null ? `: your best ${formatGap(state.race.challengeBest - ch.time)}` : ''}` : '';
+    ui.setPauseInfo(`${ev.round ? `Round ${ev.round} of ${ev.rounds} · ` : ''}${ev.gp}${ev.gp.startsWith(ev.name) ? '' : ` · ${ev.name}`} · ${lap}${vs}${fps.now ? ` · ${fps.now} fps (screen ${Math.round(1 / screenGap)} Hz)` : ''}`);
   }
+  ui.pauseSend(state.mode === 'trial' ? state.trackId : null);
   ui.show('pause');
   syncChrome();
 }
@@ -458,6 +493,9 @@ function handleOut(r) {
         break;
       case 'pitGo':
         if (e.great) audio.sfxChime([660, 880, 1100], 0.07);
+        break;
+      case 'beat':
+        audio.sfxChime([523, 659, 784, 1047, 1319], 0.12);
         break;
     }
   }
@@ -764,6 +802,18 @@ startAttract();
 ui.show('title');
 if (!save.settings.team) ui.openTeam(); // first visit: pick a team
 syncChrome();
+
+// Opened from a challenge link: take the lap out of the address (so a reload
+// doesn't open it again) and show it.
+if (codeFrom(location.hash)) {
+  const link = location.hash;
+  try {
+    history.replaceState(null, '', location.pathname + location.search);
+  } catch (e) {
+    /* can't change the address here: no harm */
+  }
+  openChallenge(link, true);
+}
 requestAnimationFrame(frame);
 
 // Page, code and stylesheet must come from the same version. Right after an

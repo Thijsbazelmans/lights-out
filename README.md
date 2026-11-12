@@ -8,6 +8,7 @@ Top-down arcade Formula racing that runs in the browser and installs to a phone'
 - **25 real circuits**, built from GPS centre lines: the 2026 calendar plus Malaysia (Sepang). Street circuits have walls close to the track, Suzuka has its bridge, and each circuit has its own look (night races in Singapore, Las Vegas and Jeddah, dunes at Zandvoort, forest at Spa and Monza, water round Montréal).
 - **Season:** the whole calendar as a championship with a Drivers' and a Constructors' table, F1 points for the top ten (25-18-15-12-10-8-6-4-2-1). Every round is a weekend: qualifying sets the grid, then the race. Choose laps per race and rival difficulty; standings are kept on the device until the season ends.
 - A single **race** on any circuit, or a solo **time trial** against your own ghost.
+- **Challenges:** send your best time-trial lap on a circuit to someone as a link (Time trial → Send your lap; the first time it asks your name). They open it and race your lap as a ghost in your team's colours, with your name over it and the timer showing the gap to your lap, then send theirs back. No accounts or server: the whole lap travels in the link (about 2,000–2,700 characters). The last lap someone sent you on each circuit is kept: Time trial → Race against shows it. On an iPhone a link opens in Safari, which keeps its own records apart from the game on the home screen, so the challenge card offers Copy, and Time trial → Paste a challenge opens it in the home-screen game.
 - Arcade handling: drifting, a strong slipstream, overtake mode, start-light launches, bumping, tyre smoke, dust off the road, skid marks, sparks and synthesised engine sounds.
 - Music: an original hip-hop beat behind the menus (hard drums, an 808, a dusty electric-piano loop and a bell hook, all made in the browser, no files); when you cross the line the hook kicks in and the cars carry on quietly underneath.
 - Lap records, ghosts, best finishes and race stats are saved on the device (browser `localStorage`).
@@ -85,6 +86,7 @@ Then open http://localhost:8642.
 | `js/main.js` | Boot, game loop, screen flow, saving results |
 | `js/race.js` | A session: start lights, laps, positions, collisions, slipstream, ghosts, results |
 | `js/pit.js` | Pit stops: the required stop, driving the pit lane, the stop you play, computer crews |
+| `js/challenge.js` | Challenges: your best time-trial lap packed into a link, and back again |
 | `js/quali.js` | Qualifying: the computer drivers' laps, simulated in the background, and its tuning |
 | `js/car.js` | Car physics (grip, drift, boost, barriers) and the car drawing |
 | `js/ai.js` | Computer drivers: following the racing line, braking points, overtaking, recovery |
@@ -144,4 +146,4 @@ Tuning knobs live at the top of their files: `WALL`, `LIFT`, `SLIP_TOP`/`SLIP_AC
 3. ~~Real circuits and a season mode~~, ~~qualifying~~
 4. ~~Tyre wear and damage~~, ~~pit stops as a mini-game~~; next: tyre strategy, weather
 5. Team management: driver development, junior teams, car development
-6. Online: ghost races between two players, then live racing in the same room
+6. Online: ~~ghost races between two players~~ (challenge links), then live racing in the same room

@@ -8,7 +8,8 @@ import { Pits, PIT_RULE, PIT_TEAMS } from './pit.js';
 import { GHOST_DT, QUALI, QualiSim, SPLITS, byLapTime } from './quali.js';
 import { Particles, Skids } from './particles.js';
 import { drawTiles } from './tiles.js';
-import { clamp, damp, formatTime, rand, wrapAngle } from './util.js';
+import { clamp, damp, formatGap, formatTime, rand, wrapAngle } from './util.js';
+import { teamById } from './data/teams.js';
 
 const STEP = 1 / 120; // physics runs at a fixed 120 Hz
 const LIGHT_GAP = 0.8;
@@ -78,7 +79,9 @@ export class Race {
   // without one, the field lines up by pace with you in the midfield.
   // form: each computer driver's form this weekend (see aiPace). field: the
   // computer drivers' qualifying laps from an earlier run of this session.
-  constructor({ track, mode, laps = 3, difficulty = 'normal', player = null, rivals = [], record = null, wear = true, autoPit = false, grid = null, form = null, field = null }) {
+  // challenge (time trial): a lap someone sent you (challenge.js), raced as
+  // the ghost instead of your own best.
+  constructor({ track, mode, laps = 3, difficulty = 'normal', player = null, rivals = [], record = null, wear = true, autoPit = false, grid = null, form = null, field = null, challenge = null }) {
     this.track = track;
     this.mode = mode; // 'race' | 'quali' | 'trial' | 'attract'
     this.totalLaps = mode === 'race' ? laps : Infinity;
@@ -108,10 +111,18 @@ export class Race {
     this.results = null;
     this.shake = 0;
     this.delta = null;
-    this.ghost = mode === 'trial' && record && record.ghost ? record.ghost : null;
+    this.challenge = mode === 'trial' ? challenge : null;
+    this.challengeBest = null; // your quickest lap against it
+    this.ghost = this.challenge ? this.challenge.ghost : mode === 'trial' && record && record.ghost ? record.ghost : null;
     this.ghostFrames = [];
     this.ghostT = 0;
     this.ghostCar = new Car({ x: 0, y: 0, angle: 0, livery: GHOST_LIVERY, name: 'Ghost', code: 'GST' });
+    if (this.challenge) {
+      // Their lap, in their team's colours, with their name over it.
+      const c = this.challenge;
+      if (c.team) this.ghostCar.livery = { ...teamById(c.team).livery, helmet: '#ffffff' };
+      this.ghostOf = { code: c.name.toUpperCase(), name: c.name, time: c.time };
+    }
     this.awaitLaunch = false;
     this.lastPos = 0;
     this.posMsgT = 0;
@@ -859,8 +870,9 @@ export class Race {
         if (car.lap >= 0) {
           if (!car.curSplits) car.curSplits = [];
           car.curSplits[bucket] = this.time - car.lapStart;
-          if (car === this.player && this.mode === 'trial' && bucket > 0 && this.record && this.record.splits) {
-            const ref = this.record.splits[bucket];
+          const refSplits = this.challenge ? this.challenge.splits : this.record && this.record.splits;
+          if (car === this.player && this.mode === 'trial' && bucket > 0 && refSplits) {
+            const ref = refSplits[bucket];
             if (ref != null) this.delta = this.time - car.lapStart - ref;
           }
           if (car === this.player && this.quali) this.qualiSplit(bucket);
@@ -945,7 +957,7 @@ export class Race {
         rec.splits = (car.curSplits || []).slice();
       }
       this.recordDirty = true;
-      if (this.mode === 'trial') this.ghost = rec.ghost;
+      if (this.mode === 'trial' && !this.challenge) this.ghost = rec.ghost;
       label = `${isRecord ? 'NEW RECORD' : 'LAP RECORD SET'}  ${formatTime(lt)}`;
       color = '#b65cff';
     } else if (fastest && this.mode === 'race') {
@@ -957,6 +969,21 @@ export class Race {
     }
     this.msg(label, color, 2.2);
     this.out.push({ t: 'lap', record: color === '#b65cff' });
+    if (this.challenge) this.challengeLap(lt);
+  }
+
+  // A lap against someone's challenge: did it beat theirs?
+  challengeLap(lt) {
+    const c = this.challenge;
+    const name = c.name.toUpperCase();
+    const before = this.challengeBest;
+    if (before == null || lt < before) this.challengeBest = lt;
+    const gap = lt - c.time;
+    if (gap < 0 && (before == null || before >= c.time)) {
+      this.msg(`YOU BEAT ${name}!  ${formatGap(gap)}`, '#31d67b', 3, 1);
+      this.out.push({ t: 'beat' });
+    } else if (gap < 0) this.msg(`${formatGap(gap)} ON ${name}`, '#31d67b', 2.2, 0.8);
+    else this.msg(`${formatGap(gap)} TO ${name}`, '#ff8a2f', 2.2, 0.8);
   }
 
   finish(car) {

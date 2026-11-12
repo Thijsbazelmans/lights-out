@@ -1,7 +1,7 @@
 /* Layout: a pit-wall timing monitor floating over a live race. Left rail on
    wide screens, bottom sheet on phones; pause and results are centred modals. */
 :root {
-  --build: "31"; /* must match BUILD in js/main.js */
+  --build: "32"; /* must match BUILD in js/main.js */
   --asphalt: #0d1016;
   --panel: rgba(13, 16, 23, 0.9);
   --panel-solid: #131822;
@@ -837,6 +837,86 @@ kbd {
 
 .go {
   margin-top: auto;
+}
+
+/* ---------- challenges (time trial) ---------- */
+
+.challenge-box {
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+
+.field-row {
+  display: flex;
+  gap: 8px;
+}
+
+.field {
+  flex: 1;
+  min-width: 0;
+  height: 46px;
+  padding: 0 14px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: #0b0e14;
+  color: var(--text);
+  font: 600 16px var(--font-ui); /* 16px: phones don't zoom in on it */
+  -webkit-user-select: text;
+  user-select: text;
+  -webkit-touch-callout: default;
+  touch-action: manipulation;
+}
+
+.field::placeholder {
+  color: var(--muted);
+}
+
+.field:focus-visible {
+  outline: 2px solid var(--text);
+  outline-offset: 1px;
+}
+
+.field[readonly] {
+  font: 500 12px var(--font-data);
+  color: var(--muted);
+}
+
+.btn.small {
+  width: auto;
+  flex: none;
+  padding: 0 16px;
+  align-items: center;
+  font-size: 16px;
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+  transform: none;
+}
+
+.seg button:disabled {
+  opacity: 0.4;
+}
+
+.hint.note:empty {
+  display: none;
+}
+
+.hint.note {
+  color: var(--green);
+}
+
+.hint.warn {
+  color: var(--yellow);
+}
+
+.modal .purple {
+  color: var(--purple);
+}
+
+.challenge .res-head .thumb {
+  flex: none;
 }
 
 /* ---------- season ---------- */

@@ -82,7 +82,7 @@ export function drawHUD(ctx, race, cam, w, h, ins, opts) {
       text(ctx, `/${race.cars.length + qs.order.length}`, L + 15 + pwid, T + 51, `700 16px ${F_DISPLAY}`, C.muted);
     } else text(ctx, qs.stage === 'out' ? 'OUT LAP' : 'P–', L + 12, T + 50, `900 italic ${narrow ? 26 : 30}px ${F_DISPLAY}`, C.text);
   } else {
-    text(ctx, 'TIME TRIAL', L + 12, T + 20, `700 11px ${F_UI}`, C.muted);
+    text(ctx, race.challenge ? `VS ${shortName(race.challenge.name)}` : 'TIME TRIAL', L + 12, T + 20, `700 11px ${F_UI}`, C.muted);
     text(ctx, `LAP ${Math.max(1, p.lap + 1)}`, L + 12, T + 50, `900 italic 30px ${F_DISPLAY}`, C.text);
   }
 
@@ -109,13 +109,16 @@ export function drawHUD(ctx, race, cam, w, h, ins, opts) {
       const isFastest = race.fastest && race.fastest.car === p;
       text(ctx, `BEST ${formatTime(best)}`, cx, T + 45, `500 ${narrow ? 10 : 11}px ${F_DATA}`, isFastest ? C.purple : C.muted, 'center');
     } else {
-      const rec = race.record && race.record.bestLap;
+      // Time trial: the lap to beat, yours or (a challenge) theirs.
+      const ch = race.challenge;
+      const rec = ch ? ch.time : race.record && race.record.bestLap;
+      const label = `${ch ? shortName(ch.name) : 'PB'} ${formatTime(rec)}`;
       const d = race.delta;
       if (d != null) {
-        text(ctx, `PB ${formatTime(rec)}`, cx - tw / 2 + 10, T + 45, `500 ${narrow ? 10 : 11}px ${F_DATA}`, C.muted);
+        text(ctx, label, cx - tw / 2 + 10, T + 45, `500 ${narrow ? 10 : 11}px ${F_DATA}`, ch ? C.purple : C.muted);
         text(ctx, formatGap(d), cx + tw / 2 - 10, T + 45, `700 ${narrow ? 10 : 11}px ${F_DATA}`, d <= 0 ? C.green : C.red, 'right');
       } else {
-        text(ctx, `PB ${formatTime(rec)}`, cx, T + 45, `500 ${narrow ? 10 : 11}px ${F_DATA}`, rec ? C.purple : C.muted, 'center');
+        text(ctx, label, cx, T + 45, `500 ${narrow ? 10 : 11}px ${F_DATA}`, rec ? C.purple : C.muted, 'center');
       }
     }
   }
@@ -828,10 +831,11 @@ function drawSideTimes(ctx, race, p, x, y, w) {
     const isFastest = race.fastest && race.fastest.car === p;
     text(ctx, `BEST ${formatTime(p.bestLap)}`, rx, y + 54, `500 10px ${F_DATA}`, isFastest ? C.purple : C.muted, 'right');
   } else {
+    const ch = race.challenge;
     text(ctx, `LAP ${Math.max(1, p.lap + 1)}`, x + 12, y + 38, `900 italic 26px ${F_DISPLAY}`, C.text);
-    text(ctx, 'TIME TRIAL', x + 12, y + 54, `700 9px ${F_UI}`, C.muted);
-    const rec = race.record && race.record.bestLap;
-    text(ctx, `PB ${formatTime(rec)}`, rx, y + 39, `500 10px ${F_DATA}`, rec ? C.purple : C.muted, 'right');
+    text(ctx, ch ? `VS ${shortName(ch.name)}` : 'TIME TRIAL', x + 12, y + 54, `700 9px ${F_UI}`, C.muted);
+    const rec = ch ? ch.time : race.record && race.record.bestLap;
+    text(ctx, `${ch ? shortName(ch.name) : 'PB'} ${formatTime(rec)}`, rx, y + 39, `500 10px ${F_DATA}`, rec ? C.purple : C.muted, 'right');
     if (race.delta != null) text(ctx, formatGap(race.delta), rx, y + 54, `700 10px ${F_DATA}`, race.delta <= 0 ? C.green : C.red, 'right');
   }
 }
@@ -911,13 +915,20 @@ function drawQualiBoard(ctx, race, x, y, w, limit) {
   return height;
 }
 
-// Qualifying: who the ghost is (the pole lap you're chasing).
+// A name short enough for the HUD: the first word, cut to `max` letters.
+function shortName(name, max = 8) {
+  return String(name || '').split(' ')[0].slice(0, max).toUpperCase();
+}
+
+// Who the ghost is: the pole lap you're chasing (qualifying), or the lap
+// someone sent you (a challenge).
 function drawGhostTag(ctx, race, cam) {
   const g = race.ghostAt;
   const who = race.ghostOf;
-  if (!g || !who || !race.quali || race.quali.stage !== 'flying') return;
+  if (!g || !who) return;
+  if (race.quali ? race.quali.stage !== 'flying' : !race.challenge) return;
   const [x, y] = cam.toScreen(g.x, g.y);
-  const label = `POLE · ${who.code}`;
+  const label = race.quali ? `POLE · ${who.code}` : shortName(who.name, 12);
   ctx.font = `800 11px ${F_DISPLAY}`;
   const tw = ctx.measureText(label).width + 14;
   ctx.save();
@@ -989,7 +1000,8 @@ function drawEventCard(ctx, ev, cx, y, cw, alpha, narrow) {
   ctx.fillStyle = ev.accent || C.lights;
   roundRect(ctx, x + 8, y + 10, 4, ch - 20, 2);
   ctx.fill();
-  const eyebrow = ev.round ? `ROUND ${ev.round} OF ${ev.rounds}${ev.mode === 'quali' ? ' · QUALIFYING' : ''}` : ev.mode === 'trial' ? 'TIME TRIAL' : 'RACE';
+  const vs = ev.challenge; // (a time trial against a lap someone sent you)
+  const eyebrow = ev.round ? `ROUND ${ev.round} OF ${ev.rounds}${ev.mode === 'quali' ? ' · QUALIFYING' : ''}` : vs ? `CHALLENGE FROM ${shortName(vs.name, 12)}` : ev.mode === 'trial' ? 'TIME TRIAL' : 'RACE';
   text(ctx, eyebrow, x + 22, y + (narrow ? 19 : 22), `800 ${narrow ? 10 : 11}px ${F_DISPLAY}`, C.muted);
   ctx.save();
   ctx.beginPath();
@@ -997,7 +1009,7 @@ function drawEventCard(ctx, ev, cx, y, cw, alpha, narrow) {
   ctx.clip();
   text(ctx, ev.gp.toUpperCase(), x + 22, y + (narrow ? 41 : 48), `900 italic ${narrow ? 21 : 26}px ${F_DISPLAY}`, C.text);
   const place = ev.name === ev.country ? ev.name : `${ev.name} · ${ev.country}`;
-  const sub = ev.mode === 'trial' ? place : ev.mode === 'quali' ? `${place} · out-lap, then one flying lap` : `${place} · ${ev.laps} laps`;
+  const sub = vs ? `${place} · beat ${formatTime(vs.time)}` : ev.mode === 'trial' ? place : ev.mode === 'quali' ? `${place} · out-lap, then one flying lap` : `${place} · ${ev.laps} laps`;
   text(ctx, sub, x + 22, y + (narrow ? 56 : 65), `600 ${narrow ? 11 : 12}px ${F_UI}`, C.muted);
   ctx.restore();
   ctx.restore();
