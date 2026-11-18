@@ -65,6 +65,19 @@ export function conditionOf(car) {
   return (1 - WEAR.tyreTop * Math.pow(1 - car.tyres, WEAR.tyreCurve)) * (1 - WEAR.damageTop * Math.pow(car.damage, 1.3));
 }
 
+// A computer car's extra grip (`handling` above 1, DIFFICULTY's `grip` in
+// race.js) works like downforce: none of it at `from` px/s, all of it from
+// `full` px/s up. So it takes fast corners quicker, where you can drift and
+// it can't, but not chicanes and hairpins (about 200 to 330 px/s), where
+// neither of you drifts.
+export const DOWNFORCE = { from: 250, full: 400 };
+
+// How well a car with this `handling` turns and grips at speed v.
+export function handlingAt(handling, v) {
+  if (handling === 1) return 1;
+  return 1 + (handling - 1) * clamp((Math.abs(v) - DOWNFORCE.from) / (DOWNFORCE.full - DOWNFORCE.from), 0, 1);
+}
+
 export const BOOST_TIME = [0, 0.6, 1.0, 1.5];
 export const TIER_COLORS = ['#ffffff', '#4fc3ff', '#ffb020', '#c45cff'];
 
@@ -74,21 +87,21 @@ export function steerRate(v) {
 }
 
 // Fastest speed at which the car can follow a curve of curvature k (1/radius),
-// up to `top`.
+// up to `top`. `margin` is a share of the steering (or a function of speed).
 export function maxCornerSpeed(k, margin = 1, top = PHYS.TOP) {
   if (k < 1e-5) return top;
   let lo = 0;
   let hi = top;
   for (let i = 0; i < 24; i++) {
     const v = (lo + hi) / 2;
-    if (steerRate(v) * margin >= v * k) lo = v;
+    if (steerRate(v) * (typeof margin === 'function' ? margin(v) : margin) >= v * k) lo = v;
     else hi = v;
   }
   return lo;
 }
 
 export class Car {
-  constructor({ x, y, angle, livery, name, code, isPlayer = false, power = 1 }) {
+  constructor({ x, y, angle, livery, name, code, isPlayer = false, power = 1, handling = 1 }) {
     this.x = x;
     this.y = y;
     this.angle = angle;
@@ -97,6 +110,11 @@ export class Car {
     this.code = code;
     this.isPlayer = isPlayer;
     this.power = power;
+    // How well it turns and holds the road in fast corners: 1 is your car.
+    // Computer cars get DIFFICULTY's `grip` (race.js; see DOWNFORCE): they
+    // can't drift, so on the harder levels their pace comes partly from
+    // fast corners instead of all from the engine.
+    this.handling = handling;
     this.canDrift = isPlayer; // the AI drives on grip only
 
     this.vx = 0;
@@ -236,7 +254,8 @@ export class Car {
       if (off) vf -= vf * 0.9 * dt;
 
       // Steering: turns the nose; less turning at high speed.
-      let w = steerRate(vf);
+      const hv = handlingAt(this.handling, vf);
+      let w = steerRate(vf) * hv;
       if (off) w *= 0.85;
       const dir = vf >= 0 ? 1 : -1;
       this.angle += (this.steer * w * dir + this.yawKick) * dt;
@@ -244,7 +263,7 @@ export class Car {
 
       // Grip: bleed off sideways velocity.
       const sp = Math.abs(vf);
-      let grip = P.GRIP * (1 - 0.28 * Math.min(1, sp / P.TOP));
+      let grip = P.GRIP * hv * (1 - 0.28 * Math.min(1, sp / P.TOP));
       if (off) grip *= P.GRASS_GRIP;
       if (this.brake > 0.5 && sp > 250 && Math.abs(this.steer) > 0.5) grip *= 0.8;
       vl *= Math.exp(-grip * dt);

@@ -46,7 +46,7 @@ export const QUALI = {
 const H = 1 / 120; // the race's physics step
 
 // The computer drivers' qualifying laps. entries: { driverId, code, name,
-// teamId, livery, pace, power }.
+// teamId, livery, pace, power, grip }.
 export class QualiSim {
   constructor(track, entries, difficulty = 'normal') {
     this.track = track;
@@ -68,6 +68,7 @@ export class QualiSim {
       name: e.name,
       code: e.code,
       power: e.power * this.push[1],
+      handling: e.grip ?? 1,
     });
     car.frozen = false;
     car.trackIdx = i;

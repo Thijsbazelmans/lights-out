@@ -7,7 +7,7 @@
 // longer lists of points.
 
 import { clamp, hashString, mulberry32, wrapAngle } from './util.js';
-import { maxCornerSpeed, PHYS } from './car.js';
+import { handlingAt, maxCornerSpeed, PHYS } from './car.js';
 
 const DS = 8; // centerline sample spacing in px
 const AI_FLAT = PHYS.TOP * 2; // faster than any car goes (power × tow × chase): no limit
@@ -178,6 +178,19 @@ function slicePts(pts, s, e) {
   a = Math.max(0, a - 1);
   b = Math.min(pts.length - 1, b + 1);
   return pts.slice(a, b + 1);
+}
+
+// Speeds along a closed line of points `d` px apart: lowered so a car
+// braking at `B` px/s² gets down to each one in time.
+function brakeBackLoop(v, d, B) {
+  const m = v.length;
+  for (let pass = 0; pass < 2; pass++) {
+    for (let q = m - 1; q >= 0; q--) {
+      const j = (q + 1) % m;
+      const lim = Math.sqrt(v[j] * v[j] + 2 * B * d[q]);
+      if (lim < v[q]) v[q] = lim;
+    }
+  }
 }
 
 function smoothCircular(arr, passes) {
@@ -651,31 +664,9 @@ export class Track {
     }
     smoothCircular(k, 3);
     const TOP = PHYS.TOP;
-    const vAI = new Float64Array(m);
     const vCar = new Float64Array(m);
-    for (let q = 0; q < m; q++) {
-      const i = H[q];
-      // AI: a corner a little under the grip limit and never above your top
-      // speed, with less margin for error where a barrier sits close. A
-      // straight (a bend it could take flat out at any speed a car reaches,
-      // AI_FLAT) sets no limit: there its own engine (power, a tow, a chase,
-      // overtake mode) decides, as for you. (Before build 30 straights were
-      // capped at your top speed too, so the computer cars couldn't use a
-      // tow or extra power there.)
-      const roomy = clamp((Math.min(this.fenceL[i], this.fenceR[i]) - this.half) / 72, 0, 1);
-      const vc = maxCornerSpeed(Math.abs(k[q]), 0.9, AI_FLAT);
-      vAI[q] = vc >= AI_FLAT - 1 ? AI_FLAT : Math.min(TOP, vc) * (0.88 + 0.12 * roomy);
-      vCar[q] = maxCornerSpeed(Math.abs(k[q]), 1);
-    }
-    const brakeBack = (v, B) => {
-      for (let pass = 0; pass < 2; pass++) {
-        for (let q = m - 1; q >= 0; q--) {
-          const j = (q + 1) % m;
-          const lim = Math.sqrt(v[j] * v[j] + 2 * B * d[q]);
-          if (lim < v[q]) v[q] = lim;
-        }
-      }
-    };
+    for (let q = 0; q < m; q++) vCar[q] = maxCornerSpeed(Math.abs(k[q]), 1);
+    const brakeBack = (v, B) => brakeBackLoop(v, d, B);
     const engineOn = (v) => {
       for (let pass = 0; pass < 2; pass++) {
         for (let q = 0; q < m; q++) {
@@ -686,8 +677,6 @@ export class Track {
         }
       }
     };
-    // AI: brake before a corner, not in it.
-    brakeBack(vAI, PHYS.BRAKE * 0.72);
     // Boards: the speed you'd actually arrive with, and where to brake.
     const vMax = Float64Array.from(vCar);
     engineOn(vMax);
@@ -695,18 +684,51 @@ export class Track {
     brakeBack(vB, PHYS.BRAKE * HINTS.brake);
     engineOn(vB);
     this.band.k = k;
+    this.band.d = d;
     this.band.v = vB;
 
     const n = this.n;
-    this.vProfile = new Float32Array(n);
     this.rcurv = new Float64Array(n);
     this.vCorner = new Float32Array(n);
     for (let i = 0; i < n; i++) {
-      this.vProfile[i] = this.fromBand(vAI, i);
       this.rcurv[i] = this.fromBand(k, i);
       this.vCorner[i] = this.fromBand(vB, i);
     }
+    this.aiSpeedCache = new Map();
+    this.vProfile = this.aiSpeeds(1);
     this.findBrakeZones(vB, d);
+  }
+
+  // The computer drivers' target speeds round the lap (per centre-line
+  // sample) for a car with `grip` handling (computer cars: DIFFICULTY's
+  // `grip` in race.js, more of it in faster corners, see DOWNFORCE in
+  // car.js; 1 is your car, as for a bot driving it).
+  // A corner a little under that car's grip limit and never above your top
+  // speed, with less margin for error where a barrier sits close; braking
+  // before a corner, not in it. A straight (a bend it could take flat out at
+  // any speed a car reaches, AI_FLAT) sets no limit: there its own engine
+  // (power, a tow, a chase, overtake mode) decides, as for you. (Before
+  // build 30 straights were capped at your top speed too, so the computer
+  // cars couldn't use a tow or extra power there.)
+  aiSpeeds(grip = 1) {
+    const key = Math.round(grip * 1000);
+    const had = this.aiSpeedCache.get(key);
+    if (had) return had;
+    const { idx: H, m, k, d } = this.band;
+    const TOP = PHYS.TOP;
+    const vAI = new Float64Array(m);
+    const margin = grip === 1 ? 0.9 : (v) => 0.9 * handlingAt(grip, v);
+    for (let q = 0; q < m; q++) {
+      const i = H[q];
+      const roomy = clamp((Math.min(this.fenceL[i], this.fenceR[i]) - this.half) / 72, 0, 1);
+      const vc = maxCornerSpeed(Math.abs(k[q]), margin, AI_FLAT);
+      vAI[q] = vc >= AI_FLAT - 1 ? AI_FLAT : Math.min(TOP, vc) * (0.88 + 0.12 * roomy);
+    }
+    brakeBackLoop(vAI, d, PHYS.BRAKE * 0.72);
+    const v = new Float32Array(this.n);
+    for (let i = 0; i < this.n; i++) v[i] = this.fromBand(vAI, i);
+    this.aiSpeedCache.set(key, v);
+    return v;
   }
 
   // Braking zones: where the speed on the band falls because of braking,

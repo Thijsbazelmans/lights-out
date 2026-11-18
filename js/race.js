@@ -40,23 +40,31 @@ const CALL_WARN = 1.4;
 
 // AI speed per difficulty. `top` is the corner pace of the fastest cars (a
 // share of the racing line's own speeds) and `spread` how much slower the
-// slowest are; `power` is top-end engine power. On lap 1 everyone runs near
-// the middle of that range (a proper first-lap scramble); during lap 1 each
-// car moves to its own race pace, so the field strings out into smaller
-// groups and one-on-one battles.
-// When you lead, the cars behind chase (rubberFor): `chaseNear` more power
-// right behind you, growing with the gap up to `chase`.
+// slowest are; `power` is top-end engine power (yours is 1) and `grip` how
+// well their cars hold the road in fast corners (yours is 1; it works like
+// downforce, see DOWNFORCE in car.js). On lap 1 everyone runs near the
+// middle of that range (a proper first-lap scramble); during lap 1 each car
+// moves to its own race pace, so the field strings out into smaller groups
+// and one-on-one battles.
+// When you lead, the cars behind chase (rubberFor): `chaseNear` more, right
+// behind you, as grip in fast corners; growing with the gap up to `chase`,
+// the part beyond `chaseNear` as power.
 // (Builds 26 and 27 raised normal and hard: the owner still won on normal
 // by seconds with mistakes. Corner pace is near what the computer can drive
-// (AI_PACE_TOP in ai.js), so most of the rest is engine power. Build 30 let
-// the computer cars past your top speed on straights (track.js, AI_FLAT),
-// so power now shows there: easy and normal got less of it, for the same lap
-// times as before; hard got a closer field, a harder chase and about 2.3%
-// quicker laps at the front.)
+// (AI_PACE_TOP in ai.js), so up to build 32 the rest was all engine power:
+// normal 1.08 and hard 1.2, so hard cars had 20% more top speed than you.
+// That made a circuit's difficulty depend on its straights: Montréal
+// (straights and chicanes) unwinnable on hard, Bahrain and Suzuka (corners
+// you can drift) easy. Build 33 moved most of it into fast-corner grip, for
+// the same race pace on average (fastest AI race laps as before; sims of
+// all circuits, tools/sim-races.mjs) and qualifying poles ~0.3% (hard) and
+// ~0.8% (normal) slower: now the straights are close to even, overtake mode
+// and a tow get you past, and the AI's pace is in the fast corners, where
+// you can drift and it can't. Chicanes and hairpins are as before.)
 export const DIFFICULTY = {
-  easy: { top: 0.82, spread: 0.13, power: 0.9, powerSpread: 0.07, chase: 0.08, chaseNear: 0.03 },
-  normal: { top: 0.96, spread: 0.1, power: 1.08, powerSpread: 0.07, chase: 0.12, chaseNear: 0.03 },
-  hard: { top: 0.97, spread: 0.06, power: 1.2, powerSpread: 0.04, chase: 0.2, chaseNear: 0.07 },
+  easy: { top: 0.82, spread: 0.13, power: 0.9, powerSpread: 0.07, grip: 1, chase: 0.08, chaseNear: 0.03 },
+  normal: { top: 0.96, spread: 0.1, power: 1.0, powerSpread: 0.07, grip: 1.07, chase: 0.12, chaseNear: 0.03 },
+  hard: { top: 0.97, spread: 0.06, power: 1.03, powerSpread: 0.04, grip: 1.15, chase: 0.2, chaseNear: 0.07 },
 };
 
 // A computer driver's pace for a weekend: the team and driver (`skill`),
@@ -65,7 +73,7 @@ export const DIFFICULTY = {
 export function aiPace(skill, difficulty, form = 0) {
   const D = DIFFICULTY[difficulty] || DIFFICULTY.normal;
   const q = clamp(clamp((skill - 0.94) / 0.068, 0, 1) + form, 0, 1);
-  return { pace: D.top - D.spread * (1 - q), power: D.power - D.powerSpread * (1 - q) };
+  return { pace: D.top - D.spread * (1 - q), power: D.power - D.powerSpread * (1 - q), grip: D.grip };
 }
 
 export function rollForm() {
@@ -146,6 +154,12 @@ export class Race {
     // Overtake mode's detection points, and when a car last passed each.
     this.otZones = mode === 'race' ? track.overtakeZones(OVERTAKE.zones) : null;
     this.otLast = this.otZones ? this.otZones.map(() => -Infinity) : null;
+    // The computer cars' corner speeds for their grip, and for the extra grip
+    // of a chase (see step), made now rather than mid-race.
+    if (mode === 'race') {
+      const D = DIFFICULTY[difficulty] || DIFFICULTY.normal;
+      for (let g = 0; g <= D.chaseNear + 1e-6; g += 0.01) track.aiSpeeds(Math.round((D.grip + g) * 100) / 100);
+    }
     this.prevPedal = false;
     this.focus = this.player || this.cars[0];
     this.rank();
@@ -209,12 +223,14 @@ export class Race {
         // Lap 1: halfway between the field average and the car's own pace.
         const startPace = attract ? pace : (D.top - D.spread * 0.5 + pace) / 2;
         const startPower = attract ? power : (D.power - D.powerSpread * 0.5 + power) / 2;
-        const car = new Car({ x: s.x, y: s.y, angle: s.angle, name: d.name, code: d.code, livery: d.livery, power: startPower });
+        const handling = attract ? 1 : ap.grip;
+        const car = new Car({ x: s.x, y: s.y, angle: s.angle, name: d.name, code: d.code, livery: d.livery, power: startPower, handling });
         car.teamId = d.teamId || d.id;
         car.driverId = d.driverId || d.id;
         car.trackIdx = s.idx;
         car.gridPos = k + 1;
         car.basePower = startPower;
+        car.baseGrip = handling;
         Object.assign(car, { racePace: pace, racePower: power, startPace, startPower });
         this.cars.push(car);
         this.ai.set(car, new AIDriver(car, t, { pace: startPace }));
@@ -232,7 +248,7 @@ export class Race {
       const entries = rivals.map((d) => {
         const id = d.driverId || d.id;
         const ap = aiPace(d.skill, difficulty, this.form && this.form[id] != null ? this.form[id] : 0);
-        return { driverId: id, code: d.code, name: d.name, teamId: d.teamId, livery: d.livery, pace: ap.pace, power: ap.power };
+        return { driverId: id, code: d.code, name: d.name, teamId: d.teamId, livery: d.livery, pace: ap.pace, power: ap.power, grip: ap.grip };
       });
       this.quali.sim = new QualiSim(this.track, entries, difficulty);
     }
@@ -472,6 +488,7 @@ export class Race {
     this.tap = false;
     if (this.pits) this.pits.beforeStep();
 
+    const D = DIFFICULTY[this.difficulty] || DIFFICULTY.normal;
     for (const car of this.cars) {
       if (car.overtake > 0) car.overtake = Math.max(0, car.overtake - h);
       if (car.pit) {
@@ -492,9 +509,15 @@ export class Race {
           car.basePower = car.startPower + (car.racePower - car.startPower) * k;
         }
         const rub = this.rubberFor(car);
-        // A chase goes fully into power (corner pace is near its limit); a
-        // runaway leader easing off only partly.
-        car.power = car.basePower * (1 + (rub - 1) * (rub > 1 ? 1 : 0.6)) * (car.overtake > 0 ? 1 + OVERTAKE.power : 1);
+        // A chase (you lead, see rubberFor): up to `chaseNear` of it goes into
+        // grip in fast corners, so the car right behind you pushes in the
+        // corners rather than flying past on a straight; only the rest, for
+        // catching up from further back, goes into power. (Corner pace itself
+        // is near its limit.) A runaway leader eases off partly.
+        const chase = Math.max(0, rub - 1);
+        const toGrip = Math.min(chase, D.chaseNear);
+        if (car.baseGrip != null) car.handling = Math.round((car.baseGrip + toGrip) * 100) / 100;
+        car.power = car.basePower * (rub > 1 ? 1 + chase - toGrip : 1 + (rub - 1) * 0.6) * (car.overtake > 0 ? 1 + OVERTAKE.power : 1);
         ctl = ai.control(h, this.cars, rub, racing ? this.time : -1);
         if (car.launchBoostAt != null && racing && this.time >= car.launchBoostAt) {
           car.startBoost(1, this.events, 'launch');

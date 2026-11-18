@@ -125,10 +125,16 @@ export class AIDriver {
     const err = wrapAngle(Math.atan2(ty - c.y, tx - c.x) - c.angle);
     out.steer = clamp(err * 2.6, -1, 1);
 
-    // Speed: slowest target speed over the next stretch.
+    // Speed: slowest target speed over the next stretch, for how well this
+    // car corners.
+    if (this.profileGrip !== c.handling) {
+      this.profileGrip = c.handling;
+      this.profile = t.aiSpeeds(c.handling);
+    }
+    const prof = this.profile;
     let vt = Infinity;
     const win = Math.round((40 + Math.abs(v) * 0.12) / t.ds);
-    for (let k = 0; k <= win; k += 2) vt = Math.min(vt, t.vProfile[(idx + k) % n]);
+    for (let k = 0; k <= win; k += 2) vt = Math.min(vt, prof[(idx + k) % n]);
     vt *= rubber > 1 ? Math.min(Math.max(this.pace, AI_PACE_TOP), this.pace * rubber) : this.pace * rubber;
     if (c.offTrack) vt = Math.min(vt, 320);
     if (Math.abs(err) > 0.7) vt = Math.min(vt, 240);
