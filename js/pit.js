@@ -16,9 +16,10 @@ import { clamp, rand, wrapAngle } from './util.js';
 // Driving in the pit lane (px/s, px/s²): the speed limit, how hard cars
 // brake down to it and into the box, how quickly they pull away (`out`:
 // after the limit line), the closest two cars follow each other, how long
-// (px) the swing into and out of a box is, and how quickly (1/s) a car that
-// is closer than `gap` drops back.
-export const PIT_DRIVE = { limit: 230, brake: 950, stop: 520, pull: 420, out: 560, gap: 62, swing: 60, fallBack: 4 };
+// (px) the swing into and out of a box is, how quickly (1/s) a car that is
+// closer than `gap` drops back, and how far (px) before the entry a computer
+// car heads straight for the pit side of the road.
+export const PIT_DRIVE = { limit: 230, brake: 950, stop: 520, pull: 420, out: 560, gap: 62, swing: 60, fallBack: 4, lineUp: 340 };
 
 // The rule. A stop counts once `after` of a lap is done and with more than
 // `before` of a lap still to go; finishing without one adds `penalty` s.
@@ -150,6 +151,7 @@ export class Pits {
     const L = t.length;
     for (const [car, ai] of this.race.ai) {
       ai.toPit = 0;
+      ai.pitNear = false;
       if (car.pit || car.finished || car === this.race.player) continue;
       const m = this.visit(car);
       const to = m * L + this.gate - car.progress;
@@ -160,7 +162,10 @@ export class Pits {
         const next = this.chances.find((x) => x > m);
         if (next != null) car.pitPlan = next;
       }
-      if (this.wants(car, m)) ai.toPit = t.pit.side;
+      if (this.wants(car, m)) {
+        ai.toPit = t.pit.side;
+        ai.pitNear = to < PIT_DRIVE.lineUp; // the last stretch: straight for the entry
+      }
     }
   }
 

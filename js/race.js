@@ -577,7 +577,8 @@ export class Race {
       const k = t.pit.start - Math.round((j * STEP) / t.ds);
       const i = ((k % n) + n) % n;
       const u = 1 - j / COUNT;
-      const lat = side * (t.half - 20) * u * u * (3 - 2 * u); // drifting over to the pit side
+      // Drifting over to the pit side, and round a chicane's kerb if one's there.
+      const lat = side * Math.min((t.half - 20) * u * u * (3 - 2 * u), t.roomAt(i, side, t.half - 20, 40, 24));
       return [t.px[i] + t.nx[i] * lat, t.py[i] + t.ny[i] * lat];
     };
     const wave = (performance.now() / 1000) * 2.2;

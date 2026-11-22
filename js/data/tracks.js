@@ -181,7 +181,11 @@ function THEME_DESERT() {
 
 // Real circuits. lengthKm: real lap length. `layout` goes up when a circuit's
 // shape changes enough that old lap records no longer compare (2: chicanes
-// rebuilt at game scale, see Track.shapeChicanes).
+// rebuilt at game scale, see Track.shapeChicanes). `pit` (optional): which
+// side the pit lane goes (1 right, -1 left) and how many px further along
+// the lap. Montréal's is on the left, a little further on: its last chicane
+// ends in a left turn, so you run wide to the right, where an entry on that
+// side pulled you in on more than half your laps.
 const REAL = [
   ['interlagos', 'Interlagos', 'São Paulo Grand Prix', 'Brazil', 4.31, 'saopaulo', INTERLAGOS],
   ['monaco', 'Monaco', 'Monaco Grand Prix', 'Monaco', 3.34, 'monaco', MONACO, { runoff: 30, chicanes: [{ at: 0.343, kind: 'slow', rebuild: false }, { at: 0.539, kind: 'medium', rebuild: false }] }],
@@ -201,7 +205,7 @@ const REAL = [
   ['shanghai', 'Shanghai', 'Chinese Grand Prix', 'China', 5.45, 'china', SHANGHAI],
   ['bahrain', 'Bahrain', 'Bahrain Grand Prix', 'Bahrain', 5.41, 'bahrain', BAHRAIN],
   ['jeddah', 'Jeddah', 'Saudi Arabian Grand Prix', 'Saudi Arabia', 6.17, 'jeddah', JEDDAH, { runoff: 42, chicanes: [{ at: 0.071, kind: 'slow' }] }],
-  ['montreal', 'Montréal', 'Canadian Grand Prix', 'Canada', 4.36, 'island', MONTREAL, { runoff: 50, chicanes: [{ at: 0.225, kind: 'medium' }, { at: 0.357, kind: 'medium' }, { at: 0.542, kind: 'medium' }, { at: 0.937, kind: 'slow' }] }],
+  ['montreal', 'Montréal', 'Canadian Grand Prix', 'Canada', 4.36, 'island', MONTREAL, { runoff: 50, pit: { side: -1, shift: 250 }, chicanes: [{ at: 0.225, kind: 'medium' }, { at: 0.357, kind: 'medium' }, { at: 0.542, kind: 'medium' }, { at: 0.937, kind: 'slow' }] }],
   ['barcelona', 'Barcelona', 'Barcelona-Catalunya Grand Prix', 'Spain', 4.66, 'dry', BARCELONA, { chicanes: [{ at: 0.155, kind: 'medium', rebuild: false }] }],
   ['austria', 'Red Bull Ring', 'Austrian Grand Prix', 'Austria', 4.32, 'alpine', RED_BULL_RING],
   ['hungary', 'Hungaroring', 'Hungarian Grand Prix', 'Hungary', 4.38, 'hungary', HUNGARORING, { chicanes: [{ at: 0.48, kind: 'slow' }] }],

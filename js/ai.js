@@ -25,6 +25,7 @@ export class AIDriver {
     this.reverseT = 0;
     this.reaction = rand(0.17, 0.42);
     this.toPit = 0; // set by the race when coming in: the pit side (+1 right, -1 left)
+    this.pitNear = false; // ...and close to the entry
     this.out = { gas: 0, brake: 0, steer: 0, analog: true };
   }
 
@@ -119,7 +120,9 @@ export class AIDriver {
     const look = clamp(55 + Math.abs(v) * 0.32, 60, 280) * (tight > 1 / 170 ? 0.7 : 1);
     const ti = (idx + Math.round(look / t.ds)) % n;
     const [tlo, thi] = edgeAt(ti);
-    const lat = clamp(t.roff[ti] + this.offset, tlo, thi);
+    // Coming in, the last stretch: aim for the pit side of the road itself,
+    // not an offset from a racing line that may be heading the other way.
+    const lat = clamp(this.pitNear ? this.toPit * (t.half - 24) : t.roff[ti] + this.offset, tlo, thi);
     const tx = t.px[ti] + t.nx[ti] * lat;
     const ty = t.py[ti] + t.ny[ti] * lat;
     const err = wrapAngle(Math.atan2(ty - c.y, tx - c.x) - c.angle);
