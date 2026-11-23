@@ -612,7 +612,7 @@ function drawPitGame(ctx, g, x, y, w, h, time, touch) {
     const big = wingWait ? 'WING…' : g.phase === 'jackDown' ? 'DOWN…' : g.waiting ? 'HOLD' : green ? 'GO!' : 'WAIT…';
     text(ctx, big, lx + 32, ly + 9, `900 italic 28px ${F_DISPLAY}`, green ? C.green : C.text);
     // Why the light is still red, when it isn't down to you.
-    const hint = g.waiting ? 'CAR COMING DOWN THE LANE' : green ? `${key} NOW` : wingWait ? 'FITTING THE NEW FRONT WING' : `${key} ON GREEN`;
+    const hint = g.waiting ? 'CAR COMING DOWN THE LANE' : green ? (g.armed ? 'GO GO GO' : `${key} NOW`) : wingWait ? 'FITTING THE NEW FRONT WING' : g.armed ? 'GOING ON GREEN' : `${key} ON GREEN`;
     text(ctx, hint, x + pad, y + h - 14, `700 11px ${F_UI}`, g.waiting || wingWait ? '#ff8a2f' : C.muted);
   }
   // Front wing change, alongside.

@@ -161,6 +161,8 @@ export class Race {
       for (let g = 0; g <= D.chaseNear + 1e-6; g += 0.01) track.aiSpeeds(Math.round((D.grip + g) * 100) / 100);
     }
     this.prevPedal = false;
+    this.prevBrake = false;
+    this.pedalDown = false;
     this.focus = this.player || this.cars[0];
     this.rank();
   }
@@ -416,11 +418,15 @@ export class Race {
   }
 
   update(dt, input) {
-    // A press of either pedal (for the pit stop you play), used by the
-    // first physics step of this frame.
+    // A press of either pedal (for the pit stop you play), kept for the next
+    // physics step (on a fast screen a frame can have none). The brake counts
+    // even with the gas held down, so you don't have to let go of it to tap.
     const pedal = !!input.pedal;
-    this.tap = pedal && !this.prevPedal;
+    const brake = pedal && input.brake > 0.5;
+    this.tap = this.tap || (pedal && !this.prevPedal) || (brake && !this.prevBrake);
     this.prevPedal = pedal;
+    this.prevBrake = brake;
+    this.pedalDown = pedal;
     // After you cross the line: slow motion for a moment, then back to normal
     // speed, and the results after a few seconds (or on a tap).
     let scaled = dt;

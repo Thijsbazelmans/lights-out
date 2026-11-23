@@ -40,11 +40,15 @@ export const PIT_RELEASE = { behind: 100, beside: 20, claim: 1, go: 45 };
 // share of the bar from the left), so the wheels come on a steady beat:
 // tap on the green and the wheel's on in `good` s and the next one starts;
 // just outside it (`ok` more either side) takes `slow` s; tap anywhere else,
-// or not at all, and the gun jams: `jam` s while the crew sorts it. Waiting
-// never helps: the marker crosses once. The car goes up on the jacks in
-// `jackUp` s and down in `jackDown` s; the release light turns green `hold`
-// s later (and only with the lane clear), going on red holds you `early` s
-// more, and the car goes by itself `autoGo` s after green. A front wing
+// or not at all, and the gun jams: `jam` s while the crew sorts it. A tap
+// on the first `ignore` of the bar is a leftover (a double tap, a thumb
+// rocking back to the gas) and doesn't count. Waiting never helps: the
+// marker crosses once. The car goes up on the jacks in `jackUp` s and down
+// in `jackDown` s; the release light turns green `hold` s later (and only
+// with the lane clear). Press on green and you're off at once; a pedal
+// pressed or held before green sends you `heldGo` s after it (about a sharp
+// reaction: never a penalty, never better than reacting), and with no
+// press at all the car goes by itself `autoGo` s after green. A front wing
 // change (damage over `wingFrom`) takes `wing` + `wingPer` × damage s,
 // alongside the wheels.
 export const PIT_GAME = {
@@ -52,17 +56,18 @@ export const PIT_GAME = {
   zone: 0.7,
   green: 0.2,
   ok: 0.1,
+  ignore: 0.3,
   good: 0.05,
   slow: 0.35,
   jam: 0.9,
   jackUp: 0.1,
   jackDown: 0.15,
   hold: [0.15, 0.4],
-  early: 0.5,
+  heldGo: 0.3,
   wingFrom: 0.05,
   wing: 0.9,
   wingPer: 3.5,
-  autoGo: 2.5,
+  autoGo: 1.2,
 };
 
 // Computer stops by difficulty: time standing in the box (s), and now and
@@ -410,7 +415,7 @@ export class Pits {
     if (s.wingNeed) s.wing = Math.min(s.wingNeed, s.wing + h);
     if (car === this.race.player && this.game) {
       const g = this.game;
-      updateGame(g, h, tap, s, this.laneClear(car), this.race.out);
+      updateGame(g, h, tap, this.race.pedalDown, s, this.laneClear(car), this.race.out);
       s.done = g.done;
       if (g.phase === 'go') {
         // Someone right beside the box: pull out as soon as they're by.
@@ -529,6 +534,7 @@ function newGame(wingNeed) {
     flash: null, // { text, color, t }
     green: false,
     greenAt: 0,
+    armed: false, // a pedal pressed or held before green: go as soon as it's green
     hold: 0,
     wingNeed,
   };
@@ -543,7 +549,7 @@ function nextWheel(g) {
 }
 
 // One physics step of the stop you play (the race keeps running).
-function updateGame(g, h, tap, s, laneClear, out) {
+function updateGame(g, h, tap, held, s, laneClear, out) {
   const G = PIT_GAME;
   g.t += h;
   g.pt += h;
@@ -588,8 +594,7 @@ function updateGame(g, h, tap, s, laneClear, out) {
       out.push({ t: 'gunMiss' });
       g.flash = { text: why, color: '#ff5a4f', t: 0 };
     };
-    if (tap && g.m > 0.08) {
-      // (a tap right as the marker sets off is a double tap from the last wheel: ignored)
+    if (tap && g.m > G.ignore) {
       const d = Math.abs(g.m - g.zone);
       if (d <= G.green / 2) fit('good');
       else if (d <= G.green / 2 + G.ok) fit('slow');
@@ -598,6 +603,7 @@ function updateGame(g, h, tap, s, laneClear, out) {
     return;
   }
   if (g.phase === 'jackDown') {
+    if (tap) g.armed = true;
     if (g.pt >= G.jackDown && s.wing >= s.wingNeed) {
       g.phase = 'light';
       g.pt = 0;
@@ -617,13 +623,11 @@ function updateGame(g, h, tap, s, laneClear, out) {
         g.traffic += h;
       }
     }
-    if (tap) {
-      if (g.green) g.phase = 'go';
-      else {
-        g.hold = Math.max(g.hold, g.pt + G.early);
-        g.flash = { text: 'WAIT FOR GREEN', color: '#ff5a4f', t: 0 };
-        out.push({ t: 'gunMiss' });
-      }
-    } else if (g.green && g.t - g.greenAt > G.autoGo) g.phase = 'go';
+    if (!g.green) {
+      if (tap || held) g.armed = true;
+    } else {
+      const since = g.t - g.greenAt;
+      if ((tap && !g.armed) || (g.armed && since >= G.heldGo) || since >= G.autoGo) g.phase = 'go';
+    }
   }
 }

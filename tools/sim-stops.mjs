@@ -6,7 +6,8 @@
 //
 // A player taps when they think the marker is on the green, `sigma` s off
 // either way (more on a phone), and reacts to the green release light in
-// `react` s. Also: how long stops with four greens take.
+// `react` s (`early`: presses the gas before green and holds it). Also: how
+// long stops with four greens take.
 import { Track } from '../js/track.js';
 import { ALL_REAL } from '../js/data/tracks.js';
 import { Race } from '../js/race.js';
@@ -21,6 +22,7 @@ const PLAYERS = {
   'good (phone)': { sigma: 0.07, react: 0.33 },
   typical: { sigma: 0.09, react: 0.36 },
   casual: { sigma: 0.12, react: 0.42 },
+  'holds gas early': { sigma: 0.09, react: 0.36, early: true },
 };
 
 const gauss = () => {
@@ -34,7 +36,7 @@ const pct = (a, q) => a.slice().sort((x, y) => x - y)[Math.floor(q * (a.length -
 const t = new Track(ALL_REAL.find((d) => d.id === 'monza'));
 const dt = 1 / 60;
 
-function stop({ sigma, react }) {
+function stop({ sigma, react, early }) {
   const r = new Race({ track: t, mode: 'race', laps: 3, player: playerFor('ferrari', 1), rivals: [] });
   r.phase = 'race';
   const p = r.player;
@@ -55,7 +57,7 @@ function stop({ sigma, react }) {
       }
       const toZone = (g.zone - g.m) * PIT_GAME.sweep; // s until the marker is on the zone
       if (toZone <= -err && toZone > -err - 0.03) input.pedal = true;
-    } else if (g && g.phase === 'light' && g.green && g.t - g.greenAt >= rt) input.pedal = true;
+    } else if (g && g.phase === 'light' && (early || (g.green && g.t - g.greenAt >= rt))) input.pedal = true;
     r.update(dt, input);
   }
   return { time: p.stopTimes[0], perfect: hits === 'good,good,good,good' };
