@@ -14,10 +14,10 @@ import { musicState, musicTick, setMusic, setMusicEnabled } from './music.js';
 import { bindTouchControls, initInput, isTouchDevice, onFirstTouch, readInput, setGameActive, touchSnapshot } from './input.js';
 import { clamp, formatGap, formatTime } from './util.js';
 import { challengeLink, challengeProblem, codeFrom, decodeChallenge } from './challenge.js';
-import { POINTS, ROUNDS, abandonSeason, currentSeason, isComplete, nextTrack, playerStanding, recordRound, standings, startSeason, teamStanding } from './season.js';
+import { POINTS, ROUNDS, abandonSeason, currentSeason, isComplete, nextTrack, playerStanding, recordRound, seasonCars, standings, startSeason, teamStanding } from './season.js';
 
 // Bump together with --build in css/style.css and CACHE in sw.js.
-const BUILD = '39';
+const BUILD = '40';
 
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d', { alpha: false });
@@ -338,14 +338,17 @@ function launch({ mode, trackId, laps, difficulty, arcade = true, team, seat, gr
   const track = getTrack(trackId);
   const lv = levelOf(difficulty, arcade);
   const rec = save.lapRecord(trackId, lv.arcade);
+  // A season race: the cars as they've developed this season (season.js DEV).
+  const cars = mode === 'season' || mode === 'quali' ? seasonCars(currentSeason()) : null;
+  const withCar = (d) => (cars && cars[d.teamId] ? { ...d, car: cars[d.teamId], team: { ...d.team, car: cars[d.teamId] } } : d);
   state.race = new Race({
     track,
     mode: mode === 'season' ? 'race' : mode === 'raceQuali' ? 'quali' : mode,
     laps,
     difficulty: lv.difficulty,
     arcade: lv.arcade,
-    player: playerFor(team, seat),
-    rivals: rivalsFor(team, seat),
+    player: withCar(playerFor(team, seat)),
+    rivals: rivalsFor(team, seat).map(withCar),
     record: rec,
     wear: save.settings.wear !== false,
     grid,

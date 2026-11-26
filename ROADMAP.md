@@ -55,7 +55,7 @@ Up to build 38 your car is the same whichever team you pick; the team only chang
 - **Each driver gets a skill rating**: how much they get out of the car. Verstappen gets a lot more out of a Red Bull than Hadjar; Norris and Piastri are close.
 - Time trial stays in one standard car, so lap records and challenge links compare.
 
-**4b: development through a season, with surprises**
+**4b: development through a season, with surprises** · built (build 40, on the preview)
 - After each round every team improves a little, some faster than others.
 - **Every season plays out differently**, like a real one: a team everyone expected to be quick starts slower than hoped; another has the fastest car but it keeps breaking early on, until they sort the reliability out; a team behind brings a big upgrade mid-season and is back in the fight for wins. Each team gets a few such twists at random: a stronger or weaker start than its name suggests, reliability that improves, upgrades that land (or flop) at a random round.
 - **Results feed in a little, and differently every season** (decided): each team gets its own response for the season, at random. Some teams that fall behind push back with upgrades and catch up; others lose their way and fall further behind; some leaders keep pulling away, others stall. So one season can end in a close fight and the next with a team running away with it.

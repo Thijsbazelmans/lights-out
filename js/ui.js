@@ -2,7 +2,7 @@
 // behind the title and circuit screens.
 
 import { TRACKS } from './data/tracks.js';
-import { TEAMS, teamById } from './data/teams.js';
+import { TEAMS, carScore, teamById } from './data/teams.js';
 import { drawF1 } from './car.js';
 import { drawTrackThumb } from './track.js';
 import { save } from './storage.js';
@@ -405,10 +405,45 @@ export function createUI(root, h) {
       <tbody>${rows.join('')}</tbody></table></div>`;
   }
 
+  // The cars this season (season.js DEV): fastest first, how far each has
+  // come since round 1, and the news so far.
+  function carsContent(s) {
+    const dev = s.dev;
+    const rows = TEAMS.map((t) => {
+      const d = dev.teams[t.id];
+      const now = carScore(d);
+      return { t, d, now, change: now - d.history[0] };
+    }).sort((a, b) => b.now - a.now);
+    const lo = Math.min(...rows.map((r) => r.now));
+    const hi = Math.max(...rows.map((r) => r.now));
+    const body = rows
+      .map((r, i) => {
+        const v = hi > lo ? 0.15 + (0.85 * (r.now - lo)) / (hi - lo) : 1;
+        const ch = Math.round(r.change * 100);
+        const arrow = ch > 0 ? `<span class="up">▲ ${ch}</span>` : ch < 0 ? `<span class="down">▼ ${-ch}</span>` : '<span style="color:var(--muted)">–</span>';
+        const rel = r.d.car.reliability < 0.75 ? ' <span class="down" title="unreliable">⚠</span>' : '';
+        return `<tr class="${r.t.id === s.team ? 'me' : ''}"><td class="num">${i + 1}</td><td><span class="swatch" style="background:${r.t.livery.color}"></span>${esc(r.t.name)}${rel}</td><td class="carbar"><s style="--v:${v.toFixed(2)}"></s></td><td class="num">${arrow}</td></tr>`;
+      })
+      .join('');
+    const news = dev.news
+      .slice(-6)
+      .reverse()
+      .map((n) => `<li><b>${n.round === 1 ? 'Winter' : `Round ${n.round}`}</b> ${esc(n.text)}</li>`)
+      .join('');
+    return `<table class="res-table cars-table"><thead><tr><th>#</th><th>Car</th><th></th><th>Since R1</th></tr></thead><tbody>${body}</tbody></table>${news ? `<ul class="news">${news}</ul>` : ''}`;
+  }
+
   function standingsContent(s) {
+    if (standingsTab === 'cars' && s.dev) return carsContent(s);
     if (standingsTab === 'teams') return standingsTable(constructorStandings(s), 0, 'teams');
     if (standingsTab === 'races') return calendarTable(s);
     return standingsTable(standings(s));
+  }
+
+  // This round's news (season.js DEV), above the standings.
+  function latestNews(s) {
+    const now = s.dev.news.filter((n) => n.round === s.round + 1);
+    return now.length ? `<p class="hint news-line">${now.map((n) => esc(n.text)).join(' · ')}</p>` : '';
   }
 
   function standingsBlock(s) {
@@ -419,7 +454,9 @@ export function createUI(root, h) {
         <button data-tab="drivers" class="${standingsTab === 'drivers' ? 'on' : ''}">Drivers</button>
         <button data-tab="teams" class="${standingsTab === 'teams' ? 'on' : ''}">Constructors</button>
         <button data-tab="races" class="${standingsTab === 'races' ? 'on' : ''}">Races</button>
+        ${s.dev ? `<button data-tab="cars" class="${standingsTab === 'cars' ? 'on' : ''}">Cars</button>` : ''}
       </div>
+      ${s.dev ? latestNews(s) : ''}
       <div id="standings-table">${standingsContent(s)}</div>`;
   }
 
@@ -430,7 +467,7 @@ export function createUI(root, h) {
       const team = teamById(save.settings.team);
       const mate = team.drivers[save.settings.seat === 0 ? 1 : 0];
       body.innerHTML = `
-        ${hasOutdatedSeason() ? '<p class="hint"><b>Your earlier season was for 11 cars, so it can\'t continue in the new 22-car format.</b> Starting a new season replaces it.</p>' : ''}
+        ${hasOutdatedSeason() ? '<p class="hint"><b>Your earlier season was from an older version of the game (before the cars developed through a season), so it can\'t continue.</b> Starting a new season replaces it.</p>' : ''}
         <p class="hint">The full calendar: ${ROUNDS} rounds from Melbourne to Abu Dhabi. 22 drivers in 11 teams, points for the top ten (${POINTS.join(', ')}), with a Drivers' and a Constructors' championship. Every round starts with qualifying: an out-lap, then one flying lap that sets your place on the grid. Saved on this device.</p>
         <div class="opts">
           <div class="opt">

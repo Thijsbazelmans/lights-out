@@ -1,7 +1,7 @@
 /* Layout: a pit-wall timing monitor floating over a live race. Left rail on
    wide screens, bottom sheet on phones; pause and results are centred modals. */
 :root {
-  --build: "39"; /* must match BUILD in js/main.js */
+  --build: "40"; /* must match BUILD in js/main.js */
   --asphalt: #0d1016;
   --panel: rgba(13, 16, 23, 0.9);
   --panel-solid: #131822;
@@ -621,6 +621,44 @@ kbd {
 .code {
   font: 600 11px var(--font-data);
   color: var(--muted);
+}
+
+/* Season cars tab (ui.js carsContent): a bar per car and the news. */
+.cars-table .carbar {
+  width: 40%;
+}
+
+.cars-table .carbar s {
+  display: block;
+  height: 6px;
+  border-radius: 3px;
+  background: linear-gradient(90deg, var(--text) calc(var(--v) * 100%), rgba(255, 255, 255, 0.1) 0);
+  text-decoration: none;
+}
+
+.cars-table .up {
+  color: #31d67b;
+}
+
+.cars-table .down,
+.news-line {
+  color: #ff8a2f;
+}
+
+.news {
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+
+.news b {
+  color: var(--text);
+  margin-right: 4px;
 }
 
 /* A team's car on its card: engine, aero, reliability (ui.js carBars). */
