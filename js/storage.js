@@ -13,6 +13,7 @@ function defaults() {
       difficulty: 'normal',
       arcade: true, // drifting, a big start boost, instant brakes (see ARCADE_OFF in race.js)
       laps: 3,
+      quali: true, // single races: qualifying first (off: start in the middle of the grid)
       autoGas: false,
       steerSide: 'left', // phone: ‹ › under the 'left' or 'right' thumb, GAS and BRAKE under the other
       brakeHints: true, // corner calls and 3-2-1 boards before the big stops

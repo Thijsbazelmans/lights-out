@@ -31,7 +31,7 @@ Each combination gets its own rival speed, so Normal feels like Normal either wa
 - Time trial keeps a separate set of records for each (we can wipe the old ones while we're building).
 - A small ARCADE or no-drift badge on the HUD, so you always know which one you're in.
 
-## Step 2: every race is a weekend (S)
+## Step 2: every race is a weekend (S) · built (build 37, on the preview)
 
 Single races get qualifying, like season rounds: garage, out-lap, one flying lap, then the race from that grid. Qualifying is optional; skip it and you start from the middle, as today. Almost all the work is already done for seasons.
 

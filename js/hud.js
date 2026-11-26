@@ -1001,7 +1001,7 @@ function drawEventCard(ctx, ev, cx, y, cw, alpha, narrow) {
   roundRect(ctx, x + 8, y + 10, 4, ch - 20, 2);
   ctx.fill();
   const vs = ev.challenge; // (a time trial against a lap someone sent you)
-  const eyebrow = ev.round ? `ROUND ${ev.round} OF ${ev.rounds}${ev.mode === 'quali' ? ' · QUALIFYING' : ''}` : vs ? `CHALLENGE FROM ${shortName(vs.name, 12)}` : ev.mode === 'trial' ? 'TIME TRIAL' : 'RACE';
+  const eyebrow = ev.round ? `ROUND ${ev.round} OF ${ev.rounds}${ev.mode === 'quali' ? ' · QUALIFYING' : ''}` : vs ? `CHALLENGE FROM ${shortName(vs.name, 12)}` : ev.mode === 'trial' ? 'TIME TRIAL' : ev.mode === 'quali' ? 'QUALIFYING' : 'RACE';
   text(ctx, eyebrow, x + 22, y + (narrow ? 19 : 22), `800 ${narrow ? 10 : 11}px ${F_DISPLAY}`, C.muted);
   ctx.save();
   ctx.beginPath();

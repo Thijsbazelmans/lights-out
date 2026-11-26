@@ -31,7 +31,7 @@ export function createUI(root, h) {
       </header>
       <nav class="menu">
         <button class="btn primary" id="btn-race" data-act="mode" data-mode="race" data-primary>
-          <span>Race</span><small>vs 10 rivals</small>
+          <span>Race</span><small>vs 21 rivals</small>
         </button>
         <button class="btn" id="btn-season" data-act="season"><span>Season</span><small id="season-label"></small></button>
         <button class="btn" id="btn-trial" data-act="mode" data-mode="trial">
@@ -93,6 +93,11 @@ export function createUI(root, h) {
           <span class="label">Arcade</span>
           <div class="seg" data-setting="arcade"><button data-val="true">On</button><button data-val="false">Off</button></div>
           <p class="hint">Off: no drifting, longer braking, a smaller start boost. Its own lap records.</p>
+        </div>
+        <div class="opt">
+          <span class="label">Qualifying</span>
+          <div class="seg" data-setting="quali"><button data-val="true">On</button><button data-val="false">Off</button></div>
+          <p class="hint">On: an out-lap and one flying lap set your place on the grid. Off: you start in the middle.</p>
         </div>
       </div>
       <div class="opts" id="trial-opts" hidden>
@@ -988,7 +993,7 @@ export function createUI(root, h) {
     else if (act === 'resume') h.onResume();
     else if (act === 'restart') h.onRestart();
     else if (act === 'quit') h.onQuit();
-    else if (act === 'again') h.onRestart();
+    else if (act === 'again') h.onAgain();
     else if (act === 'tracks') h.onTracks(setupMode);
     else if (act === 'track-prev') stepTrack(-1);
     else if (act === 'track-next') stepTrack(1);

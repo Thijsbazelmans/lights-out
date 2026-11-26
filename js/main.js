@@ -17,7 +17,7 @@ import { challengeLink, challengeProblem, codeFrom, decodeChallenge } from './ch
 import { POINTS, ROUNDS, abandonSeason, currentSeason, isComplete, nextTrack, playerStanding, recordRound, standings, startSeason, teamStanding } from './season.js';
 
 // Bump together with --build in css/style.css and CACHE in sw.js.
-const BUILD = '36';
+const BUILD = '37';
 
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d', { alpha: false });
@@ -72,6 +72,7 @@ const state = {
   paused: false,
   mode: 'race',
   challenge: null, // the lap someone sent you, in a time trial against it
+  single: null, // a single race's weekend: qualifying, then the race (see startSingle)
   trackId: TRACKS.some((t) => t.id === save.settings.lastTrack) ? save.settings.lastTrack : TRACKS[0].id,
   resultsShown: false,
 };
@@ -86,7 +87,14 @@ const ui = createUI(document.getElementById('ui'), {
   },
   onStart: (mode, trackId, challenge) => startRace(mode, trackId, challenge),
   onResume: () => resume(),
-  onRestart: () => (state.mode === 'season' || state.mode === 'quali' ? startSeasonRace() : startRace(state.mode, state.trackId, state.challenge)),
+  // Restart (pause menu): the same session again; a race from the same grid.
+  onRestart: () => {
+    if (state.mode === 'season' || state.mode === 'quali') startSeasonRace();
+    else if (state.mode === 'raceQuali' || (state.mode === 'race' && state.single)) launchSingle();
+    else startRace(state.mode, state.trackId, state.challenge);
+  },
+  // Race again (results): a single race starts a new weekend, qualifying and all.
+  onAgain: () => (state.mode === 'race' && state.single ? startRace('race', state.single.trackId) : startRace(state.mode, state.trackId, state.challenge)),
   onChallengeText: (text) => openChallenge(text, false),
   onSeasonStart: (opts) => {
     startSeason(opts);
@@ -94,7 +102,7 @@ const ui = createUI(document.getElementById('ui'), {
     ui.openSeason();
   },
   onSeasonRace: () => startSeasonRace(),
-  onQualiRace: () => startSeasonRace(),
+  onQualiRace: () => (state.mode === 'raceQuali' ? launchSingle() : startSeasonRace()),
   weekend: () => {
     const s = currentSeason();
     return s && !isComplete(s) ? weekendFor(s, false) : null;
@@ -232,6 +240,11 @@ function startAttract() {
 
 // challenge: a time trial against a lap someone sent you (challenge.js).
 function startRace(mode, trackId, challenge = null) {
+  state.single = null;
+  if (mode === 'race' && save.settings.quali !== false) {
+    startSingle(trackId);
+    return;
+  }
   state.challenge = mode === 'trial' ? challenge : null;
   if (state.challenge && !state.challenge.raced) {
     state.challenge.raced = true; // (the menu stops calling it new)
@@ -240,6 +253,27 @@ function startRace(mode, trackId, challenge = null) {
   // A lap someone sent you is raced on their side of the Arcade switch.
   const arcade = state.challenge ? state.challenge.arcade !== false : save.settings.arcade !== false;
   launch({ mode, trackId, laps: save.settings.laps, difficulty: save.settings.difficulty, arcade, team: save.settings.team, seat: save.settings.seat, challenge: state.challenge });
+}
+
+// A single race weekend: qualifying (garage, out-lap, one flying lap), then
+// the race from that grid, as a season round does. What it decided (form,
+// the other drivers' laps, the grid) stays here until you start another
+// race, so a restart replays the same session. With qualifying switched off
+// in the race setup, you start in the middle of the grid instead.
+function startSingle(trackId) {
+  const { team, seat } = save.settings;
+  const form = {};
+  for (const d of rivalsFor(team, seat)) form[d.driverId || d.id] = Math.round(rollForm() * 1000) / 1000;
+  const lv = levelOf(save.settings.difficulty, save.settings.arcade);
+  state.single = { trackId, laps: save.settings.laps, ...lv, team, seat, form, field: null, grid: null, pos: null };
+  launchSingle();
+}
+
+function launchSingle() {
+  const w = state.single;
+  const base = { trackId: w.trackId, laps: w.laps, difficulty: w.difficulty, arcade: w.arcade, team: w.team, seat: w.seat, form: w.form };
+  if (w.grid) launch({ ...base, mode: 'race', grid: w.grid });
+  else launch({ ...base, mode: 'raceQuali', field: w.field });
 }
 
 // A challenge link: opened with the game (#c=...) or pasted under Time
@@ -306,7 +340,7 @@ function launch({ mode, trackId, laps, difficulty, arcade = true, team, seat, gr
   const rec = save.lapRecord(trackId, lv.arcade);
   state.race = new Race({
     track,
-    mode: mode === 'season' ? 'race' : mode,
+    mode: mode === 'season' ? 'race' : mode === 'raceQuali' ? 'quali' : mode,
     laps,
     difficulty: lv.difficulty,
     arcade: lv.arcade,
@@ -331,7 +365,7 @@ function launch({ mode, trackId, laps, difficulty, arcade = true, team, seat, gr
     name: track.def.name,
     country: track.def.country,
     accent: track.def.theme.thumb,
-    mode,
+    mode: mode === 'raceQuali' ? 'quali' : mode,
     laps,
     round: season ? season.round + 1 : null,
     rounds: ROUNDS,
@@ -461,22 +495,22 @@ function handleOut(r) {
         break;
       case 'qualiField': {
         // The other drivers' laps: kept, so a restart replays the same session.
-        const wk = save.weekend;
+        const wk = state.mode === 'raceQuali' ? state.single : save.weekend;
         if (wk && !wk.field) {
           wk.field = r.quali.results;
-          save.write();
+          if (wk === save.weekend) save.write();
         }
         break;
       }
       case 'qualiDone': {
         finishMusic();
-        const wk = save.weekend;
+        const wk = state.mode === 'raceQuali' ? state.single : save.weekend;
         if (wk) {
           const res = r.qualiResults();
           wk.grid = res.grid;
           wk.pos = res.playerPos;
           wk.time = res.playerTime;
-          save.write();
+          if (wk === save.weekend) save.write();
         }
         syncChrome();
         audio.sfxChime(e.pos === 1 ? [523, 659, 784, 1047, 1319] : e.pos <= 3 ? [523, 659, 784, 1047] : [523, 659, 784], 0.12);
@@ -721,7 +755,7 @@ function render(dt, input) {
     drawHUD(ctx, r, cam, W, H, insets, {
       touchUI: crossedLine() ? isTouchDevice() : touchVisible(),
       ctl: controlRects(),
-      season: state.mode === 'season' || state.mode === 'quali',
+      season: state.mode === 'season' || state.mode === 'quali' || state.mode === 'raceQuali', // (qualifying: "you start P.." on the finish card)
       dt,
     });
   }
