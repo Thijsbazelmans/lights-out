@@ -61,6 +61,8 @@ for (const id of ids) {
     if (r.cars.every((c) => c.finished)) break;
   }
   const done = r.cars.filter((c) => c.finished).sort((a, b) => a.finishTime - b.finishTime);
+  const dnf = r.cars.filter((c) => c.dnf).length;
+  const punctures = r.cars.reduce((n, c) => n + (c.punctures || 0), 0);
   const p = r.player;
   const pos = done.indexOf(p) + 1;
   const gap = pos === 1 && done[1] ? done[1].finishTime - p.finishTime : pos > 0 ? -(p.finishTime - done[0].finishTime) : NaN;
@@ -78,7 +80,7 @@ for (const id of ids) {
     : '  no pits';
   console.log(
     `${id.padEnd(11)} you P${pos || '-'} ${gap >= 0 ? '+' : ''}${gap.toFixed(2)}s  finished ${done.length}/${r.cars.length}` +
-      `  AI best ${aiLaps[0].toFixed(2)} median ${aiLaps[Math.floor(aiLaps.length / 2)].toFixed(2)}` +
+      `${punctures ? `  punctures ${punctures}` : ''}${dnf ? `  DNF ${dnf}` : ''}  AI best ${aiLaps[0].toFixed(2)} median ${aiLaps[Math.floor(aiLaps.length / 2)].toFixed(2)}` +
       `  wall hits ${hits} (hard ${hard})  stuck ${stuck}` +
       `  you tyres ${pct(p.tyres)} car ${pct(1 - p.damage)}  field tyres ${pct(fieldTyres)}, ${damaged} damaged >5%` +
       pitInfo

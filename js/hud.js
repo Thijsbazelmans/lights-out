@@ -413,8 +413,9 @@ function drawCondition(ctx, p, x, y, w, h, time, compact = false) {
       roundRect(ctx, x + 3, ry + 3, w - 6, rh - 6, 6);
       ctx.fill();
     }
-    const col = conditionColor(v, k === 0);
-    const pct = `${Math.round(v * 100)}%`;
+    const flat = k === 0 && p.puncture;
+    const col = flat ? C.red : conditionColor(v, k === 0);
+    const pct = flat ? 'FLAT' : `${Math.round(v * 100)}%`;
     text(ctx, label, x + 8, ry + rh * 0.48, `700 ${compact ? 9 : 10}px ${F_UI}`, C.muted);
     text(ctx, pct, x + w - 8, ry + rh * 0.52, `800 ${compact ? 13 : 16}px ${F_DISPLAY}`, col, 'right');
     const bx = x + 8;
@@ -1095,7 +1096,10 @@ function drawTower(ctx, race, x, y, p) {
       if (c !== p && c.overtake > 0) drawOT(ctx, x + 84, base - 6);
       let g;
       let col = C.text;
-      if (c === p) {
+      if (c.dnf) {
+        g = 'OUT';
+        col = C.muted;
+      } else if (c === p) {
         g = i === 0 ? (c.finished ? 'FINISH' : 'LEADER') : formatGap(gaps[i]);
         col = C.muted;
       } else if (i < me) {
@@ -1111,7 +1115,7 @@ function drawTower(ctx, race, x, y, p) {
       ctx.fillStyle = c.livery.color;
       ctx.fillRect(x + 37, ry + 4, 3, h - 8);
       text(ctx, c.code, x + 48, base + 4, `700 12px ${F_DISPLAY}`, c === mate ? C.yellow : 'rgba(238,242,248,0.75)');
-      const g = i === 0 ? (c.finished ? 'FINISH' : 'LEADER') : formatGap(gaps[i]);
+      const g = c.dnf ? 'OUT' : i === 0 ? (c.finished ? 'FINISH' : 'LEADER') : formatGap(gaps[i]);
       text(ctx, g, x + w - 10, base + 4, `500 10px ${F_DATA}`, C.muted, 'right');
     }
     if (race.fastest && race.fastest.car === c) {
@@ -1229,7 +1233,8 @@ const confetti = new WeakMap();
 
 function drawFinish(ctx, race, w, h, ins, opts) {
   const p = race.player;
-  const pos = p.shownPos || p.finishPos;
+  const out = !!p.dnf; // retired (Arcade off failures): the race is over for you
+  const pos = out ? 99 : p.shownPos || p.finishPos;
   const t = race.finishReal;
   const ease = (x) => 1 - Math.pow(1 - clamp(x, 0, 1), 3);
   const backOut = (x) => {
@@ -1276,15 +1281,18 @@ function drawFinish(ctx, race, w, h, ins, opts) {
   ctx.font = `800 ${narrow ? 13 : 15}px ${F_DISPLAY}`;
   ctx.fillStyle = C.muted;
   const qs = race.quali;
-  ctx.fillText(qs ? 'Q U A L I F Y I N G' : 'C H E Q U E R E D   F L A G', 0, -big * 0.62);
+  ctx.fillText(qs ? 'Q U A L I F Y I N G' : out ? 'R E T I R E D' : 'C H E Q U E R E D   F L A G', 0, -big * 0.62);
   ctx.font = `900 italic ${big}px ${F_DISPLAY}`;
   ctx.lineJoin = 'round';
   ctx.lineWidth = big * 0.08;
   ctx.strokeStyle = 'rgba(0,0,0,0.6)';
-  ctx.strokeText(`P${pos}`, 0, -big * 0.08);
-  ctx.fillStyle = POS_COLOR[pos] || '#ffffff';
-  ctx.fillText(`P${pos}`, 0, -big * 0.08);
-  const head = qs
+  const label = out ? 'DNF' : `P${pos}`;
+  ctx.strokeText(label, 0, -big * 0.08);
+  ctx.fillStyle = out ? '#ff4f3a' : POS_COLOR[pos] || '#ffffff';
+  ctx.fillText(label, 0, -big * 0.08);
+  const head = out
+    ? 'THE CAR GAVE UP'
+    : qs
     ? pos === 1
       ? 'POLE POSITION!'
       : pos === 2
@@ -1302,8 +1310,10 @@ function drawFinish(ctx, race, w, h, ins, opts) {
   ctx.font = `900 italic ${narrow ? 26 : 32}px ${F_DISPLAY}`;
   ctx.fillStyle = '#ffffff';
   ctx.fillText(head, 0, big * 0.5);
-  const bits = [formatTime(qs ? qs.time : p.finishTime + (p.penalty || 0))];
-  if (qs) {
+  const bits = out ? [`out on lap ${Math.max(1, p.lap + 1)} of ${race.totalLaps}`] : [formatTime(qs ? qs.time : p.finishTime + (p.penalty || 0))];
+  if (out) {
+    if (p.bestLap) bits.push(`best lap ${formatTime(p.bestLap)}`);
+  } else if (qs) {
     const next = qs.board.find((r) => r.time != null && r.time >= qs.time);
     if (pos === 1 && next) bits.push(`${(next.time - qs.time).toFixed(3)}s clear of ${next.code}`);
     else if (qs.pole && pos > 1) bits.push(`${formatGap(qs.time - qs.pole.time)} to pole`);

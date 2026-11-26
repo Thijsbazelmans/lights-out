@@ -49,16 +49,19 @@ export const WALL = {
 // into it (less when you steer out); it bleeds `drag` px/s² of speed.
 export const DRIFT = { minSpeed: 230, endSpeed: 130, turn: 1.3, turnIn: 0.4, drag: 55 };
 
-// Tyres and damage (races). A race of normal driving uses `race` of a set of
-// tyres whatever its length (so with the one required pit stop each set ends
-// near 65%); drifting adds `drift`, sliding `slide` and running off the road
+// Tyres and damage (races). A lap of normal driving uses `lap` of a set of
+// tyres (build 38; it was a share per race whatever its length, so a long
+// race never wore them harder): one stop is easy over 5 laps, over 12 laps it
+// means a stint of 6 laps or more down to 40% and below, where (with Arcade
+// off) punctures come; two stops keep them fresher at the cost of a stop.
+// Drifting adds `drift`, sliding `slide` and running off the road
 // at speed `off`, each counted in laps' worth of wear per second. A hit
 // faster than `hitMin` px/s costs `hit` damage per px/s above that
 // (car-to-car knocks count `car` as much). Worn tyres take away up to
 // `tyreTop` of top speed and pull, hardly at first and more and more as they
 // go (`tyreCurve`); damage takes up to `damageTop`, also growing as it
 // builds up (see conditionOf).
-export const WEAR = { race: 0.7, drift: 0.08, slide: 0.05, off: 0.15, hitMin: 110, hit: 0.0003, car: 0.6, tyreTop: 0.22, tyreCurve: 1.7, damageTop: 0.45 };
+export const WEAR = { lap: 0.1, drift: 0.08, slide: 0.05, off: 0.15, hitMin: 110, hit: 0.0003, car: 0.6, tyreTop: 0.22, tyreCurve: 1.7, damageTop: 0.45 };
 
 // Share of top speed and pull a car has left with its tyres and damage.
 export function conditionOf(car) {
@@ -77,6 +80,10 @@ export function handlingAt(handling, v) {
   if (handling === 1) return 1;
   return 1 + (handling - 1) * clamp((Math.abs(v) - DOWNFORCE.from) / (DOWNFORCE.full - DOWNFORCE.from), 0, 1);
 }
+
+// A punctured tyre (Arcade off, see FAILURE in race.js): this much of top
+// speed and pull, and less grip, until the pits fix it.
+export const PUNCTURE = { top: 0.4, pull: 0.5, grip: 0.8 };
 
 export const BOOST_TIME = [0, 0.6, 1.0, 1.5];
 export const TIER_COLORS = ['#ffffff', '#4fc3ff', '#ffb020', '#c45cff'];
@@ -139,7 +146,7 @@ export class Car {
     this.launchPenalty = 0;
 
     this.wears = false; // tyre wear and damage count (set by the race)
-    this.wearLap = WEAR.race / 3; // tyre wear per lap of normal driving (set by the race)
+    this.wearLap = WEAR.lap; // tyre wear per lap of normal driving
     this.tyres = 1; // 1 = fresh
     this.damage = 0; // 0 = none, 1 = wrecked
     this.hitT = 0; // how recently it took damage (for the HUD flash)
@@ -216,6 +223,10 @@ export class Car {
       acc *= k;
     }
     if (this.launchPenalty > 0) acc *= 0.35;
+    if (this.puncture) {
+      top *= PUNCTURE.top;
+      acc *= PUNCTURE.pull;
+    }
 
     // Drift: while turning at speed, press brake. Hold it to keep sliding;
     // let go of brake to grip again.
@@ -264,7 +275,7 @@ export class Car {
 
       // Grip: bleed off sideways velocity.
       const sp = Math.abs(vf);
-      let grip = P.GRIP * hv * (1 - 0.28 * Math.min(1, sp / P.TOP));
+      let grip = P.GRIP * hv * (1 - 0.28 * Math.min(1, sp / P.TOP)) * (this.puncture ? PUNCTURE.grip : 1);
       if (off) grip *= P.GRASS_GRIP;
       if (this.brake > 0.5 && sp > 250 && Math.abs(this.steer) > 0.5) grip *= 0.8;
       vl *= Math.exp(-grip * dt);

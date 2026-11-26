@@ -81,6 +81,15 @@ export const PIT_GAME = {
 // `slowOver` s.
 export const AI_STOP = { easy: [3.9, 4.9], normal: [3.0, 4.0], hard: [2.7, 3.5], slowChance: 0.06, slow: [1.5, 3.5], slowOver: 0.3 };
 
+// Computer strategies (build 38). In a race of `twoStopFrom` laps or more, a
+// share `twoStop` of the cars plan two stops (about a third and two thirds of
+// the way), the rest one, around halfway give or take `spread` of the race
+// (at least about a lap), so in a long race some run a long stint on old
+// tyres. A share `careful` of them come in at the next chance once their
+// tyres are down to `tyres`; the rest push on, and with Arcade off can
+// puncture (FAILURE in race.js). Teammates plan their first stops apart.
+export const AI_STRATEGY = { twoStopFrom: 8, twoStop: 0.4, spread: 0.15, careful: 0.5, tyres: 0.42 };
+
 // Garage colours and names, in box order (the same as the team list).
 export const PIT_TEAMS = TEAMS.map((t) => ({ id: t.id, color: t.livery.color, color2: t.livery.color2, short: t.code }));
 
@@ -113,18 +122,33 @@ export class Pits {
     this.chances = [];
     const laps = Number.isFinite(race.totalLaps) ? race.totalLaps : 0; // none outside a race
     for (let m = 0; m <= laps + 1; m++) if (this.allowed(m)) this.chances.push(m);
-    // Computer cars pick when they'll come in: around halfway, give or take
-    // a lap or so, and teammates on different laps where there's a choice
-    // (so they don't queue for the same box).
+    // Computer cars pick their strategy (AI_STRATEGY): one stop around
+    // halfway or, in longer races, sometimes two; teammates' first stops on
+    // different laps where there's a choice (so they don't queue for the same
+    // box).
     const c = this.chances.length;
+    const S = AI_STRATEGY;
     const picked = new Map(); // box -> chance index
     for (const car of race.cars) {
       car.mate = race.cars.find((o) => o !== car && o.box === car.box) || null;
-      let k = c <= 1 ? 0 : clamp(Math.round((c - 1) / 2 + rand(-1.2, 1.2)), 0, c - 1);
+      car.careful = Math.random() < S.careful;
+      const two = laps >= S.twoStopFrom && c >= 4 && Math.random() < S.twoStop;
+      let ks;
+      if (c <= 1) ks = [0];
+      else if (two) {
+        const a = clamp(Math.round((c - 1) / 3 + rand(-1, 1)), 0, c - 2);
+        ks = [a, clamp(Math.round((2 * (c - 1)) / 3 + rand(-1, 1)), a + 1, c - 1)];
+      } else {
+        const w = Math.max(1.2, c * S.spread);
+        ks = [clamp(Math.round((c - 1) / 2 + rand(-w, w)), 0, c - 1)];
+      }
+      let k = ks[0];
       const j = picked.get(car.box);
       if (j != null && j === k && c > 1) k = j + 1 < c && (j < (c - 1) / 2 || j === 0) ? j + 1 : j - 1;
       picked.set(car.box, k);
-      car.pitPlan = c ? this.chances[k] : null;
+      ks[0] = k;
+      if (ks.length > 1 && ks[1] <= k) ks.length = 1;
+      car.pitPlans = c ? ks.map((i) => this.chances[i]) : [];
     }
   }
 
@@ -163,9 +187,10 @@ export class Pits {
       if (to < -10 || to > 900) continue;
       // Teammate in the pits: stay out a lap rather than queue behind them.
       const mate = car.mate;
-      if (m === car.pitPlan && mate && mate.pit && mate.pit.stage !== 'out' && car.damage <= 0.35 && to > 0) {
+      const plans = car.pitPlans || [];
+      if (m === plans[car.stops] && mate && mate.pit && mate.pit.stage !== 'out' && car.damage <= 0.35 && !car.puncture && to > 0) {
         const next = this.chances.find((x) => x > m);
-        if (next != null) car.pitPlan = next;
+        if (next != null) plans[car.stops] = next;
       }
       if (this.wants(car, m)) {
         ai.toPit = t.pit.side;
@@ -177,7 +202,11 @@ export class Pits {
   // Would a computer car (or the player's car in a headless test) come in on visit m?
   wants(car, m) {
     if (!this.allowed(m)) return false;
-    if (car.stops === 0) return m === car.pitPlan || car.damage > 0.35 || (this.lastChance != null && m >= this.lastChance);
+    if (car.puncture) return true;
+    if (car.stops === 0 && (car.damage > 0.35 || (this.lastChance != null && m >= this.lastChance))) return true;
+    const next = car.pitPlans ? car.pitPlans[car.stops] : null;
+    if (next != null && m >= next) return true;
+    if (car.careful && car.tyres < AI_STRATEGY.tyres) return true;
     return car.damage > 0.5;
   }
 
@@ -446,6 +475,9 @@ export class Pits {
     car.stops++;
     car.stopTimes.push(standing);
     car.missedMsg = false;
+    car.puncture = false; // (see FAILURE in race.js)
+    car.warnedTyres = false;
+    car.warnedCar = false;
     if (car === this.race.player) {
       this.game = null;
       // Judged on your part of it: not the time held for traffic or spent

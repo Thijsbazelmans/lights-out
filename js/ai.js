@@ -54,7 +54,7 @@ export class AIDriver {
     let besideAhead = false; // the car alongside is a nose in front: we give way
     let touching = false; // our nose is on someone's gearbox: back off
     for (const o of cars) {
-      if (o === c) continue;
+      if (o === c || o.dnf) continue; // (a retired car: they drive through it)
       const di = Math.abs(o.trackIdx - idx);
       if (Math.min(di, n - di) > n * 0.15) continue; // on the bridge above or below us
       const dx = o.x - c.x;

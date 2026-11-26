@@ -12,7 +12,7 @@ function defaults() {
       camera: 'chase', // 'chase' rotates with the car, 'fixed' keeps north up
       difficulty: 'normal',
       arcade: true, // drifting, a big start boost, instant brakes (see ARCADE_OFF in race.js)
-      laps: 3,
+      laps: 5, // a single race: 5, 8 or 12 laps (3 until build 38)
       quali: true, // single races: qualifying first (off: start in the middle of the grid)
       autoGas: false,
       steerSide: 'left', // phone: ‹ › under the 'left' or 'right' thumb, GAS and BRAKE under the other
@@ -40,6 +40,7 @@ function load() {
     const settings = { ...def.settings, ...(d.settings || {}) };
     // Build 36's preview had an Impossible level: Hard with Arcade off now.
     if (settings.difficulty === 'impossible') Object.assign(settings, { difficulty: 'hard', arcade: false });
+    if (![5, 8, 12].includes(settings.laps)) settings.laps = 5; // 3-lap races went in build 38
     return {
       settings,
       records: d.records || {},

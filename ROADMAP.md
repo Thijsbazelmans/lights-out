@@ -24,18 +24,18 @@ How quick the rivals are and what your car can do are really two different thing
 
 Each combination gets its own rival speed, so Normal feels like Normal either way. **Impossible becomes Hard with Arcade off** (decided): that's what it is today, and its rival settings carry over. If that turns out too easy, a harder level comes back later. Arcade off also fixes the problem that started all this: with nobody drifting, no circuit is much easier than another.
 
-## Step 1: the Arcade switch (M) · built (build 36, on the preview)
+## Step 1: the Arcade switch (M) · done (build 36)
 
 - A switch next to Rivals in race setup and season setup, and one in time trial.
 - Arcade off: no drifting, a smaller launch boost and longer braking distances. The rivals need retuning for every level.
 - Time trial keeps a separate set of records for each (we can wipe the old ones while we're building).
 - A small ARCADE or no-drift badge on the HUD, so you always know which one you're in.
 
-## Step 2: every race is a weekend (S) · built (build 37, on the preview)
+## Step 2: every race is a weekend (S) · done (build 37)
 
 Single races get qualifying, like season rounds: garage, out-lap, one flying lap, then the race from that grid. Qualifying is optional; skip it and you start from the middle, as today. Almost all the work is already done for seasons.
 
-## Step 3: things can break, with Arcade off only (M)
+## Step 3: things can break, with Arcade off only (M) · built (build 38, on the preview)
 
 Worn tyres and a damaged car become a real risk, so pitting is a decision rather than a chore.
 

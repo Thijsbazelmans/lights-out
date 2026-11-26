@@ -40,6 +40,11 @@ export const CHICANE = {
 // `gap` seconds apart at the speed you arrive with; "1" is where to brake.
 export const HINTS = { brake: 0.7, minDrop: 0.2, gap: 0.2 };
 
+// A barrier moved in between two stretches side by side is smoothed along
+// the lap: the nearest it comes over `min` samples either side, then
+// averaged over `mean` either side.
+export const WALL_SMOOTH = { min: 12, mean: 8 };
+
 // Corner calls ("HARD LEFT", "CHICANE"...): every corner that costs at least
 // `lift` × top speed gets one; a stop of HINTS.minDrop or more is a braking
 // corner, and a braking corner that turns `hairpin` degrees or more and is
@@ -141,7 +146,8 @@ function segHit(a, b, c, d) {
 // Points are { x, y, i } (i: the centre-line sample they came from).
 // apart(i, j): lines from samples i and j are two stretches' barriers (a
 // hairpin's two legs) where they cross, not a fold: nothing is cut there.
-function untangle(pts, win = 120, apart = null) {
+// keep(loop): a loop that stays drawn anyway (a barrier a car can reach).
+function untangle(pts, win = 120, apart = null, keep = null) {
   const N = pts.length;
   const out = [];
   let i = 0;
@@ -159,7 +165,7 @@ function untangle(pts, win = 120, apart = null) {
         hit = h;
       }
     }
-    if (cut >= 0) {
+    if (cut >= 0 && !(keep && keep(pts.slice(i + 1, cut + 1)))) {
       out.push({ x: hit.x, y: hit.y, i: a.i });
       i = cut + 1;
     } else i++;
@@ -235,6 +241,7 @@ export class Track {
     this.buildDecor();
     this.geo = null; // drawing paths, built on first draw
   }
+
 
   // Real chicanes are tight zig-zags on a narrow road. At our road width
   // and scale they flatten into a wiggle you can drive straight through, so
@@ -1101,17 +1108,19 @@ export class Track {
       }
     }
     const smoothLimit = (a) => {
+      const M = WALL_SMOOTH.min;
+      const A = WALL_SMOOTH.mean;
       const m = new Float64Array(n);
       for (let i = 0; i < n; i++) {
         let v = a[i];
-        for (let k = -12; k <= 12; k++) v = Math.min(v, a[(i + k + n) % n]);
+        for (let k = -M; k <= M; k++) v = Math.min(v, a[(i + k + n) % n]);
         m[i] = v;
       }
       const out = new Float32Array(n);
       for (let i = 0; i < n; i++) {
         let sum = 0;
-        for (let k = -8; k <= 8; k++) sum += m[(i + k + n) % n];
-        out[i] = Math.min(W, sum / 17);
+        for (let k = -A; k <= A; k++) sum += m[(i + k + n) % n];
+        out[i] = Math.min(W, sum / (2 * A + 1));
       }
       return out;
     };
@@ -1574,30 +1583,20 @@ export class Track {
 
   // ---------- drawing ----------
 
-  ensureGeo() {
-    if (this.geo) return this.geo;
+  // The barriers as drawn: a line of points on each side (folds on the
+  // inside of tight corners cut out; `gap` points break the line), and for
+  // each side which samples leave their barrier out because the stretch
+  // beside draws the shared one. (tools/walls.mjs checks these against
+  // where the cars actually stop.)
+  barrierLines() {
+    if (this.barrierCache) return this.barrierCache;
     const n = this.n;
-    const th = this.theme;
     const W = this.wallDist;
-    // Lines beside the centre line over samples [a, b] (b may run past the
-    // end of the lap), with the folds on the inside of tight corners cut out.
-    const beside = (a, b, side, off) => {
-      const pts = [];
-      for (let i = a; i <= b; i++) {
-        const k = ((i % n) + n) % n;
-        const o = off(k);
-        pts.push({ x: this.px[k] + this.nx[k] * side * o, y: this.py[k] + this.ny[k] * side * o, i });
-      }
-      return untangle(pts);
-    };
-    const edge = this.half - 5;
-    const edgeL = beside(0, n, -1, () => edge);
-    const edgeR = beside(0, n, 1, () => edge);
     // Barriers. Two stretches' barriers that cross (a tight hairpin's legs,
     // each with the barrier moved in between them) aren't a fold: both run on
     // up to the tip, and the bits pulled in round the tip itself are left out.
     const skip = Math.ceil((W * 3) / this.ds); // as in buildWalls: nearer along the lap = the same stretch
-    const barrier = (side) => {
+    const barrier = (side, keep = null) => {
       const bar = side > 0 ? this.barrierR : this.barrierL;
       const fence = side > 0 ? this.fenceR : this.fenceL;
       const pts = [];
@@ -1623,14 +1622,76 @@ export class Track {
           run.push(p);
           continue;
         }
-        if (run.length) out.push(...untangle(run, 120, apart), { gap: true, i: p.i });
+        if (run.length) out.push(...untangle(run, 120, apart, keep), { gap: true, i: p.i });
         run = [];
       }
-      if (run.length) out.push(...untangle(run, 120, apart));
+      if (run.length) out.push(...untangle(run, 120, apart, keep));
       return out;
     };
-    const barL = barrier(-1);
-    const barR = barrier(1);
+    // A loop cut out as a fold can still be a barrier a car runs into: the
+    // inside of a very tight hairpin, where nothing drawn stands between the
+    // road and that bit of barrier. Those loops are drawn after all (up to
+    // build 37 they were invisible walls: 39 places on 15 circuits,
+    // tools/walls.mjs). The others stay out, behind a barrier you can see.
+    const tidyL = barrier(-1);
+    const tidyR = barrier(1);
+    const C = 64;
+    const cells = new Map();
+    for (const line of [tidyL, tidyR]) {
+      for (let k = 1; k < line.length; k++) {
+        const a = line[k - 1];
+        const b = line[k];
+        if (a.gap || b.gap) continue;
+        for (let gx = Math.floor(Math.min(a.x, b.x) / C); gx <= Math.floor(Math.max(a.x, b.x) / C); gx++) {
+          for (let gy = Math.floor(Math.min(a.y, b.y) / C); gy <= Math.floor(Math.max(a.y, b.y) / C); gy++) {
+            const key = gx * 100003 + gy;
+            if (!cells.has(key)) cells.set(key, []);
+            cells.get(key).push(a, b);
+          }
+        }
+      }
+    }
+    const nearDrawn = (x, y, r) => {
+      const list = cells.get(Math.floor(x / C) * 100003 + Math.floor(y / C));
+      if (!list) return false;
+      for (let k = 0; k < list.length; k += 2) {
+        const a = list[k];
+        const b = list[k + 1];
+        const ex = b.x - a.x;
+        const ey = b.y - a.y;
+        const u = clamp(((x - a.x) * ex + (y - a.y) * ey) / (ex * ex + ey * ey || 1), 0, 1);
+        if ((x - a.x - ex * u) ** 2 + (y - a.y - ey * u) ** 2 < r * r) return true;
+      }
+      return false;
+    };
+    // Straight out from the road towards the loop, the way a car's barrier
+    // check sees it (Car.update): where does it stop, and is a drawn barrier
+    // there?
+    const q = {};
+    const stopsUnseen = (k, side, p) => {
+      let x = this.px[k] + this.nx[k] * side * (this.half - 4);
+      let y = this.py[k] + this.ny[k] * side * (this.half - 4);
+      const len = Math.hypot(p.x - x, p.y - y);
+      const steps = Math.ceil(len / 4);
+      const sx = (p.x - x) / steps;
+      const sy = (p.y - y) / steps;
+      let idx = k;
+      for (let st = 0; st <= steps + 6; st++) {
+        this.queryLocal(x, y, idx, q);
+        if (q.dist === Infinity) return false;
+        idx = q.idx;
+        if (q.dist > this.wallAt(q.idx, q.side) - 12) return !nearDrawn(x + q.nx * 12, y + q.ny * 12, 22);
+        x += sx;
+        y += sy;
+      }
+      return false;
+    };
+    const reachable = (side) => (loop) => {
+      for (let m = 0; m < loop.length; m += 3) if (stopsUnseen(loop[m].i % n, side, loop[m])) return true;
+      return false;
+    };
+    const barL = barrier(-1, reachable(-1));
+    const barR = barrier(1, reachable(1));
     // Two stretches side by side share one barrier: the one earlier in the
     // lap draws it, and the later one leaves its own out where it lies on
     // that one. Where they splay apart (a hairpin's two legs), each draws its
@@ -1660,6 +1721,29 @@ export class Track {
     };
     const hideL = shared(this.fenceL, this.partnerL, -1);
     const hideR = shared(this.fenceR, this.partnerR, 1);
+    this.barrierCache = { barL, barR, hideL, hideR };
+    return this.barrierCache;
+  }
+
+  ensureGeo() {
+    if (this.geo) return this.geo;
+    const n = this.n;
+    const th = this.theme;
+    // Lines beside the centre line over samples [a, b] (b may run past the
+    // end of the lap), with the folds on the inside of tight corners cut out.
+    const beside = (a, b, side, off) => {
+      const pts = [];
+      for (let i = a; i <= b; i++) {
+        const k = ((i % n) + n) % n;
+        const o = off(k);
+        pts.push({ x: this.px[k] + this.nx[k] * side * o, y: this.py[k] + this.ny[k] * side * o, i });
+      }
+      return untangle(pts);
+    };
+    const edge = this.half - 5;
+    const edgeL = beside(0, n, -1, () => edge);
+    const edgeR = beside(0, n, 1, () => edge);
+    const { barL, barR, hideL, hideR } = this.barrierLines();
     const trace = (path, pts, hide) => {
       let pen = false;
       for (const p of pts) {

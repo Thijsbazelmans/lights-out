@@ -17,7 +17,7 @@ import { challengeLink, challengeProblem, codeFrom, decodeChallenge } from './ch
 import { POINTS, ROUNDS, abandonSeason, currentSeason, isComplete, nextTrack, playerStanding, recordRound, standings, startSeason, teamStanding } from './season.js';
 
 // Bump together with --build in css/style.css and CACHE in sw.js.
-const BUILD = '37';
+const BUILD = '38';
 
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d', { alpha: false });
@@ -489,6 +489,17 @@ function handleOut(r) {
         finishMusic();
         audio.sfxChime(e.pos === 1 ? [523, 659, 784, 1047, 1319] : e.pos <= 3 ? [523, 659, 784, 1047] : [523, 659, 784], 0.12);
         break;
+      case 'puncture':
+        audio.sfxBeep(220, 0.28, 'sawtooth', 0.08);
+        break;
+      case 'failure':
+        audio.sfxBeep(150, 0.45, 'sawtooth', 0.09);
+        setTimeout(() => audio.sfxBeep(110, 0.5, 'sawtooth', 0.08), 260);
+        break;
+      case 'dnf':
+        syncChrome(); // controls away: you're out
+        finishMusic();
+        break;
       case 'results':
         if (r.quali) showQuali(r);
         else showResults(r);
@@ -560,7 +571,7 @@ function recordFinish(r, pos) {
   rec.races++;
   if (pos === 1) rec.wins++;
   if (rec.bestPos == null || pos < rec.bestPos) rec.bestPos = pos;
-  if (r.totalLaps === 3 && (rec.bestRace == null || p.finishTime < rec.bestRace)) rec.bestRace = p.finishTime;
+  if (r.totalLaps === 5 && (rec.bestRace == null || p.finishTime < rec.bestRace)) rec.bestRace = p.finishTime;
   const s = save.stats;
   s.races++;
   if (pos === 1) s.wins++;
@@ -579,8 +590,9 @@ function showResults(r) {
   if (rec.bestLap != null && p.bestLap != null && Math.abs(rec.bestLap - p.bestLap) < 1e-6) {
     chips.push({ kind: 'purple', text: `Circuit record: ${formatTime(rec.bestLap)}` });
   }
-  if (r.prevBestPos == null || res.playerPos < r.prevBestPos) chips.push({ kind: 'green', text: `Best finish here: P${res.playerPos}` });
-  if (r.fromGrid && p.gridPos) {
+  if (res.playerDnf) chips.push({ kind: 'red', text: 'Retired: the car gave up (damage)' });
+  else if (r.prevBestPos == null || res.playerPos < r.prevBestPos) chips.push({ kind: 'green', text: `Best finish here: P${res.playerPos}` });
+  if (r.fromGrid && p.gridPos && !res.playerDnf) {
     const gained = p.gridPos - res.playerPos;
     chips.push({ kind: gained > 0 ? 'green' : 'wear', text: `Started P${p.gridPos}${gained ? ` · ${gained > 0 ? 'gained' : 'lost'} ${Math.abs(gained)} place${Math.abs(gained) > 1 ? 's' : ''}` : ''}` });
   }
@@ -603,7 +615,7 @@ function showResults(r) {
   if (state.mode === 'season' && s && !isComplete(s)) {
     const order = res.rows.map((row) => row.driver);
     const before = s.results.length ? playerStanding(s) : null; // no position before round 1
-    recordRound(s, order);
+    recordRound(s, order, res.rows.filter((row) => row.dnf).map((row) => row.driver));
     save.weekend = null; // on to the next round
     save.write();
     const after = playerStanding(s);

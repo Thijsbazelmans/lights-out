@@ -77,6 +77,16 @@ export const DIFFICULTY = {
 // at the 1 takes nearly all of it). Lap records are kept apart.
 export const ARCADE_OFF = { brake: 0.75 };
 
+// Failures, with Arcade off and tyres & damage on (build 38, roadmap step 3):
+// tyres below `below` can puncture and a car below `below` (1 - damage) can
+// fail, more likely the further below: per second, `rate` × (share of the
+// way from `below` to nothing)², so about a 1 in 4 chance over a lap at 30%,
+// 2 in 3 at 20%. A warning comes when it drops below. A puncture: you limp
+// (PUNCTURE in car.js) until the pits fix it. A failure: STOP THE CAR, out of
+// the race (DNF, no points); the car coasts to a stop and the others drive
+// through it. Every car runs the same risks.
+export const FAILURE = { below: 0.4, rate: 0.13 };
+
 // The levels with Arcade off. Nobody drifts, so the rivals have your engine
 // and their pace is in fast-corner grip. Hard started as build 36's
 // Impossible level (the owner: drifting made up for too many mistakes, and
@@ -180,9 +190,11 @@ export class Race {
     if (mode === 'race' && wear) {
       for (const c of this.cars) {
         c.wears = true;
-        c.wearLap = WEAR.race / Math.max(1, laps);
+        c.wearLap = WEAR.lap;
       }
     }
+    this.failures = mode === 'race' && wear && !this.arcade;
+    this.dnfEndAt = null; // when you've retired: when the race ends for you
     track.pitTeams = PIT_TEAMS;
     this.pits = mode === 'race' && wear && track.pit ? new Pits(this, { auto: autoPit }) : null;
     // Qualifying: you start in your garage, and the pit lane takes you out.
@@ -540,8 +552,23 @@ export class Race {
     if (this.pits) this.pits.beforeStep();
 
     const D = this.level;
+    if (this.dnfEndAt != null && this.time >= this.dnfEndAt && this.phase === 'race') {
+      // Retired: your race is over (the others race on behind the results).
+      this.dnfEndAt = null;
+      this.phase = 'finished';
+      this.finishReal = 0;
+      this.messages.length = 0;
+      this.out.push({ t: 'dnf' });
+    }
     for (const car of this.cars) {
       if (car.overtake > 0) car.overtake = Math.max(0, car.overtake - h);
+      if (car.dnf) {
+        // Out of the race: off the power, rolling to a stop.
+        car.power = 0;
+        car.update(h, { gas: 0, brake: Math.abs(car.forwardSpeed) > 20 ? 0.6 : 0, steer: 0, analog: true }, this.track, this.events);
+        continue;
+      }
+      if (this.failures && this.phase === 'race' && !car.pit && !car.finished) this.risk(car, h);
       if (car.pit) {
         if (this.lane) this.garage(car, h);
         else this.pits.drive(car, h, car === this.player && tap);
@@ -785,12 +812,12 @@ export class Race {
     const RR = 4 * R * R;
     for (let i = 0; i < cs.length; i++) {
       const a = cs[i];
-      if (a.pit) continue; // in the pit lane, behind the wall
+      if (a.pit || a.dnf) continue; // in the pit lane, behind the wall; or out of the race
       const afx = Math.cos(a.angle);
       const afy = Math.sin(a.angle);
       for (let j = i + 1; j < cs.length; j++) {
         const b = cs[j];
-        if (b.pit) continue;
+        if (b.pit || b.dnf) continue;
         const dx0 = b.x - a.x;
         const dy0 = b.y - a.y;
         if (dx0 * dx0 + dy0 * dy0 > 3600) continue;
@@ -892,7 +919,7 @@ export class Race {
       for (let k = 0; k <= 28; k += 4) bend = Math.max(bend, Math.abs(t.rcurv[(a.trackIdx + k) % t.n]));
       if (a.forwardSpeed > vMin && bend < 1 / S.straight && !a.pit) {
         for (const b of this.cars) {
-          if (b === a || b.pit || b.forwardSpeed < vMin || !this.sameStretch(a, b)) continue;
+          if (b === a || b.pit || b.dnf || b.forwardSpeed < vMin || !this.sameStretch(a, b)) continue;
           if (Math.cos(b.angle - a.angle) < 0.985) continue;
           const dx = b.x - a.x;
           const dy = b.y - a.y;
@@ -1086,10 +1113,58 @@ export class Race {
     }
   }
 
+  // Worn tyres and a damaged car with Arcade off (FAILURE): a warning,
+  // then a growing chance of a puncture or of the car giving up.
+  risk(car, h) {
+    const F = FAILURE;
+    const you = car === this.player;
+    const p = this.player;
+    const near = !you && p && !p.finished && this.phase === 'race' && Math.abs(car.pos - p.pos) <= 3;
+    if (!car.puncture && car.tyres < F.below) {
+      if (!car.warnedTyres) {
+        car.warnedTyres = true;
+        if (you) this.msg('TYRES CRITICAL · BOX', '#ff8a2f', 2.4, 0.85);
+      }
+      const x = (F.below - car.tyres) / F.below;
+      if (Math.random() < F.rate * x * x * h) {
+        car.puncture = true;
+        car.punctures = (car.punctures || 0) + 1;
+        if (you) {
+          this.msg('PUNCTURE! BOX, BOX', '#ff4f3a', 2.6, 1);
+          this.out.push({ t: 'puncture' });
+        } else if (near) this.msg(`${car.code} PUNCTURE`, '#ff8a2f', 1.6, 0.7);
+      }
+    }
+    const cond = 1 - car.damage;
+    if (cond < F.below) {
+      if (!car.warnedCar) {
+        car.warnedCar = true;
+        if (you) this.msg('CAR DAMAGED · BOX TO REPAIR', '#ff8a2f', 2.4, 0.85);
+      }
+      const x = (F.below - cond) / F.below;
+      if (Math.random() < F.rate * x * x * h) this.retire(car, near);
+    }
+  }
+
+  // A car that's given up: out of the race (DNF).
+  retire(car, near = false) {
+    car.dnf = true;
+    car.dnfAt = this.time;
+    car.overtake = 0;
+    car.slipstream = 0;
+    car.boost = 0;
+    if (car === this.player) {
+      this.msg('STOP THE CAR · RETIRED', '#ff4f3a', 3, 1);
+      this.out.push({ t: 'failure' });
+      this.dnfEndAt = this.time + 2.5;
+    } else if (near) this.msg(`${car.code} IS OUT`, '#ff8a2f', 1.8, 0.75);
+  }
+
   rank() {
     const sorted = this.cars.slice().sort((a, b) => {
       if (a.finished !== b.finished) return a.finished ? -1 : 1;
       if (a.finished) return a.finishPos - b.finishPos;
+      if (!!a.dnf !== !!b.dnf) return a.dnf ? 1 : -1; // retired: at the back, by how far they got
       return b.progress - a.progress;
     });
     for (let i = 0; i < sorted.length; i++) sorted[i].pos = i + 1;
@@ -1395,6 +1470,10 @@ export class Race {
     const rows = [];
     let prev = 0;
     for (const c of this.order) {
+      if (c.dnf) {
+        rows.push({ name: c.name, code: c.code, team: c.teamId, driver: c.driverId, livery: c.livery, isPlayer: c.isPlayer, time: Infinity, penalty: 0, best: c.bestLap, finished: false, dnf: true });
+        continue;
+      }
       let time = c.finished ? c.finishTime : null;
       if (time == null) {
         time = this.estimateFinish(c) - this.penaltyOf(c);
@@ -1415,6 +1494,7 @@ export class Race {
       playerTime: p && p.finishTime != null ? p.finishTime + (p.penalty || 0) : null,
       playerBest: p ? p.bestLap : null,
       playerPenalty: p ? p.penalty || 0 : 0,
+      playerDnf: !!(p && p.dnf),
       playerStops: p && p.stopTimes ? p.stopTimes.slice() : [],
       playerStopWaits: p && p.stopWaits ? p.stopWaits.slice() : [],
       fieldStop: this.fieldStop(),
@@ -1532,7 +1612,7 @@ export class Race {
     for (const c of this.cars) {
       if (c === this.player) continue;
       if (c.x < view.minX - m || c.x > view.maxX + m || c.y < view.minY - m || c.y > view.maxY + m) continue;
-      c.draw(ctx);
+      c.draw(ctx, c.dnf ? 0.45 : 1); // a retired car: faded, the others drive through it
     }
     // The road beside yours (other cars on it included) fades down.
     if (this.besideFade) {
@@ -1541,7 +1621,7 @@ export class Race {
         if (a > 0.01) t.dimRange(ctx, r.b0, r.b1, a);
       });
     }
-    if (this.player) this.player.draw(ctx);
+    if (this.player) this.player.draw(ctx, this.player.dnf ? 0.45 : 1);
     // Bridges: your own road stays clear. Crossing over: the road below is
     // dimmed. Going under: the bridge turns see-through and your car stays on top.
     const me = this.player || this.focus;

@@ -61,15 +61,16 @@ export function nextTrack(s) {
   return TRACKS.find((t) => t.id === CALENDAR[s.round]) || null;
 }
 
-// order: driver ids from winner to last.
-export function recordRound(s, order) {
+// order: driver ids from winner to last. dnf: the ones who retired (at the
+// back of the order; no points).
+export function recordRound(s, order, dnf = []) {
   order.forEach((id, i) => {
-    if (!(id in s.points)) return;
+    if (!(id in s.points) || dnf.includes(id)) return;
     s.points[id] += POINTS[i] || 0;
     if (i === 0) s.wins[id] += 1;
     if (i < 3) s.podiums[id] += 1;
   });
-  s.results.push({ track: CALENDAR[s.round], order });
+  s.results.push({ track: CALENDAR[s.round], order, ...(dnf.length ? { dnf } : {}) });
   s.round += 1;
   if (isComplete(s) && standings(s)[0].driver.id === 'you') save.stats.championships = (save.stats.championships || 0) + 1;
   save.write();

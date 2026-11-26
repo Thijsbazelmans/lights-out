@@ -47,7 +47,7 @@ for (const id of ids) {
   let still = 0;
   for (let run = 0; run < runs; run++) {
     const r = new Race({ track: t, mode: 'race', laps, difficulty, player: playerFor('ferrari', 1), rivals: rivalsFor('ferrari', 1), autoPit: true });
-    if (same && r.pits) for (const c of r.cars) c.pitPlan = r.pits.chances[0];
+    if (same && r.pits) for (const c of r.cars) c.pitPlans = [r.pits.chances[0]];
     const bot = new AIDriver(r.player, t, { pace: 1 });
     const stand = new Map();
     for (let T = 0; T < 70 * laps + 60; T += dt) {

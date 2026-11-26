@@ -80,7 +80,7 @@ export function createUI(root, h) {
         <div class="opt">
           <span class="label">Laps</span>
           <div class="seg" data-setting="laps">
-            <button data-val="3">3</button><button data-val="5">5</button><button data-val="8">8</button>
+            <button data-val="5">5</button><button data-val="8">8</button><button data-val="12">12</button>
           </div>
         </div>
         <div class="opt">
@@ -340,7 +340,7 @@ export function createUI(root, h) {
 
   // ---------- season ----------
 
-  const seasonSetup = { laps: 3, difficulty: save.settings.difficulty, arcade: save.settings.arcade !== false };
+  const seasonSetup = { laps: 5, difficulty: save.settings.difficulty, arcade: save.settings.arcade !== false };
   let abandonArmed = 0;
 
   let standingsTab = 'drivers';
@@ -435,7 +435,7 @@ export function createUI(root, h) {
         <div class="opts">
           <div class="opt">
             <span class="label">Laps per race</span>
-            <div class="seg" data-season="laps"><button data-val="2">2</button><button data-val="3">3</button><button data-val="5">5</button></div>
+            <div class="seg" data-season="laps"><button data-val="5">5</button><button data-val="8">8</button><button data-val="12">12</button></div>
           </div>
           <div class="opt">
             <span class="label">Rivals</span>
@@ -793,11 +793,12 @@ export function createUI(root, h) {
 
   function showResults(res, info) {
     const pos = res.playerPos;
-    const head = HEADLINES[pos] || 'Tough day';
+    const out = res.playerDnf;
+    const head = out ? 'Out of the race' : HEADLINES[pos] || 'Tough day';
     const best = res.fastest;
     const rows = res.rows
       .map((r, i) => {
-        const gap = i === 0 ? formatTime(r.time) : (r.finished ? '' : '≈ ') + formatGap(r.time - res.rows[0].time);
+        const gap = r.dnf ? 'DNF' : i === 0 ? formatTime(r.time) : (r.finished ? '' : '≈ ') + formatGap(r.time - res.rows[0].time);
         const fast = best && best.code === r.code;
         return `<tr class="${r.isPlayer ? 'me' : ''}">
           <td class="num">${i + 1}</td>
@@ -810,11 +811,11 @@ export function createUI(root, h) {
     const chips = info.chips.map((c) => `<li class="${c.kind}">${esc(c.text)}</li>`).join('');
     $('#results').innerHTML = `
       <div class="res-head">
-        <div class="res-pos pos-${Math.min(pos, 4)}">P${pos}</div>
+        <div class="res-pos pos-${out ? 4 : Math.min(pos, 4)}">${out ? 'DNF' : `P${pos}`}</div>
         <div>
           ${info.event ? `<span class="eyebrow">${info.event.round ? `Round ${info.event.round} of ${info.event.rounds} · ` : ''}${esc(info.event.gp)}</span>` : ''}
           <h2>${head}</h2>
-          <p>${esc(info.trackName)}${info.event && info.event.country !== info.trackName ? ` · ${esc(info.event.country)}` : ''} · ${res.laps} laps · ${formatTime(res.playerTime)}</p>
+          <p>${esc(info.trackName)}${info.event && info.event.country !== info.trackName ? ` · ${esc(info.event.country)}` : ''} · ${res.laps} laps${out ? ' · retired' : ` · ${formatTime(res.playerTime)}`}</p>
         </div>
       </div>
       <div class="table-wrap">
