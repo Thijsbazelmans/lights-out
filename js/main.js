@@ -3,7 +3,7 @@
 import { ALL_REAL, TRACKS } from './data/tracks.js';
 import { allDrivers, playerFor, rivalsFor } from './data/teams.js';
 import { Track } from './track.js';
-import { Race, rollForm } from './race.js';
+import { Race, levelOf, rollForm } from './race.js';
 import { Camera } from './camera.js';
 import { PHYS, setCarSprites } from './car.js';
 import { drawHUD } from './hud.js';
@@ -17,7 +17,7 @@ import { challengeLink, challengeProblem, codeFrom, decodeChallenge } from './ch
 import { POINTS, ROUNDS, abandonSeason, currentSeason, isComplete, nextTrack, playerStanding, recordRound, standings, startSeason, teamStanding } from './season.js';
 
 // Bump together with --build in css/style.css and CACHE in sw.js.
-const BUILD = '35';
+const BUILD = '36';
 
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d', { alpha: false });
@@ -237,7 +237,9 @@ function startRace(mode, trackId, challenge = null) {
     state.challenge.raced = true; // (the menu stops calling it new)
     save.write();
   }
-  launch({ mode, trackId, laps: save.settings.laps, difficulty: save.settings.difficulty, team: save.settings.team, seat: save.settings.seat, challenge: state.challenge });
+  // A lap someone sent you is raced on their side of the Arcade switch.
+  const arcade = state.challenge ? state.challenge.arcade !== false : save.settings.arcade !== false;
+  launch({ mode, trackId, laps: save.settings.laps, difficulty: save.settings.difficulty, arcade, team: save.settings.team, seat: save.settings.seat, challenge: state.challenge });
 }
 
 // A challenge link: opened with the game (#c=...) or pasted under Time
@@ -287,12 +289,12 @@ function startSeasonRace() {
   const s = currentSeason();
   if (!s || isComplete(s)) return;
   const wk = weekendFor(s);
-  const base = { trackId: nextTrack(s).id, laps: s.laps, difficulty: s.difficulty, team: s.team, seat: s.seat, form: wk.form };
+  const base = { trackId: nextTrack(s).id, laps: s.laps, difficulty: s.difficulty, arcade: s.arcade !== false, team: s.team, seat: s.seat, form: wk.form };
   if (wk.grid) launch({ ...base, mode: 'season', grid: wk.grid });
   else launch({ ...base, mode: 'quali', field: wk.field });
 }
 
-function launch({ mode, trackId, laps, difficulty, team, seat, grid = null, form = null, field = null, challenge = null }) {
+function launch({ mode, trackId, laps, difficulty, arcade = true, team, seat, grid = null, form = null, field = null, challenge = null }) {
   audio.unlockAudio();
   setMusic(null); // the music fades out as the cars line up
   audio.duckEngines(1, 0.1);
@@ -300,12 +302,14 @@ function launch({ mode, trackId, laps, difficulty, team, seat, grid = null, form
   state.mode = mode;
   state.trackId = trackId;
   const track = getTrack(trackId);
-  const rec = save.record(trackId);
+  const lv = levelOf(difficulty, arcade);
+  const rec = save.lapRecord(trackId, lv.arcade);
   state.race = new Race({
     track,
     mode: mode === 'season' ? 'race' : mode,
     laps,
-    difficulty,
+    difficulty: lv.difficulty,
+    arcade: lv.arcade,
     player: playerFor(team, seat),
     rivals: rivalsFor(team, seat),
     record: rec,
@@ -331,6 +335,7 @@ function launch({ mode, trackId, laps, difficulty, team, seat, grid = null, form
     laps,
     round: season ? season.round + 1 : null,
     rounds: ROUNDS,
+    arcade: lv.arcade,
     challenge: state.race.challenge ? { name: state.race.challenge.name, time: state.race.challenge.time } : null,
   };
   state.paused = false;
@@ -357,7 +362,7 @@ function pause() {
     // (and how many frames a second the game was drawing, to check phones)
     const ch = state.race.challenge;
     const vs = ch ? ` · vs ${ch.name} ${formatTime(ch.time)}${state.race.challengeBest != null ? `: your best ${formatGap(state.race.challengeBest - ch.time)}` : ''}` : '';
-    ui.setPauseInfo(`${ev.round ? `Round ${ev.round} of ${ev.rounds} · ` : ''}${ev.gp}${ev.gp.startsWith(ev.name) ? '' : ` · ${ev.name}`} · ${lap}${vs}${fps.now ? ` · ${fps.now} fps (screen ${Math.round(1 / screenGap)} Hz)` : ''}`);
+    ui.setPauseInfo(`${ev.round ? `Round ${ev.round} of ${ev.rounds} · ` : ''}${ev.gp}${ev.gp.startsWith(ev.name) ? '' : ` · ${ev.name}`} · ${lap}${ev.arcade === false ? ' · Arcade off' : ''}${vs}${fps.now ? ` · ${fps.now} fps (screen ${Math.round(1 / screenGap)} Hz)` : ''}`);
   }
   ui.pauseSend(state.mode === 'trial' ? state.trackId : null);
   ui.show('pause');
@@ -535,7 +540,7 @@ function showResults(r) {
   const res = r.results;
   const chips = [];
   const p = r.player;
-  const rec = save.record(r.track.id);
+  const rec = r.record || save.lapRecord(r.track.id, r.arcade);
   if (res.fastest && res.fastest.isPlayer) chips.push({ kind: 'purple', text: `Fastest lap of the race: ${formatTime(res.fastest.time)}` });
   if (rec.bestLap != null && p.bestLap != null && Math.abs(rec.bestLap - p.bestLap) < 1e-6) {
     chips.push({ kind: 'purple', text: `Circuit record: ${formatTime(rec.bestLap)}` });
@@ -594,7 +599,7 @@ function showQuali(r) {
   const res = r.results;
   const chips = [];
   const p = r.player;
-  const rec = save.record(r.track.id);
+  const rec = r.record || save.lapRecord(r.track.id, r.arcade);
   if (rec.bestLap != null && p.bestLap != null && Math.abs(rec.bestLap - p.bestLap) < 1e-6) {
     chips.push({ kind: 'purple', text: `Circuit record: ${formatTime(rec.bestLap)}` });
   }

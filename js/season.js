@@ -20,7 +20,7 @@ export function hasOutdatedSeason() {
   return !!save.season && save.season.version !== VERSION;
 }
 
-export function startSeason({ laps, difficulty, team, seat }) {
+export function startSeason({ laps, difficulty, arcade = true, team, seat }) {
   const lineup = [];
   for (const t of TEAMS) {
     t.drivers.forEach((d, i) => {
@@ -33,6 +33,7 @@ export function startSeason({ laps, difficulty, team, seat }) {
     version: VERSION,
     laps,
     difficulty,
+    arcade: arcade !== false, // (seasons from before the Arcade switch don't have it: on)
     team,
     seat: seatOf(seat),
     lineup,

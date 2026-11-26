@@ -32,7 +32,7 @@ export function cleanName(s) {
 }
 
 // The challenge for your record on a circuit (null if there's no lap to send).
-export function challengeFrom(trackId, rec, { name, team, build }) {
+export function challengeFrom(trackId, rec, { name, team, build, arcade = true }) {
   const def = ALL_REAL.find((d) => d.id === trackId);
   if (!def || !rec || rec.bestLap == null || !rec.ghost || rec.ghost.frames.length < 90) return null;
   return {
@@ -44,6 +44,7 @@ export function challengeFrom(trackId, rec, { name, team, build }) {
     time: rec.bestLap,
     splits: rec.splits || [],
     ghost: rec.ghost,
+    arcade: arcade !== false,
   };
 }
 
@@ -134,6 +135,7 @@ export async function encodeChallenge(c) {
       s: Math.round(c.time * 1000),
       p: (c.splits || []).map((v) => (v == null ? -1 : Math.round(v * 1000))),
       d: Math.round(c.ghost.dt * 1000),
+      ...(c.arcade === false ? { a: 0 } : {}), // set with Arcade off (older links: on)
     })
   );
   w.u(meta.length);
@@ -228,6 +230,7 @@ export async function decodeChallenge(text) {
       time,
       splits: Array.isArray(meta.p) ? meta.p.map((v) => (typeof v === 'number' && v >= 0 ? v / 1000 : null)) : [],
       ghost: { dt: (Number(meta.d) || 50) / 1000, frames },
+      arcade: meta.a !== 0,
       received: Date.now(),
     };
   } catch (e) {

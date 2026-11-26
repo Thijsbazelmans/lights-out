@@ -11,6 +11,7 @@ function defaults() {
       music: true, // the theme behind the menus and after the finish
       camera: 'chase', // 'chase' rotates with the car, 'fixed' keeps north up
       difficulty: 'normal',
+      arcade: true, // drifting, a big start boost, instant brakes (see ARCADE_OFF in race.js)
       laps: 3,
       autoGas: false,
       steerSide: 'left', // phone: ‹ › under the 'left' or 'right' thumb, GAS and BRAKE under the other
@@ -35,8 +36,11 @@ function load() {
     const raw = localStorage.getItem(KEY);
     if (!raw) return def;
     const d = JSON.parse(raw);
+    const settings = { ...def.settings, ...(d.settings || {}) };
+    // Build 36's preview had an Impossible level: Hard with Arcade off now.
+    if (settings.difficulty === 'impossible') Object.assign(settings, { difficulty: 'hard', arcade: false });
     return {
-      settings: { ...def.settings, ...(d.settings || {}) },
+      settings,
       records: d.records || {},
       challenges: d.challenges || {},
       stats: { ...def.stats, ...(d.stats || {}) },
@@ -89,6 +93,18 @@ export const save = {
   peek(trackId) {
     return data.records[trackId] || null;
   },
+  // Lap record, ghost and splits on a circuit for one side of the Arcade
+  // switch: laps with Arcade off are kept apart (in `off`).
+  lapRecord(trackId, arcade = true) {
+    const r = this.record(trackId);
+    if (arcade) return r;
+    r.off ??= { bestLap: null, ghost: null, splits: null };
+    return r.off;
+  },
+  peekLap(trackId, arcade = true) {
+    const r = data.records[trackId];
+    return !r ? null : arcade ? r : r.off || null;
+  },
   // Laps people sent you, one per circuit (the latest).
   challenge(trackId) {
     return data.challenges[trackId] || null;
@@ -106,6 +122,7 @@ export const save = {
       const r = data.records[id];
       if (!r || (r.layout ?? 1) === layout) continue;
       Object.assign(r, { bestLap: null, ghost: null, splits: null, bestRace: null, layout });
+      if (r.off) Object.assign(r.off, { bestLap: null, ghost: null, splits: null });
       changed = true;
     }
     if (changed) this.write();

@@ -61,17 +61,51 @@ const CALL_WARN = 1.4;
 // ~0.8% (normal) slower: now the straights are close to even, overtake mode
 // and a tow get you past, and the AI's pace is in the fast corners, where
 // you can drift and it can't. Chicanes and hairpins are as before.)
+// These are the levels with Arcade on; DIFFICULTY_OFF has them with it off.
 export const DIFFICULTY = {
   easy: { top: 0.82, spread: 0.13, power: 0.9, powerSpread: 0.07, grip: 1, chase: 0.08, chaseNear: 0.03 },
   normal: { top: 0.96, spread: 0.1, power: 1.0, powerSpread: 0.07, grip: 1.07, chase: 0.12, chaseNear: 0.03 },
   hard: { top: 0.97, spread: 0.06, power: 1.03, powerSpread: 0.04, grip: 1.15, chase: 0.2, chaseNear: 0.07 },
 };
 
+// The Arcade switch (build 36). Arcade on is the game as it was: drifting,
+// a big boost for a great start, brakes that stop you almost at once, and
+// tyres and damage that slow you but never break. Arcade off: you can't
+// drift, a perfect start gives the small boost (a good one none: your
+// reaction is the gain), and your brakes have `brake` of their force, so
+// stopping takes about a third longer (the 3-2-1 boards still work: braking
+// at the 1 takes nearly all of it). Lap records are kept apart.
+export const ARCADE_OFF = { brake: 0.75 };
+
+// The levels with Arcade off. Nobody drifts, so the rivals have your engine
+// and their pace is in fast-corner grip. Hard started as build 36's
+// Impossible level (the owner: drifting made up for too many mistakes, and
+// circuits without drifting corners stood out); it was folded into the
+// switch as Hard with Arcade off. With nobody drifting, no circuit stands out
+// the way Montréal did on hard. Each level is as far behind Hard as with
+// Arcade on (poles: Normal +3.4%, Easy +13%); Hard's pole is about 4% slower
+// than a flawless no-drift lap (your car at 97% of its cornering limit all
+// the way round, braking at 90% of your Arcade-off brakes). Qualifying gets
+// no extra engine (QualiSim).
+export const DIFFICULTY_OFF = {
+  easy: { top: 0.82, spread: 0.13, power: 0.95, powerSpread: 0.07, grip: 1.15, chase: 0.08, chaseNear: 0.03 },
+  normal: { top: 0.96, spread: 0.1, power: 0.98, powerSpread: 0.05, grip: 1.24, chase: 0.12, chaseNear: 0.03 },
+  hard: { top: 0.97, spread: 0.05, power: 1.0, powerSpread: 0.03, grip: 1.35, chase: 0.2, chaseNear: 0.07 },
+};
+
+// A level as saved (settings, a season): Easy/Normal/Hard and the Arcade
+// switch. Build 36's preview had an 'impossible' level: that's Hard with
+// Arcade off.
+export function levelOf(difficulty, arcade = true) {
+  if (difficulty === 'impossible') return { difficulty: 'hard', arcade: false };
+  return { difficulty: DIFFICULTY[difficulty] ? difficulty : 'normal', arcade: arcade !== false };
+}
+
 // A computer driver's pace for a weekend: the team and driver (`skill`),
 // plus a little form on the day (`form`, about ±0.1, the same in qualifying
-// and the race), as corner pace and engine power for this difficulty.
-export function aiPace(skill, difficulty, form = 0) {
-  const D = DIFFICULTY[difficulty] || DIFFICULTY.normal;
+// and the race), as corner pace and engine power for this level (D: a row
+// of DIFFICULTY or DIFFICULTY_OFF).
+export function aiPace(skill, D, form = 0) {
   const q = clamp(clamp((skill - 0.94) / 0.068, 0, 1) + form, 0, 1);
   return { pace: D.top - D.spread * (1 - q), power: D.power - D.powerSpread * (1 - q), grip: D.grip };
 }
@@ -89,11 +123,14 @@ export class Race {
   // computer drivers' qualifying laps from an earlier run of this session.
   // challenge (time trial): a lap someone sent you (challenge.js), raced as
   // the ghost instead of your own best.
-  constructor({ track, mode, laps = 3, difficulty = 'normal', player = null, rivals = [], record = null, wear = true, autoPit = false, grid = null, form = null, field = null, challenge = null }) {
+  constructor({ track, mode, laps = 3, difficulty = 'normal', arcade = true, player = null, rivals = [], record = null, wear = true, autoPit = false, grid = null, form = null, field = null, challenge = null }) {
     this.track = track;
     this.mode = mode; // 'race' | 'quali' | 'trial' | 'attract'
     this.totalLaps = mode === 'race' ? laps : Infinity;
-    this.difficulty = difficulty;
+    const lv = levelOf(difficulty, arcade);
+    this.difficulty = lv.difficulty;
+    this.arcade = lv.arcade;
+    this.level = (this.arcade ? DIFFICULTY : DIFFICULTY_OFF)[this.difficulty];
     this.record = record;
     this.time = 0; // race clock: starts at lights out
     this.phase = 'intro'; // intro -> lights -> race -> finished
@@ -150,14 +187,14 @@ export class Race {
     this.pits = mode === 'race' && wear && track.pit ? new Pits(this, { auto: autoPit }) : null;
     // Qualifying: you start in your garage, and the pit lane takes you out.
     this.lane = mode === 'quali' && track.pit ? new Pits(this) : null;
-    if (mode === 'quali') this.setupQuali(rivals, difficulty, field);
+    if (mode === 'quali') this.setupQuali(rivals, field);
     // Overtake mode's detection points, and when a car last passed each.
     this.otZones = mode === 'race' ? track.overtakeZones(OVERTAKE.zones) : null;
     this.otLast = this.otZones ? this.otZones.map(() => -Infinity) : null;
     // The computer cars' corner speeds for their grip, and for the extra grip
     // of a chase (see step), made now rather than mid-race.
     if (mode === 'race') {
-      const D = DIFFICULTY[difficulty] || DIFFICULTY.normal;
+      const D = this.level;
       for (let g = 0; g <= D.chaseNear + 1e-6; g += 0.01) track.aiSpeeds(Math.round((D.grip + g) * 100) / 100);
     }
     this.prevPedal = false;
@@ -167,9 +204,15 @@ export class Race {
     this.rank();
   }
 
+  // Your car, by the Arcade switch (ARCADE_OFF).
+  arcadeCar(car) {
+    car.canDrift = this.arcade;
+    car.brakeMul = this.arcade ? 1 : ARCADE_OFF.brake;
+  }
+
   setupGrid(player, rivals, grid) {
     const t = this.track;
-    const D = DIFFICULTY[this.difficulty] || DIFFICULTY.normal;
+    const D = this.level;
     if (this.mode === 'trial' || this.mode === 'quali') {
       const back = Math.round(240 / t.ds);
       const i = t.n - back;
@@ -182,6 +225,7 @@ export class Race {
         livery: player.livery,
         isPlayer: true,
       });
+      this.arcadeCar(car);
       car.trackIdx = i;
       car.basePower = 1;
       car.teamId = player.teamId || (player.team ? player.team.id : null);
@@ -206,6 +250,7 @@ export class Race {
       const s = t.gridSlot(k);
       if (order[k] === player) {
         const car = new Car({ x: s.x, y: s.y, angle: s.angle, name: player.name, code: player.code, livery: player.livery, isPlayer: true });
+        this.arcadeCar(car);
         car.teamId = player.teamId || (player.team ? player.team.id : null);
         car.driverId = player.id || 'you';
         car.trackIdx = s.idx;
@@ -219,7 +264,7 @@ export class Race {
         const attract = this.mode === 'attract';
         // Race pace: team and driver, plus a little form on the day.
         const f = this.form && this.form[idOf(d)] != null ? this.form[idOf(d)] : rollForm();
-        const ap = aiPace(d.skill, this.difficulty, f);
+        const ap = aiPace(d.skill, D, f);
         const pace = attract ? 0.9 + 0.04 * skillN : ap.pace;
         const power = attract ? 0.92 + 0.05 * skillN : ap.power;
         // Lap 1: halfway between the field average and the car's own pace.
@@ -242,17 +287,17 @@ export class Race {
 
   // Qualifying: your car waits in the garage, and the other drivers' laps
   // are simulated in the background (or come from an earlier run).
-  setupQuali(rivals, difficulty, field) {
+  setupQuali(rivals, field) {
     const p = this.player;
     this.quali = { stage: 'out', sim: null, results: null, order: [], revealAt: [], shown: 0, board: [], pole: null, best: null, live: null, time: null };
     if (field && field.length) this.fieldReady(field);
     else {
       const entries = rivals.map((d) => {
         const id = d.driverId || d.id;
-        const ap = aiPace(d.skill, difficulty, this.form && this.form[id] != null ? this.form[id] : 0);
+        const ap = aiPace(d.skill, this.level, this.form && this.form[id] != null ? this.form[id] : 0);
         return { driverId: id, code: d.code, name: d.name, teamId: d.teamId, livery: d.livery, pace: ap.pace, power: ap.power, grip: ap.grip };
       });
-      this.quali.sim = new QualiSim(this.track, entries, difficulty);
+      this.quali.sim = new QualiSim(this.track, entries, this.difficulty, this.arcade);
     }
     if (this.lane) {
       const t = this.track;
@@ -480,10 +525,10 @@ export class Race {
       this.awaitLaunch = false;
       const rt = this.time;
       if (rt < 0.3) {
-        p.startBoost(2, this.events, 'launch');
+        p.startBoost(this.arcade ? 2 : 1, this.events, 'launch');
         this.msg(`PERFECT START  ${rt.toFixed(3)}s`, '#31d67b', 1.8);
       } else if (rt < 0.5) {
-        p.startBoost(1, this.events, 'launch');
+        if (this.arcade) p.startBoost(1, this.events, 'launch');
         this.msg(`GOOD START  ${rt.toFixed(3)}s`, '#ffffff', 1.6);
       } else {
         this.msg(`REACTION  ${rt.toFixed(3)}s`, '#8d97ab', 1.4);
@@ -494,7 +539,7 @@ export class Race {
     this.tap = false;
     if (this.pits) this.pits.beforeStep();
 
-    const D = DIFFICULTY[this.difficulty] || DIFFICULTY.normal;
+    const D = this.level;
     for (const car of this.cars) {
       if (car.overtake > 0) car.overtake = Math.max(0, car.overtake - h);
       if (car.pit) {
@@ -659,7 +704,7 @@ export class Race {
     // You're at the front: the next few cars chase, harder the further you
     // get away, so a lead has to be kept rather than just built once.
     if (d < 0 && p.pos <= 3 && car.pos <= p.pos + 3 && d > -0.45 * L) {
-      const D = DIFFICULTY[this.difficulty] || DIFFICULTY.normal;
+      const D = this.level;
       const chase = D.chase;
       // The car right behind pushes hardest; less so when you're not leading.
       const lead = ([1, 0.75, 0.5][car.pos - p.pos - 1] ?? 0.5) * (p.pos === 1 ? 1 : 0.4);

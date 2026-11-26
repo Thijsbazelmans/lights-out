@@ -18,6 +18,8 @@ export const GHOST_DT = 0.05;
 // `push`: how much harder than their race pace the computer drivers go on
 // their qualifying lap, per difficulty: [corner pace, engine power], like
 // the cars chasing you when you lead a race (they can't drift, and you can).
+// With Arcade off you can't drift either, so they don't push at all (build
+// 36: the owner qualified 22nd almost every time when they did).
 // Corner pace stops at `paceTop` (beyond that they overshoot corners). Each
 // computer lap comes out a
 // little better or worse (`scatter`, a share of pace), and now and then
@@ -48,9 +50,9 @@ const H = 1 / 120; // the race's physics step
 // The computer drivers' qualifying laps. entries: { driverId, code, name,
 // teamId, livery, pace, power, grip }.
 export class QualiSim {
-  constructor(track, entries, difficulty = 'normal') {
+  constructor(track, entries, difficulty = 'normal', arcade = true) {
     this.track = track;
-    this.push = QUALI.push[difficulty] || QUALI.push.normal;
+    this.push = arcade ? QUALI.push[difficulty] || QUALI.push.normal : [1, 1];
     this.events = [];
     this.runs = entries.map((e) => this.start(e));
     this.done = !this.runs.length;

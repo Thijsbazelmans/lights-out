@@ -116,6 +116,7 @@ export class Car {
     // fast corners instead of all from the engine.
     this.handling = handling;
     this.canDrift = isPlayer; // the AI drives on grip only
+    this.brakeMul = 1; // your brakes with Arcade off (ARCADE_OFF in race.js)
 
     this.vx = 0;
     this.vy = 0;
@@ -242,7 +243,7 @@ export class Car {
         vf += acc * this.gas * Math.max(k, -0.5) * dt;
       }
       if (this.brake > 0.05) {
-        if (vf > 12) vf = Math.max(0, vf - P.BRAKE * this.brake * dt);
+        if (vf > 12) vf = Math.max(0, vf - P.BRAKE * this.brakeMul * this.brake * dt);
         else if (this.gas <= 0.05) vf = Math.max(-P.REV_TOP, vf - P.REV_ACC * this.brake * dt);
       }
       if (this.gas <= 0.05 && this.brake <= 0.05) {

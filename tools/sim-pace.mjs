@@ -4,6 +4,7 @@
 // hits by the AI, hard ones).
 //
 //   node tools/sim-pace.mjs hard all > before.txt        (difficulty, circuits, laps)
+//   node tools/sim-pace.mjs hard-off all                 (with Arcade off: DIFFICULTY_OFF)
 //   node tools/sim-pace.mjs hard all 3 --vs before.txt   (% change per circuit, and on average)
 //   SET=power=1.03,grip=1.15 node tools/sim-pace.mjs hard monza,suzuka
 //
@@ -12,7 +13,7 @@
 import { readFileSync } from 'fs';
 import { Track } from '../js/track.js';
 import { ALL_REAL } from '../js/data/tracks.js';
-import { DIFFICULTY, Race } from '../js/race.js';
+import { DIFFICULTY, DIFFICULTY_OFF, Race } from '../js/race.js';
 import { QUALI } from '../js/quali.js';
 import { DOWNFORCE } from '../js/car.js';
 import { AIDriver } from '../js/ai.js';
@@ -21,14 +22,16 @@ import { playerFor, rivalsFor } from '../js/data/teams.js';
 const args = process.argv.slice(2);
 const vsAt = args.indexOf('--vs');
 const vs = vsAt >= 0 ? args.splice(vsAt, 2)[1] : null;
-const [difficulty = 'normal', idsArg = 'all', lapsArg = '3'] = args;
+const [level = 'normal', idsArg = 'all', lapsArg = '3'] = args;
+const [difficulty, off] = level.split('-');
+const arcade = off !== 'off';
 const ids = idsArg === 'all' ? ALL_REAL.map((d) => d.id) : idsArg.split(',');
 const laps = Number(lapsArg);
 for (const kv of (process.env.SET || '').split(',').filter(Boolean)) {
   const [k, v] = kv.split('=');
   if (k === 'from' || k === 'full') DOWNFORCE[k] = Number(v);
   else if (k === 'push0' || k === 'push1') QUALI.push[difficulty][k === 'push0' ? 0 : 1] = Number(v);
-  else DIFFICULTY[difficulty][k] = Number(v);
+  else (arcade ? DIFFICULTY : DIFFICULTY_OFF)[difficulty][k] = Number(v);
 }
 
 function seeded(a) {
@@ -54,12 +57,12 @@ for (const id of ids) {
   const t = new Track(def);
   // Qualifying: the field's laps, simulated alone on the road.
   Math.random = seeded(777);
-  const q = new Race({ track: t, mode: 'quali', difficulty, player, rivals });
+  const q = new Race({ track: t, mode: 'quali', difficulty, arcade, player, rivals });
   q.quali.sim.finish();
   const qt = q.quali.sim.results().map((r) => r.time).filter((v) => v != null).sort((a, b) => a - b);
   // A race, with a bot in your car for traffic.
   Math.random = seeded(4242);
-  const r = new Race({ track: t, mode: 'race', laps, difficulty, player, rivals, autoPit: true });
+  const r = new Race({ track: t, mode: 'race', laps, difficulty, arcade, player, rivals, autoPit: true });
   const bot = new AIDriver(r.player, t, { pace: 0.95 });
   let hits = 0;
   let hard = 0;

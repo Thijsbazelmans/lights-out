@@ -89,8 +89,18 @@ export function createUI(root, h) {
             <button data-val="easy">Easy</button><button data-val="normal">Normal</button><button data-val="hard">Hard</button>
           </div>
         </div>
+        <div class="opt">
+          <span class="label">Arcade</span>
+          <div class="seg" data-setting="arcade"><button data-val="true">On</button><button data-val="false">Off</button></div>
+          <p class="hint">Off: no drifting, longer braking, a smaller start boost. Its own lap records.</p>
+        </div>
       </div>
       <div class="opts" id="trial-opts" hidden>
+        <div class="opt">
+          <span class="label">Arcade</span>
+          <div class="seg" data-setting="arcade"><button data-val="true">On</button><button data-val="false">Off</button></div>
+          <p class="hint">Off: no drifting, longer braking, a smaller start boost. Its own lap records.</p>
+        </div>
         <div class="opt" id="vs-opt" hidden>
           <span class="label">Race against</span>
           <div class="seg" id="vs-seg"><button data-vs="own">Your best</button><button data-vs="them"></button></div>
@@ -271,7 +281,7 @@ export function createUI(root, h) {
     $('#team-label').innerHTML = team
       ? `<i class="dot" style="background:${team.livery.color}"></i>${esc(team.name)}, with ${esc(mate.name.split(' ').slice(-1)[0])}`
       : 'pick one';
-    const anyPB = TRACKS.map((t) => save.peek(t.id)).filter((r) => r && r.bestLap);
+    const anyPB = TRACKS.map((t) => save.peekLap(t.id, save.settings.arcade !== false)).filter((r) => r && r.bestLap);
     const fresh = TRACKS.map((t) => save.challenge(t.id)).filter((c) => c && !c.raced).sort((a, b) => b.received - a.received)[0];
     $('#btn-trial small').textContent = fresh
       ? `${fresh.name} challenged you`
@@ -289,8 +299,9 @@ export function createUI(root, h) {
 
   function trackMeta(def) {
     const r = save.peek(def.id);
+    const lap = save.peekLap(def.id, save.settings.arcade !== false);
     const bits = [`${def.country} · ${def.lengthKm.toFixed(2)} km`];
-    if (r && r.bestLap) bits.push(`<span class="pb">PB ${formatTime(r.bestLap)}</span>`);
+    if (lap && lap.bestLap) bits.push(`<span class="pb">PB ${formatTime(lap.bestLap)}</span>`);
     if (r && r.bestPos) bits.push(`best P${r.bestPos}`);
     return bits.join(' · ');
   }
@@ -324,7 +335,7 @@ export function createUI(root, h) {
 
   // ---------- season ----------
 
-  const seasonSetup = { laps: 3, difficulty: save.settings.difficulty };
+  const seasonSetup = { laps: 3, difficulty: save.settings.difficulty, arcade: save.settings.arcade !== false };
   let abandonArmed = 0;
 
   let standingsTab = 'drivers';
@@ -426,6 +437,11 @@ export function createUI(root, h) {
             <div class="seg" data-season="difficulty"><button data-val="easy">Easy</button><button data-val="normal">Normal</button><button data-val="hard">Hard</button></div>
           </div>
           <div class="opt">
+            <span class="label">Arcade</span>
+            <div class="seg" data-season="arcade"><button data-val="true">On</button><button data-val="false">Off</button></div>
+            <p class="hint">Off: no drifting, longer braking, a smaller start boost.</p>
+          </div>
+          <div class="opt">
             <span class="label">Your seat</span>
             <button class="btn" data-act="team"><span><i class="dot" style="background:${team.livery.color}"></i>${esc(team.name)}</span><small>teammate ${esc(mate.name)} · change</small></button>
           </div>
@@ -472,7 +488,7 @@ export function createUI(root, h) {
         ${
           last
             ? `<p class="hint">Last race: P${last.playerPos} in the ${esc(last.track.gp)}, won by ${last.winner.id === 'you' ? 'you' : esc(last.winner.name)}. You're P${me.pos} in the Drivers' and ${esc(team.name)} P${mine.pos} in the Constructors'.</p>`
-            : `<p class="hint">Racing for ${esc(team.name)} alongside ${esc(mate.name)} · ${s.laps} laps · ${s.difficulty} rivals.</p>`
+            : `<p class="hint">Racing for ${esc(team.name)} alongside ${esc(mate.name)} · ${s.laps} laps · ${s.difficulty === 'impossible' ? 'hard' : s.difficulty} rivals · Arcade ${s.arcade === false || s.difficulty === 'impossible' ? 'off' : 'on'}.</p>`
         }
         ${standingsBlock(s)}
         <button class="btn danger" id="btn-abandon" data-act="season-abandon"><span>Abandon season</span><small>can't be undone</small></button>`;
@@ -563,7 +579,7 @@ export function createUI(root, h) {
   }
 
   function lapToSend(trackId) {
-    const rec = save.peek(trackId);
+    const rec = save.peekLap(trackId, save.settings.arcade !== false);
     return rec && rec.bestLap != null && rec.ghost && rec.ghost.frames.length >= 90 ? rec : null;
   }
 
@@ -581,7 +597,7 @@ export function createUI(root, h) {
     $('#vs-opt').hidden = !c;
     if (c) {
       const vs = vsFor(id);
-      const mine = save.peek(id);
+      const mine = save.peekLap(id, c.arcade !== false);
       const them = $('#vs-seg [data-vs="them"]');
       them.textContent = `${c.name} ${formatTime(c.time)}`;
       them.disabled = !!problem;
@@ -589,7 +605,7 @@ export function createUI(root, h) {
       $('#vs-hint').textContent = problem
         ? problem
         : vs === 'them'
-          ? `${c.name}'s lap drives as a ghost in their colours.${mine && mine.bestLap ? ` Your best here: ${formatTime(mine.bestLap)} (${formatGap(mine.bestLap - c.time)}).` : ''}`
+          ? `${c.name}'s lap drives as a ghost in their colours.${c.arcade === false ? ' Set with Arcade off, so you race it with Arcade off.' : ''}${mine && mine.bestLap ? ` Your best here: ${formatTime(mine.bestLap)} (${formatGap(mine.bestLap - c.time)}).` : ''}`
           : 'Your own best lap drives as the ghost.';
     }
     const named = !!save.settings.name;
@@ -609,7 +625,7 @@ export function createUI(root, h) {
     const sub = !rec ? 'set a lap here first' : !named ? 'add your name first' : '…';
     setSendButtons(false, sub);
     if (!rec || !named) return;
-    const c = challengeFrom(trackId, rec, { name: save.settings.name, team: save.settings.team, build: h.build });
+    const c = challengeFrom(trackId, rec, { name: save.settings.name, team: save.settings.team, build: h.build, arcade: save.settings.arcade !== false });
     try {
       const code = await encodeChallenge(c);
       if (token !== sendToken) return;
@@ -707,7 +723,7 @@ export function createUI(root, h) {
     challengeShown = { c, link };
     const def = TRACKS.find((t) => t.id === c.track);
     const problem = challengeProblem(c);
-    const mine = save.peek(c.track);
+    const mine = save.peekLap(c.track, c.arcade !== false);
     const first = c.name.split(' ')[0];
     const place = def.name === def.country ? def.name : `${def.name} · ${def.country}`;
     box.innerHTML = `
@@ -716,7 +732,7 @@ export function createUI(root, h) {
         <div>
           <span class="eyebrow">Time trial challenge</span>
           <h2>${esc(c.name)} challenges you</h2>
-          <p>${esc(place)} · beat <b class="purple">${formatTime(c.time)}</b></p>
+          <p>${esc(place)} · beat <b class="purple">${formatTime(c.time)}</b>${c.arcade === false ? ' · Arcade off' : ''}</p>
         </div>
       </div>
       ${
@@ -898,7 +914,7 @@ export function createUI(root, h) {
     if (seasonSeg) {
       const key = seasonSeg.parentElement.dataset.season;
       const v = seasonSeg.dataset.val;
-      seasonSetup[key] = /^\d+$/.test(v) ? Number(v) : v;
+      seasonSetup[key] = /^\d+$/.test(v) ? Number(v) : v === 'true' || v === 'false' ? v === 'true' : v;
       refreshSeasonSegs();
       h.click();
       return;
@@ -914,6 +930,7 @@ export function createUI(root, h) {
       refreshSegs();
       h.click();
       h.onSetting(key, v);
+      if (key === 'arcade') selectTrack(selected); // lap records and ghosts are per side of the switch
       return;
     }
     const btn = e.target.closest('[data-act]');
@@ -924,7 +941,7 @@ export function createUI(root, h) {
     else if (act === 'settings') show('settings');
     else if (act === 'team') openTeam();
     else if (act === 'season') openSeason();
-    else if (act === 'season-start') h.onSeasonStart({ laps: seasonSetup.laps, difficulty: seasonSetup.difficulty, team: save.settings.team || TEAMS[0].id, seat: save.settings.seat });
+    else if (act === 'season-start') h.onSeasonStart({ laps: seasonSetup.laps, difficulty: seasonSetup.difficulty, arcade: seasonSetup.arcade, team: save.settings.team || TEAMS[0].id, seat: save.settings.seat });
     else if (act === 'season-race') h.onSeasonRace();
     else if (act === 'quali-race') h.onQualiRace();
     else if (act === 'season-continue') h.onSeasonContinue();

@@ -3,6 +3,7 @@
 //
 //   node tools/sim-races.mjs monza,spa 3            (circuits, laps)
 //   node tools/sim-races.mjs all 2 hard             (every circuit, laps, difficulty)
+//   node tools/sim-races.mjs all 3 hard-off         (with Arcade off)
 //
 // Per circuit: where the player bot finished and its gap, whether all 22 cars
 // finished, the best and median AI lap, wall hits (and how many were hard),
@@ -15,7 +16,9 @@ import { Race } from '../js/race.js';
 import { AIDriver } from '../js/ai.js';
 import { playerFor, rivalsFor } from '../js/data/teams.js';
 
-const [idsArg = 'all', lapsArg = '3', difficulty = 'normal'] = process.argv.slice(2);
+const [idsArg = 'all', lapsArg = '3', level = 'normal'] = process.argv.slice(2);
+const [difficulty, off] = level.split('-');
+const arcade = off !== 'off';
 const ids = idsArg === 'all' ? ALL_REAL.map((d) => d.id) : idsArg.split(',');
 const laps = Number(lapsArg);
 const pct = (v) => `${Math.round(v * 100)}%`;
@@ -28,7 +31,7 @@ for (const id of ids) {
     continue;
   }
   const t = new Track(def);
-  const r = new Race({ track: t, mode: 'race', laps, difficulty, player: playerFor('ferrari', 1), rivals: rivalsFor('ferrari', 1), autoPit: true });
+  const r = new Race({ track: t, mode: 'race', laps, difficulty, arcade, player: playerFor('ferrari', 1), rivals: rivalsFor('ferrari', 1), autoPit: true });
   const bot = new AIDriver(r.player, t, { pace: 1 });
   let hits = 0;
   let hard = 0;
