@@ -14,10 +14,11 @@ import { musicState, musicTick, setMusic, setMusicEnabled } from './music.js';
 import { bindTouchControls, initInput, isTouchDevice, onFirstTouch, readInput, setGameActive, touchSnapshot } from './input.js';
 import { clamp, formatGap, formatTime } from './util.js';
 import { challengeLink, challengeProblem, codeFrom, decodeChallenge } from './challenge.js';
+import { afterRace, currentCareer, endOfYear, raceTarget, retireCareer, signFor, startCareer } from './career.js';
 import { POINTS, ROUNDS, abandonSeason, currentSeason, isComplete, nextTrack, playerStanding, recordRound, seasonCars, standings, startSeason, teamStanding } from './season.js';
 
 // Bump together with --build in css/style.css and CACHE in sw.js.
-const BUILD = '40';
+const BUILD = '41';
 
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d', { alpha: false });
@@ -73,6 +74,8 @@ const state = {
   mode: 'race',
   challenge: null, // the lap someone sent you, in a time trial against it
   single: null, // a single race's weekend: qualifying, then the race (see startSingle)
+  seasonKind: 'season', // which season the 'season' / 'quali' modes race: a championship or the career's year
+  careerTarget: null, // this career race's target (career.js raceTarget)
   trackId: TRACKS.some((t) => t.id === save.settings.lastTrack) ? save.settings.lastTrack : TRACKS[0].id,
   resultsShown: false,
 };
@@ -101,10 +104,31 @@ const ui = createUI(document.getElementById('ui'), {
     clearWeekend();
     ui.openSeason();
   },
-  onSeasonRace: () => startSeasonRace(),
+  onSeasonRace: () => {
+    state.seasonKind = 'season';
+    startSeasonRace();
+  },
+  onCareerStart: (opts) => {
+    startCareer(opts);
+    ui.openCareer();
+  },
+  onCareerSign: (teamId) => {
+    const c = currentCareer();
+    if (c && signFor(c, teamId)) clearWeekend();
+    ui.openCareer();
+  },
+  onCareerRace: () => {
+    state.seasonKind = 'career';
+    startSeasonRace();
+  },
+  onCareerRetire: () => {
+    retireCareer();
+    clearWeekend();
+    ui.openCareer();
+  },
   onQualiRace: () => (state.mode === 'raceQuali' ? launchSingle() : startSeasonRace()),
-  weekend: () => {
-    const s = currentSeason();
+  weekend: (kind = 'season') => {
+    const s = seasonOf(kind);
     return s && !isComplete(s) ? weekendFor(s, false) : null;
   },
   onSeasonAbandon: () => {
@@ -114,7 +138,8 @@ const ui = createUI(document.getElementById('ui'), {
   },
   onSeasonContinue: () => {
     quitToMenu(null);
-    ui.openSeason();
+    if (state.seasonKind === 'career') ui.openCareer();
+    else ui.openSeason();
   },
   onQuit: () => quitToMenu('title'),
   onTracks: (mode) => {
@@ -312,6 +337,19 @@ function weekendFor(s, create = true) {
   return wk;
 }
 
+// The championship season, or the career's year (career.js).
+function seasonOf(kind) {
+  if (kind === 'career') {
+    const c = currentCareer();
+    return c ? c.season : null;
+  }
+  return currentSeason();
+}
+
+function activeSeason() {
+  return seasonOf(state.seasonKind);
+}
+
 function clearWeekend() {
   save.weekend = null;
   save.write();
@@ -320,8 +358,10 @@ function clearWeekend() {
 // The next session of the championship, with the season's own settings:
 // qualifying, or the race once you've qualified.
 function startSeasonRace() {
-  const s = currentSeason();
+  const s = activeSeason();
   if (!s || isComplete(s)) return;
+  const c = state.seasonKind === 'career' ? currentCareer() : null;
+  state.careerTarget = c ? raceTarget(c) : null;
   const wk = weekendFor(s);
   const base = { trackId: nextTrack(s).id, laps: s.laps, difficulty: s.difficulty, arcade: s.arcade !== false, team: s.team, seat: s.seat, form: wk.form };
   if (wk.grid) launch({ ...base, mode: 'season', grid: wk.grid });
@@ -339,7 +379,7 @@ function launch({ mode, trackId, laps, difficulty, arcade = true, team, seat, gr
   const lv = levelOf(difficulty, arcade);
   const rec = save.lapRecord(trackId, lv.arcade);
   // A season race: the cars as they've developed this season (season.js DEV).
-  const cars = mode === 'season' || mode === 'quali' ? seasonCars(currentSeason()) : null;
+  const cars = mode === 'season' || mode === 'quali' ? seasonCars(activeSeason()) : null;
   const withCar = (d) => (cars && cars[d.teamId] ? { ...d, car: cars[d.teamId], team: { ...d.team, car: cars[d.teamId] } } : d);
   state.race = new Race({
     track,
@@ -362,7 +402,8 @@ function launch({ mode, trackId, laps, difficulty, arcade = true, team, seat, gr
     state.race.tiled = true;
   }
   // What's being raced, for the title card, HUD, pause and results.
-  const season = mode === 'season' || mode === 'quali' ? currentSeason() : null;
+  const season = mode === 'season' || mode === 'quali' ? activeSeason() : null;
+  const target = season && state.seasonKind === 'career' ? state.careerTarget : null;
   state.race.event = {
     gp: track.def.gp,
     name: track.def.name,
@@ -373,6 +414,7 @@ function launch({ mode, trackId, laps, difficulty, arcade = true, team, seat, gr
     round: season ? season.round + 1 : null,
     rounds: ROUNDS,
     arcade: lv.arcade,
+    target: target ? `target P${target.pos} · beat ${target.mate.code}` : null,
     challenge: state.race.challenge ? { name: state.race.challenge.name, time: state.race.challenge.time } : null,
   };
   state.paused = false;
@@ -614,7 +656,7 @@ function showResults(r) {
   }
   if (p.wears) chips.push({ kind: 'wear', text: `Tyres ${Math.round(p.tyres * 100)}% · Car ${Math.round((1 - p.damage) * 100)}%` });
   let season = null;
-  const s = currentSeason();
+  const s = activeSeason();
   if (state.mode === 'season' && s && !isComplete(s)) {
     const order = res.rows.map((row) => row.driver);
     const before = s.results.length ? playerStanding(s) : null; // no position before round 1
@@ -636,7 +678,19 @@ function showResults(r) {
       teamPoints: mine.points,
       complete: isComplete(s),
       table: standings(s),
+      career: state.seasonKind === 'career',
     };
+    // The career: the team's target for this race, and your reputation.
+    const c = state.seasonKind === 'career' ? currentCareer() : null;
+    if (c && state.careerTarget) {
+      const t = afterRace(c, res.rows, state.careerTarget);
+      chips.unshift(
+        { kind: t.metPos ? 'green' : 'red', text: `Team target P${t.target} or better: ${t.metPos ? 'met' : 'missed'}` },
+        { kind: t.beatMate ? 'green' : 'red', text: `${t.beatMate ? 'Beat' : 'Behind'} ${t.mate.name}` },
+        { kind: 'wear', text: `Reputation ${t.rep} (${t.change >= 0 ? '+' : ''}${t.change})` }
+      );
+      if (isComplete(s)) endOfYear(c);
+    }
   }
   ui.showResults(res, { trackName: r.track.name, event: r.event, chips, season });
   syncChrome();

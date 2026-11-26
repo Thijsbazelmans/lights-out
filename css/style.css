@@ -1,7 +1,7 @@
 /* Layout: a pit-wall timing monitor floating over a live race. Left rail on
    wide screens, bottom sheet on phones; pause and results are centred modals. */
 :root {
-  --build: "40"; /* must match BUILD in js/main.js */
+  --build: "41"; /* must match BUILD in js/main.js */
   --asphalt: #0d1016;
   --panel: rgba(13, 16, 23, 0.9);
   --panel-solid: #131822;
@@ -621,6 +621,21 @@ kbd {
 .code {
   font: 600 11px var(--font-data);
   color: var(--muted);
+}
+
+/* Career offers (ui.js openCareer): name, details and the car's bars. */
+.btn.offer {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+}
+
+.btn.offer .car-bars {
+  max-width: 260px;
+}
+
+.offers {
+  margin-bottom: 14px;
 }
 
 /* Season cars tab (ui.js carsContent): a bar per car and the news. */

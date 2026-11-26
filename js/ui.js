@@ -3,6 +3,7 @@
 
 import { TRACKS } from './data/tracks.js';
 import { TEAMS, carScore, teamById } from './data/teams.js';
+import { CAREER, currentCareer, raceTarget } from './career.js';
 import { drawF1 } from './car.js';
 import { drawTrackThumb } from './track.js';
 import { save } from './storage.js';
@@ -34,6 +35,7 @@ export function createUI(root, h) {
           <span>Race</span><small>vs 21 rivals</small>
         </button>
         <button class="btn" id="btn-season" data-act="season"><span>Season</span><small id="season-label"></small></button>
+        <button class="btn" id="btn-career" data-act="career"><span>Career</span><small id="career-label"></small></button>
         <button class="btn" id="btn-trial" data-act="mode" data-mode="trial">
           <span>Time trial</span><small>race your own ghost</small>
         </button>
@@ -223,6 +225,16 @@ export function createUI(root, h) {
     </div>
   </section>
 
+  <section class="screen rail" data-screen="career" hidden>
+    <div class="sheet">
+      <header class="sheet-head">
+        <button class="back" data-act="back" aria-label="Back to menu">‹</button>
+        <h2>Career</h2>
+      </header>
+      <div class="season" id="career-body"></div>
+    </div>
+  </section>
+
   <section class="screen center" data-screen="pause" hidden>
     <div class="modal">
       <h2 class="modal-title">Paused</h2>
@@ -281,6 +293,8 @@ export function createUI(root, h) {
          <div><kbd>Esc</kbd><span>pause</span></div>`;
     const ss = currentSeason();
     $('#season-label').textContent = !ss ? `${ROUNDS} rounds` : isComplete(ss) ? 'season complete' : `round ${ss.round + 1} of ${ROUNDS}`;
+    const cc = currentCareer();
+    $('#career-label').textContent = !cc ? 'start at the back of the grid' : cc.offers.length ? (cc.season ? `year ${cc.year} done · offers waiting` : 'offers waiting') : `year ${cc.year} · ${teamById(cc.team).name}`;
     const team = save.settings.team ? teamById(save.settings.team) : null;
     const mate = team ? team.drivers[save.settings.seat === 0 ? 1 : 0] : null;
     $('#team-label').innerHTML = team
@@ -537,6 +551,100 @@ export function createUI(root, h) {
       requestAnimationFrame(() => drawTrackThumb(body.querySelector('canvas'), next));
     }
     show('season');
+  }
+
+  // ---------- career (career.js) ----------
+
+  const careerSetup = { laps: 5, difficulty: save.settings.difficulty, arcade: save.settings.arcade !== false };
+  let retireArmed = 0;
+
+  function refreshCareerSegs() {
+    root.querySelectorAll('.seg[data-career]').forEach((seg) => {
+      const v = String(careerSetup[seg.dataset.career]);
+      seg.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b.dataset.val === v));
+    });
+  }
+
+  function careerHistory(c) {
+    if (!c.history.length) return '';
+    const rows = c.history
+      .map((y) => `<tr><td class="num">${y.year}</td><td><span class="swatch" style="background:${teamById(y.team).livery.color}"></span>${esc(teamById(y.team).name)}</td><td class="num">P${y.pos}</td><td class="num">${y.points}</td><td class="num">${y.wins}</td><td class="num">${y.met}/${y.races}</td></tr>`)
+      .join('');
+    return `<span class="eyebrow">Your career</span><table class="res-table"><thead><tr><th>Year</th><th>Team</th><th>Pos</th><th>Pts</th><th>Wins</th><th>Targets</th></tr></thead><tbody>${rows}</tbody></table>`;
+  }
+
+  function retireButton() {
+    return '<button class="btn danger" id="btn-retire" data-act="career-retire"><span>Retire from racing</span><small>ends this career</small></button>';
+  }
+
+  function openCareer() {
+    const c = currentCareer();
+    const body = $('#career-body');
+    if (!c) {
+      body.innerHTML = `
+        <p class="hint">Start as a newcomer: the teams at the back of the grid make you an offer, and you take the seat of their weaker driver, so your teammate is the one to beat. Every race the team sets you a target: a finishing place that suits its car, and beating your teammate. Meet them and your reputation grows; at the end of each year the teams make offers that match it, and the best seats go to the best reputations. Every year is a full season of ${ROUNDS} rounds, and the cars develop through it. Saved on this device, apart from your championship season.</p>
+        <div class="opts">
+          <div class="opt">
+            <span class="label">Laps per race</span>
+            <div class="seg" data-career="laps"><button data-val="5">5</button><button data-val="8">8</button><button data-val="12">12</button></div>
+          </div>
+          <div class="opt">
+            <span class="label">Rivals</span>
+            <div class="seg" data-career="difficulty"><button data-val="easy">Easy</button><button data-val="normal">Normal</button><button data-val="hard">Hard</button></div>
+          </div>
+          <div class="opt">
+            <span class="label">Arcade</span>
+            <div class="seg" data-career="arcade"><button data-val="true">On</button><button data-val="false">Off</button></div>
+            <p class="hint">Off: no drifting, longer braking, a smaller start boost.</p>
+          </div>
+        </div>
+        <button class="btn primary" data-act="career-start" data-primary><span>Find a seat</span><small>offers from the back of the grid</small></button>`;
+      refreshCareerSegs();
+    } else if (c.offers.length) {
+      const last = c.history[c.history.length - 1];
+      const intro = !last
+        ? `<p class="hint">Your first season in Formula 1. These teams want you; you'd take the seat of their weaker driver. Reputation ${c.rep}/100.</p>`
+        : `<div class="res-head"><div class="res-pos pos-${Math.min(last.pos, 4)}">P${last.pos}</div><div><span class="eyebrow">End of year ${last.year}</span><h2>${last.pos === 1 ? 'World Champion!' : `P${last.pos} in the championship`}</h2><p>${esc(teamById(last.team).name)} · ${last.points} points, ${last.wins} win${last.wins === 1 ? '' : 's'} · team targets met ${last.met} of ${last.races} · reputation ${c.rep}/100. ${c.kept ? `${esc(teamById(last.team).name)} want to keep you.` : `${esc(teamById(last.team).name)} are letting you go.`}</p></div></div>`;
+      const offers = c.offers
+        .map((o) => {
+          const t = teamById(o.teamId);
+          const car = c.season && c.season.dev ? c.season.dev.teams[o.teamId].car : t.car;
+          return `<button class="btn offer" data-act="career-sign" data-team="${o.teamId}"><span><i class="dot" style="background:${t.livery.color}"></i>${esc(t.name)}${o.keep ? ' · stay' : ''}</span><small>car ${o.rank} of ${TEAMS.length} · teammate ${esc(o.mate)} · they expect about P${o.expect}</small>${carBars(car)}</button>`;
+        })
+        .join('');
+      body.innerHTML = `${intro}<span class="eyebrow">Offers for year ${last ? c.year + 1 : 1}</span><div class="menu offers">${offers}</div>${careerHistory(c)}${retireButton()}`;
+    } else {
+      const s = c.season;
+      const team = teamById(c.team);
+      const next = nextTrack(s);
+      const last = lastRound(s);
+      const me = playerStanding(s);
+      const wk = h.weekend('career');
+      const tgt = raceTarget(c);
+      const met = c.targets.filter((t) => t.metPos).length;
+      body.innerHTML = `
+        <span class="eyebrow">Year ${c.year} · ${esc(team.name)} · reputation ${c.rep}/100</span>
+        <div class="season-next">
+          <canvas class="thumb" aria-hidden="true"></canvas>
+          <div class="tinfo">
+            <span class="eyebrow">Round ${s.round + 1} of ${ROUNDS}</span>
+            <b>${esc(next.gp)}</b>
+            <span class="meta">${esc(next.name)}${next.country !== next.name ? ` · ${esc(next.country)}` : ''} · ${s.laps} laps</span>
+          </div>
+        </div>
+        <p class="hint news-line">Team target: P${tgt.pos} or better, and beat ${esc(tgt.mate.name)}.</p>
+        ${
+          wk && wk.grid
+            ? `<button class="btn primary" data-act="career-race" data-primary><span>Race round ${s.round + 1}</span><small>you start P${wk.pos}</small></button>`
+            : `<button class="btn primary" data-act="career-race" data-primary><span>Qualifying</span><small>round ${s.round + 1} · out-lap, then one flying lap</small></button>`
+        }
+        ${last ? `<p class="hint">Last race: P${last.playerPos} in the ${esc(last.track.gp)}. You're P${me.pos} in the Drivers' · targets met ${met} of ${c.targets.length}.</p>` : `<p class="hint">Your car is ${tgt.rank} of ${TEAMS.length} on the grid. A target met: +${CAREER.pos}, beating your teammate: +${CAREER.mate}, a miss: −${CAREER.miss}; podiums and wins count extra.</p>`}
+        ${standingsBlock(s)}
+        ${careerHistory(c)}
+        ${retireButton()}`;
+      requestAnimationFrame(() => drawTrackThumb(body.querySelector('canvas'), next));
+    }
+    show('career');
   }
 
   function refreshSeasonSegs() {
@@ -875,7 +983,7 @@ export function createUI(root, h) {
       <div class="menu">
         ${
           info.season
-            ? `<button class="btn primary" data-act="season-continue" data-primary><span>${info.season.complete ? 'Final standings' : 'Continue season'}</span><small class="kbd">Enter</small></button>`
+            ? `<button class="btn primary" data-act="season-continue" data-primary><span>${info.season.career ? (info.season.complete ? 'End of the year' : 'Continue career') : info.season.complete ? 'Final standings' : 'Continue season'}</span><small class="kbd">Enter</small></button>`
             : `<button class="btn primary" data-act="again" data-primary><span>Race again</span><small class="kbd">Enter</small></button>
                <button class="btn" data-act="tracks"><span>Change circuit</span><small></small></button>`
         }
@@ -940,7 +1048,8 @@ export function createUI(root, h) {
     if (tabBtn) {
       h.click();
       standingsTab = tabBtn.dataset.tab;
-      const sn = currentSeason();
+      const cc = current === 'career' ? currentCareer() : null;
+      const sn = cc ? cc.season : currentSeason();
       if (sn) {
         root.querySelectorAll('#standings-tab button').forEach((b) => b.classList.toggle('on', b.dataset.tab === standingsTab));
         $('#standings-table').innerHTML = standingsContent(sn);
@@ -960,6 +1069,15 @@ export function createUI(root, h) {
       h.click();
       vsChoice[selected] = vsBtn.dataset.vs;
       refreshTrial();
+      return;
+    }
+    const careerSeg = e.target.closest('.seg[data-career] button');
+    if (careerSeg) {
+      const key = careerSeg.parentElement.dataset.career;
+      const v = careerSeg.dataset.val;
+      careerSetup[key] = /^\d+$/.test(v) ? Number(v) : v === 'true' || v === 'false' ? v === 'true' : v;
+      refreshCareerSegs();
+      h.click();
       return;
     }
     const seasonSeg = e.target.closest('.seg[data-season] button');
@@ -998,6 +1116,23 @@ export function createUI(root, h) {
     else if (act === 'quali-race') h.onQualiRace();
     else if (act === 'season-continue') h.onSeasonContinue();
     else if (act === 'season-new') h.onSeasonAbandon();
+    else if (act === 'career') openCareer();
+    else if (act === 'career-start') h.onCareerStart({ laps: careerSetup.laps, difficulty: careerSetup.difficulty, arcade: careerSetup.arcade });
+    else if (act === 'career-sign') h.onCareerSign(btn.dataset.team);
+    else if (act === 'career-race') h.onCareerRace();
+    else if (act === 'career-retire') {
+      const b = $('#btn-retire span');
+      if (Date.now() - retireArmed < 3000) {
+        retireArmed = 0;
+        h.onCareerRetire();
+      } else {
+        retireArmed = Date.now();
+        b.textContent = 'Tap again to retire';
+        setTimeout(() => {
+          if (Date.now() - retireArmed >= 3000 && $('#btn-retire span')) $('#btn-retire span').textContent = 'Retire from racing';
+        }, 3100);
+      }
+    }
     else if (act === 'season-abandon') {
       const b = $('#btn-abandon span');
       if (Date.now() - abandonArmed < 3000) {
@@ -1104,6 +1239,7 @@ export function createUI(root, h) {
     openTeam,
     openSeason,
     showResults,
+    openCareer,
     showQuali,
     showChallenge,
     pauseSend,

@@ -71,11 +71,14 @@ function normalise(teams, target) {
   }
 }
 
-function newDev() {
+// prev: the cars at the end of the season before (a career's next year):
+// each starts halfway between that and its usual car, then the winter.
+function newDev(prev = null) {
   const target = { engine: mean(TEAMS.map((t) => t.car.engine)), aero: mean(TEAMS.map((t) => t.car.aero)) };
   const teams = {};
   for (const t of TEAMS) {
-    const car = { ...t.car };
+    const was = prev && prev[t.id];
+    const car = was ? { engine: (t.car.engine + was.engine) / 2, aero: (t.car.aero + was.aero) / 2, reliability: (t.car.reliability + was.reliability) / 2 } : { ...t.car };
     for (const k of AREAS) car[k] += rnd(-1, 1) * (Math.random() < DEV.bigSurprise[0] ? DEV.bigSurprise[1] : DEV.surprise);
     const plan = {
       rate: { engine: rnd(...DEV.rate), aero: rnd(...DEV.rate) },
@@ -159,7 +162,15 @@ export function seasonCars(s) {
   return Object.fromEntries(Object.entries(s.dev.teams).map(([id, d]) => [id, d.car]));
 }
 
-export function startSeason({ laps, difficulty, arcade = true, team, seat }) {
+export function startSeason(opts) {
+  save.season = newSeason(opts);
+  save.write();
+  return save.season;
+}
+
+// A season, not yet saved anywhere (a championship or a career's year).
+// prevCars: the cars at the end of the season before (see newDev).
+export function newSeason({ laps, difficulty, arcade = true, team, seat, prevCars = null }) {
   const lineup = [];
   for (const t of TEAMS) {
     t.drivers.forEach((d, i) => {
@@ -168,7 +179,7 @@ export function startSeason({ laps, difficulty, arcade = true, team, seat }) {
     });
   }
   const zero = () => Object.fromEntries(lineup.map((d) => [d.id, 0]));
-  save.season = {
+  return {
     version: VERSION,
     laps,
     difficulty,
@@ -182,10 +193,8 @@ export function startSeason({ laps, difficulty, arcade = true, team, seat }) {
     wins: zero(),
     podiums: zero(),
     startedAt: Date.now(),
-    dev: newDev(), // car development (see DEV)
+    dev: newDev(prevCars), // car development (see DEV)
   };
-  save.write();
-  return save.season;
 }
 
 export function abandonSeason() {

@@ -1010,7 +1010,7 @@ function drawEventCard(ctx, ev, cx, y, cw, alpha, narrow) {
   ctx.clip();
   text(ctx, ev.gp.toUpperCase(), x + 22, y + (narrow ? 41 : 48), `900 italic ${narrow ? 21 : 26}px ${F_DISPLAY}`, C.text);
   const place = ev.name === ev.country ? ev.name : `${ev.name} · ${ev.country}`;
-  const sub = (vs ? `${place} · beat ${formatTime(vs.time)}` : ev.mode === 'trial' ? place : ev.mode === 'quali' ? `${place} · out-lap, then one flying lap` : `${place} · ${ev.laps} laps`) + (ev.arcade === false ? ' · Arcade off' : '');
+  const sub = (vs ? `${place} · beat ${formatTime(vs.time)}` : ev.mode === 'trial' ? place : ev.mode === 'quali' ? `${place} · out-lap, then one flying lap` : `${place} · ${ev.laps} laps`) + (ev.arcade === false ? ' · Arcade off' : '') + (ev.target && ev.mode !== 'quali' ? ` · ${ev.target}` : '');
   text(ctx, sub, x + 22, y + (narrow ? 56 : 65), `600 ${narrow ? 11 : 12}px ${F_UI}`, C.muted);
   ctx.restore();
   ctx.restore();

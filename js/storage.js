@@ -27,6 +27,7 @@ function defaults() {
     challenges: {}, // circuit id -> the last lap someone sent you there (challenge.js)
     stats: { races: 0, wins: 0, podiums: 0, championships: 0 },
     season: null, // championship in progress (see season.js)
+    career: null, // career in progress (see career.js)
     weekend: null, // this round's qualifying, until its race is done (see main.js)
   };
 }
@@ -47,6 +48,7 @@ function load() {
       challenges: d.challenges || {},
       stats: { ...def.stats, ...(d.stats || {}) },
       season: d.season || null,
+      career: d.career || null,
       weekend: d.weekend || null,
     };
   } catch (e) {
@@ -69,6 +71,12 @@ export const save = {
   },
   set season(v) {
     data.season = v;
+  },
+  get career() {
+    return data.career;
+  },
+  set career(v) {
+    data.career = v;
   },
   get weekend() {
     return data.weekend;
