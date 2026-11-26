@@ -62,10 +62,18 @@ const CALL_WARN = 1.4;
 // and a tow get you past, and the AI's pace is in the fast corners, where
 // you can drift and it can't. Chicanes and hairpins are as before.)
 // These are the levels with Arcade on; DIFFICULTY_OFF has them with it off.
+// Build 39 (roadmap 4a) split the field's spread into the car and the
+// driver: `spread` is how much corner pace a driver of skill 0 loses against
+// one of skill 1 (teams.js), `powerSpread` how much engine a car with engine
+// 0 loses against the best, `gripSpread` how much fast-corner grip a car with
+// aero 0 loses. Your car loses the same against the best car (your team's
+// car), so you and your teammate share a car. Tuned so each level's
+// qualifying (pole, P10, last) matches build 38 within about 0.3% at pole and
+// a percent down the field (scratch field.mjs, 13 circuits).
 export const DIFFICULTY = {
-  easy: { top: 0.82, spread: 0.13, power: 0.9, powerSpread: 0.07, grip: 1, chase: 0.08, chaseNear: 0.03 },
-  normal: { top: 0.96, spread: 0.1, power: 1.0, powerSpread: 0.07, grip: 1.07, chase: 0.12, chaseNear: 0.03 },
-  hard: { top: 0.97, spread: 0.06, power: 1.03, powerSpread: 0.04, grip: 1.15, chase: 0.2, chaseNear: 0.07 },
+  easy: { top: 0.85, spread: 0.5, power: 0.915, powerSpread: 0.4, grip: 1, gripSpread: 0.3, chase: 0.08, chaseNear: 0.03 },
+  normal: { top: 0.97, spread: 0.28, power: 1.012, powerSpread: 0.34, grip: 1.07, gripSpread: 0.28, chase: 0.12, chaseNear: 0.03 },
+  hard: { top: 0.97, spread: 0.16, power: 1.045, powerSpread: 0.2, grip: 1.15, gripSpread: 0.16, chase: 0.2, chaseNear: 0.07 },
 };
 
 // The Arcade switch (build 36). Arcade on is the game as it was: drifting,
@@ -85,7 +93,10 @@ export const ARCADE_OFF = { brake: 0.75 };
 // (PUNCTURE in car.js) until the pits fix it. A failure: STOP THE CAR, out of
 // the race (DNF, no points); the car coasts to a stop and the others drive
 // through it. Every car runs the same risks.
-export const FAILURE = { below: 0.4, rate: 0.13 };
+// Build 39: a car's `reliability` (teams.js) adds a chance it lets go any
+// time (an engine failure, out): `mech` × (1 - reliability)² per second,
+// about 8% over 12 laps for the least reliable car, 1% for the most.
+export const FAILURE = { below: 0.4, rate: 0.13, mech: 0.0025 };
 
 // The levels with Arcade off. Nobody drifts, so the rivals have your engine
 // and their pace is in fast-corner grip. Hard started as build 36's
@@ -98,9 +109,9 @@ export const FAILURE = { below: 0.4, rate: 0.13 };
 // the way round, braking at 90% of your Arcade-off brakes). Qualifying gets
 // no extra engine (QualiSim).
 export const DIFFICULTY_OFF = {
-  easy: { top: 0.82, spread: 0.13, power: 0.95, powerSpread: 0.07, grip: 1.15, chase: 0.08, chaseNear: 0.03 },
-  normal: { top: 0.96, spread: 0.1, power: 0.98, powerSpread: 0.05, grip: 1.24, chase: 0.12, chaseNear: 0.03 },
-  hard: { top: 0.97, spread: 0.05, power: 1.0, powerSpread: 0.03, grip: 1.35, chase: 0.2, chaseNear: 0.07 },
+  easy: { top: 0.85, spread: 0.5, power: 0.96, powerSpread: 0.4, grip: 1.15, gripSpread: 0.3, chase: 0.08, chaseNear: 0.03 },
+  normal: { top: 0.97, spread: 0.3, power: 0.99, powerSpread: 0.3, grip: 1.24, gripSpread: 0.3, chase: 0.12, chaseNear: 0.03 },
+  hard: { top: 0.97, spread: 0.14, power: 1.005, powerSpread: 0.17, grip: 1.35, gripSpread: 0.17, chase: 0.2, chaseNear: 0.07 },
 };
 
 // A level as saved (settings, a season): Easy/Normal/Hard and the Arcade
@@ -111,13 +122,25 @@ export function levelOf(difficulty, arcade = true) {
   return { difficulty: DIFFICULTY[difficulty] ? difficulty : 'normal', arcade: arcade !== false };
 }
 
-// A computer driver's pace for a weekend: the team and driver (`skill`),
-// plus a little form on the day (`form`, about ±0.1, the same in qualifying
-// and the race), as corner pace and engine power for this level (D: a row
-// of DIFFICULTY or DIFFICULTY_OFF).
-export function aiPace(skill, D, form = 0) {
-  const q = clamp(clamp((skill - 0.94) / 0.068, 0, 1) + form, 0, 1);
-  return { pace: D.top - D.spread * (1 - q), power: D.power - D.powerSpread * (1 - q), grip: D.grip };
+// A computer driver's pace for a weekend (d: a driverEntry from teams.js):
+// corner pace from the driver's skill plus a little form on the day (`form`,
+// about ±0.1, the same in qualifying and the race), engine power and
+// fast-corner grip from the team's car, for this level (D: a row of
+// DIFFICULTY or DIFFICULTY_OFF).
+export function aiPace(d, D, form = 0) {
+  const q = clamp(d.driverSkill + form, 0, 1);
+  const car = d.car;
+  return { pace: D.top - D.spread * (1 - q), power: D.power - D.powerSpread * (1 - car.engine), grip: Math.round((D.grip - D.gripSpread * (1 - car.aero)) * 100) / 100 };
+}
+
+// Your car: your team's car, as far behind the best on the grid as the AI's
+// (time trial: one standard car, so lap records compare).
+function yourCar(car, team, D, mode) {
+  const c = mode === 'trial' || !team || !team.car ? { engine: 1, aero: 1, reliability: 1 } : team.car;
+  car.basePower = 1 - D.powerSpread * (1 - c.engine);
+  car.power = car.basePower;
+  car.handling = Math.round((1 - D.gripSpread * (1 - c.aero)) * 100) / 100;
+  car.reliability = c.reliability;
 }
 
 export function rollForm() {
@@ -207,7 +230,9 @@ export class Race {
     // of a chase (see step), made now rather than mid-race.
     if (mode === 'race') {
       const D = this.level;
-      for (let g = 0; g <= D.chaseNear + 1e-6; g += 0.01) track.aiSpeeds(Math.round((D.grip + g) * 100) / 100);
+      const grips = this.cars.filter((c) => c.baseGrip != null).map((c) => c.baseGrip);
+      const lo = Math.min(...grips, D.grip);
+      for (let g = lo; g <= D.grip + D.chaseNear + 1e-6; g += 0.01) track.aiSpeeds(Math.round(g * 100) / 100);
     }
     this.prevPedal = false;
     this.prevBrake = false;
@@ -239,7 +264,7 @@ export class Race {
       });
       this.arcadeCar(car);
       car.trackIdx = i;
-      car.basePower = 1;
+      yourCar(car, player.team, D, this.mode);
       car.teamId = player.teamId || (player.team ? player.team.id : null);
       car.driverId = player.id || 'you';
       this.cars.push(car);
@@ -266,22 +291,22 @@ export class Race {
         car.teamId = player.teamId || (player.team ? player.team.id : null);
         car.driverId = player.id || 'you';
         car.trackIdx = s.idx;
-        car.basePower = 1;
+        yourCar(car, player.team, D, this.mode);
         car.gridPos = k + 1;
         this.cars.push(car);
         this.player = car;
       } else {
         const d = order[k];
-        const skillN = clamp((d.skill - 0.94) / 0.068, 0, 1);
+        const skillN = clamp((d.skill - 0.74) / 0.24, 0, 1);
         const attract = this.mode === 'attract';
         // Race pace: team and driver, plus a little form on the day.
         const f = this.form && this.form[idOf(d)] != null ? this.form[idOf(d)] : rollForm();
-        const ap = aiPace(d.skill, D, f);
+        const ap = aiPace(d, D, f);
         const pace = attract ? 0.9 + 0.04 * skillN : ap.pace;
         const power = attract ? 0.92 + 0.05 * skillN : ap.power;
         // Lap 1: halfway between the field average and the car's own pace.
-        const startPace = attract ? pace : (D.top - D.spread * 0.5 + pace) / 2;
-        const startPower = attract ? power : (D.power - D.powerSpread * 0.5 + power) / 2;
+        const startPace = attract ? pace : (D.top - D.spread * 0.18 + pace) / 2;
+        const startPower = attract ? power : (D.power - D.powerSpread * 0.07 + power) / 2;
         const handling = attract ? 1 : ap.grip;
         const car = new Car({ x: s.x, y: s.y, angle: s.angle, name: d.name, code: d.code, livery: d.livery, power: startPower, handling });
         car.teamId = d.teamId || d.id;
@@ -290,6 +315,7 @@ export class Race {
         car.gridPos = k + 1;
         car.basePower = startPower;
         car.baseGrip = handling;
+        car.reliability = d.car ? d.car.reliability : 1;
         Object.assign(car, { racePace: pace, racePower: power, startPace, startPower });
         this.cars.push(car);
         this.ai.set(car, new AIDriver(car, t, { pace: startPace }));
@@ -306,7 +332,7 @@ export class Race {
     else {
       const entries = rivals.map((d) => {
         const id = d.driverId || d.id;
-        const ap = aiPace(d.skill, this.level, this.form && this.form[id] != null ? this.form[id] : 0);
+        const ap = aiPace(d, this.level, this.form && this.form[id] != null ? this.form[id] : 0);
         return { driverId: id, code: d.code, name: d.name, teamId: d.teamId, livery: d.livery, pace: ap.pace, power: ap.power, grip: ap.grip };
       });
       this.quali.sim = new QualiSim(this.track, entries, this.difficulty, this.arcade);
@@ -1142,19 +1168,25 @@ export class Race {
         if (you) this.msg('CAR DAMAGED · BOX TO REPAIR', '#ff8a2f', 2.4, 0.85);
       }
       const x = (F.below - cond) / F.below;
-      if (Math.random() < F.rate * x * x * h) this.retire(car, near);
+      if (Math.random() < F.rate * x * x * h) {
+        this.retire(car, near, 'damage');
+        return;
+      }
     }
+    const weak = 1 - (car.reliability ?? 1);
+    if (weak > 0 && Math.random() < F.mech * weak * weak * h) this.retire(car, near, 'engine');
   }
 
-  // A car that's given up: out of the race (DNF).
-  retire(car, near = false) {
+  // A car that's given up: out of the race (DNF). why: 'damage' or 'engine'.
+  retire(car, near = false, why = 'damage') {
     car.dnf = true;
+    car.dnfWhy = why;
     car.dnfAt = this.time;
     car.overtake = 0;
     car.slipstream = 0;
     car.boost = 0;
     if (car === this.player) {
-      this.msg('STOP THE CAR · RETIRED', '#ff4f3a', 3, 1);
+      this.msg(why === 'engine' ? 'ENGINE FAILURE · STOP THE CAR' : 'STOP THE CAR · RETIRED', '#ff4f3a', 3, 1);
       this.out.push({ t: 'failure' });
       this.dnfEndAt = this.time + 2.5;
     } else if (near) this.msg(`${car.code} IS OUT`, '#ff8a2f', 1.8, 0.75);
@@ -1495,6 +1527,7 @@ export class Race {
       playerBest: p ? p.bestLap : null,
       playerPenalty: p ? p.penalty || 0 : 0,
       playerDnf: !!(p && p.dnf),
+      playerDnfWhy: p && p.dnf ? p.dnfWhy : null,
       playerStops: p && p.stopTimes ? p.stopTimes.slice() : [],
       playerStopWaits: p && p.stopWaits ? p.stopWaits.slice() : [],
       fieldStop: this.fieldStop(),

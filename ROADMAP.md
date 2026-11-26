@@ -47,11 +47,19 @@ Worn tyres and a damaged car become a real risk, so pitting is a decision rather
 
 ## Step 4: cars that differ by team, and change over a season (L)
 
-Today your car is the same whichever team you pick; the team only changes how quick the AI cars are. The plan:
+Up to build 38 your car is the same whichever team you pick; the team only changes how quick the AI cars are, and each driver's own quality is a tiny nudge on top of their team's. Two parts:
 
-- **Each team's car gets three ratings:** Engine (top speed), Aero (fast corners) and Reliability (failures, with Arcade off). Your car uses your team's ratings, so a Haas seat really is harder than a McLaren one.
-- **Development through a season:** after each round every team improves a little, some faster than others. Now and then a team brings a big upgrade ("Ferrari: new floor, +aero") or one that doesn't work. A short news line and a small car chart on the season screen show it.
-- **Would it be fun?** Yes, if you can see it. The pecking order shifts, so a midfield car can be fighting for podiums by the end of the season and a top team can slip. The changes need to stay moderate, so a season never feels lost because your team fell behind. In a normal season your own team develops at about the average rate. Steering your team's development is for career mode (step 6).
+**4a: cars and drivers, separately** · built (build 39, on the preview)
+- **Each team's car gets three ratings:** Engine (top speed), Aero (fast corners) and Reliability (with Arcade off, a weak one can let go: an engine failure, out of the race).
+- **Your car uses your team's ratings**, so a Haas seat really is harder than a Mercedes one. Your teammate has the same car.
+- **Each driver gets a skill rating**: how much they get out of the car. Verstappen gets a lot more out of a Red Bull than Hadjar; Norris and Piastri are close.
+- Time trial stays in one standard car, so lap records and challenge links compare.
+
+**4b: development through a season, with surprises**
+- After each round every team improves a little, some faster than others.
+- **Every season plays out differently**, like a real one: a team everyone expected to be quick starts slower than hoped; another has the fastest car but it keeps breaking early on, until they sort the reliability out; a team behind brings a big upgrade mid-season and is back in the fight for wins. Each team gets a few such twists at random: a stronger or weaker start than its name suggests, reliability that improves, upgrades that land (or flop) at a random round.
+- **Results feed in a little, and differently every season** (decided): each team gets its own response for the season, at random. Some teams that fall behind push back with upgrades and catch up; others lose their way and fall further behind; some leaders keep pulling away, others stall. So one season can end in a close fight and the next with a team running away with it.
+- A short news line ("Red Bull: new floor, +aero") and a small car chart on the season screen show it. In a normal season your own team develops like the others; steering it is for career mode (step 6).
 
 ## Step 5: career (L)
 
@@ -102,3 +110,6 @@ Steps 1 and 2 are small, change how every race feels, and can go first in either
 4. **Skipping qualifying in a single race:** start from the middle, as today.
 5. **Career seasons:** the full calendar by default.
 6. **Running the team:** inside the career, not a separate team-principal mode.
+7. **Driver skill and season surprises** (owner, 26 November): drivers get their own skill (Verstappen far above Hadjar, Norris close to Piastri), and team development is partly random: wrong pre-season expectations, early unreliability that gets fixed, mid-season upgrades.
+
+8. **How results shape development:** at random per season and per team. Sometimes a team that's behind catches up, sometimes it falls further behind; sometimes the leaders pull away, sometimes they stall.

@@ -1291,7 +1291,9 @@ function drawFinish(ctx, race, w, h, ins, opts) {
   ctx.fillStyle = out ? '#ff4f3a' : POS_COLOR[pos] || '#ffffff';
   ctx.fillText(label, 0, -big * 0.08);
   const head = out
-    ? 'THE CAR GAVE UP'
+    ? p.dnfWhy === 'engine'
+      ? 'ENGINE FAILURE'
+      : 'THE CAR GAVE UP'
     : qs
     ? pos === 1
       ? 'POLE POSITION!'

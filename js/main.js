@@ -17,7 +17,7 @@ import { challengeLink, challengeProblem, codeFrom, decodeChallenge } from './ch
 import { POINTS, ROUNDS, abandonSeason, currentSeason, isComplete, nextTrack, playerStanding, recordRound, standings, startSeason, teamStanding } from './season.js';
 
 // Bump together with --build in css/style.css and CACHE in sw.js.
-const BUILD = '38';
+const BUILD = '39';
 
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d', { alpha: false });
@@ -590,7 +590,7 @@ function showResults(r) {
   if (rec.bestLap != null && p.bestLap != null && Math.abs(rec.bestLap - p.bestLap) < 1e-6) {
     chips.push({ kind: 'purple', text: `Circuit record: ${formatTime(rec.bestLap)}` });
   }
-  if (res.playerDnf) chips.push({ kind: 'red', text: 'Retired: the car gave up (damage)' });
+  if (res.playerDnf) chips.push({ kind: 'red', text: res.playerDnfWhy === 'engine' ? 'Retired: engine failure' : 'Retired: the car gave up (damage)' });
   else if (r.prevBestPos == null || res.playerPos < r.prevBestPos) chips.push({ kind: 'green', text: `Best finish here: P${res.playerPos}` });
   if (r.fromGrid && p.gridPos && !res.playerDnf) {
     const gained = p.gridPos - res.playerPos;

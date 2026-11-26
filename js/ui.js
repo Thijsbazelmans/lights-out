@@ -523,7 +523,7 @@ export function createUI(root, h) {
       (t) => `
       <button class="team" role="option" data-team="${t.id}" aria-selected="${t.id === pendingTeam}" style="--team:${t.livery.color}">
         <canvas class="team-car" aria-hidden="true"></canvas>
-        <span class="team-info"><b>${esc(t.name)}</b><span class="code" style="--c:${t.livery.color}">${t.code}</span></span>
+        <span class="team-info"><b>${esc(t.name)}</b><span class="code" style="--c:${t.livery.color}">${t.code}</span>${carBars(t.car)}</span>
       </button>`
     ).join('');
     updateTeamDone();
@@ -531,6 +531,14 @@ export function createUI(root, h) {
     requestAnimationFrame(() => {
       list.querySelectorAll('.team').forEach((btn) => drawTeamCar(btn.querySelector('canvas'), teamById(btn.dataset.team)));
     });
+  }
+
+  // A team's car at a glance: engine, aero, reliability as short bars
+  // (scaled from the worst to the best on the grid).
+  function carBars(car) {
+    if (!car) return '';
+    const bar = (label, v, lo) => `<span class="car-bar" title="${label}"><i>${label}</i><s style="--v:${Math.max(0.08, (v - lo) / (1 - lo)).toFixed(2)}"></s></span>`;
+    return `<span class="car-bars">${bar('ENG', car.engine, 0.78)}${bar('AERO', car.aero, 0.55)}${bar('REL', car.reliability, 0.65)}</span>`;
   }
 
   function updateTeamDone() {
@@ -542,7 +550,8 @@ export function createUI(root, h) {
       b.textContent = team.drivers[i].name.split(' ').slice(-1)[0];
       b.classList.toggle('on', i === pendingSeat);
     });
-    $('#seat-hint').textContent = `Your teammate: ${team.drivers[1 - pendingSeat].name}`;
+    const mate = team.drivers[1 - pendingSeat];
+    $('#seat-hint').textContent = `Your teammate: ${mate.name} (skill ${Math.round(mate.skill * 100)}). Engine, aero and reliability of each car are shown on its card; you drive the team's car.`;
   }
 
   function drawTeamCar(canvas, team) {

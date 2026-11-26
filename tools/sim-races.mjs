@@ -54,7 +54,7 @@ for (const id of ids) {
     if (Math.round(T * 60) % 120 === 0 && r.phase === 'race') {
       for (const c of r.cars) {
         const pr = c.lap * t.n + c.trackIdx;
-        if (!c.finished && !c.pit && lastProg.has(c) && pr - lastProg.get(c) < 10) stuck++;
+        if (!c.finished && !c.pit && !c.dnf && lastProg.has(c) && pr - lastProg.get(c) < 10) stuck++;
         lastProg.set(c, pr);
       }
     }
