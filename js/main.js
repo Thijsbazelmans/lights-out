@@ -14,11 +14,12 @@ import { musicState, musicTick, setMusic, setMusicEnabled } from './music.js';
 import { bindTouchControls, initInput, isTouchDevice, onFirstTouch, readInput, setGameActive, touchSnapshot } from './input.js';
 import { clamp, formatGap, formatTime } from './util.js';
 import { challengeLink, challengeProblem, codeFrom, decodeChallenge } from './challenge.js';
+import { showPoster } from './poster.js';
 import { afterRace, currentCareer, endOfYear, raceTarget, retireCareer, signFor, startCareer } from './career.js';
 import { POINTS, ROUNDS, abandonSeason, currentSeason, isComplete, nextTrack, playerStanding, recordRound, seasonCars, standings, startSeason, teamStanding } from './season.js';
 
 // Bump together with --build in css/style.css and CACHE in sw.js.
-const BUILD = '41';
+const BUILD = '42';
 
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d', { alpha: false });
@@ -74,6 +75,7 @@ const state = {
   mode: 'race',
   challenge: null, // the lap someone sent you, in a time trial against it
   single: null, // a single race's weekend: qualifying, then the race (see startSingle)
+  poster: false, // the opening poster is up (the menu behind it isn't drawn)
   seasonKind: 'season', // which season the 'season' / 'quali' modes race: a championship or the career's year
   careerTarget: null, // this career race's target (career.js raceTarget)
   trackId: TRACKS.some((t) => t.id === save.settings.lastTrack) ? save.settings.lastTrack : TRACKS[0].id,
@@ -733,6 +735,11 @@ function frameEvery() {
 function frame(now) {
   const gap = (now - last) / 1000;
   last = now;
+  if (state.poster) {
+    // Behind the opening poster: nothing to draw (keeps its animation smooth).
+    requestAnimationFrame(frame);
+    return;
+  }
   if (gap > 0.002 && gap < 0.1) screenGap += (gap - screenGap) * 0.05;
   owed += gap;
   if (++skipped >= frameEvery()) {
@@ -910,6 +917,16 @@ startAttract();
 ui.show('title');
 if (!save.settings.team) ui.openTeam(); // first visit: pick a team
 syncChrome();
+// The opening poster over the menu (not when a challenge link opened the game).
+if (!codeFrom(location.hash) && !new URLSearchParams(location.search).has('noposter')) {
+  state.poster = true;
+  // Sound starts with the tap or key that takes it away (the key doesn't
+  // reach the usual unlock listener).
+  showPoster(document.body, () => {
+    state.poster = false;
+    audio.unlockAudio();
+  });
+}
 
 // Opened from a challenge link: take the lap out of the address (so a reload
 // doesn't open it again) and show it.

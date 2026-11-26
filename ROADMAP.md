@@ -61,7 +61,7 @@ Up to build 38 your car is the same whichever team you pick; the team only chang
 - **Results feed in a little, and differently every season** (decided): each team gets its own response for the season, at random. Some teams that fall behind push back with upgrades and catch up; others lose their way and fall further behind; some leaders keep pulling away, others stall. So one season can end in a close fight and the next with a team running away with it.
 - A short news line ("Red Bull: new floor, +aero") and a small car chart on the season screen show it. In a normal season your own team develops like the others; steering it is for career mode (step 6).
 
-## Step 5: career (L) · built (build 41, on the preview)
+## Step 5: career (L) · done (build 41)
 
 You start as a newcomer with offers from the back of the grid (two or three teams to choose from).
 

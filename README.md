@@ -12,6 +12,7 @@ Top-down arcade Formula racing that runs in the browser and installs to a phone'
 - A single **race** on any circuit (5, 8 or 12 laps), or a solo **time trial** against your own ghost. A single race is a weekend too: qualifying first (out-lap, one flying lap) sets your place on the grid, and Restart replays the same session or the race from the same grid. Switch Qualifying off in the race setup to start in the middle of the grid straight away.
 - **Challenges:** send your best time-trial lap on a circuit to someone as a link (Time trial → Send your lap; the first time it asks your name). They open it and race your lap as a ghost in your team's colours, with your name over it and the timer showing the gap to your lap, then send theirs back. No accounts or server: the whole lap travels in the link (about 2,000–2,700 characters). The last lap someone sent you on each circuit is kept: Time trial → Race against shows it. On an iPhone a link opens in Safari, which keeps its own records apart from the game on the home screen, so the challenge card offers Copy, and Time trial → Paste a challenge opens it in the home-screen game.
 - Arcade handling: drifting, a strong slipstream, overtake mode, start-light launches, bumping, tyre smoke, dust off the road, skid marks, sparks and synthesised engine sounds.
+- An opening poster in the style of an old race poster: the start lights go out, the title drops in and the car launches; tap or press a key for the menu.
 - Music: an original hip-hop beat behind the menus (hard drums, an 808, a dusty electric-piano loop and a bell hook, all made in the browser, no files); when you cross the line the hook kicks in and the cars carry on quietly underneath.
 - Lap records, ghosts, best finishes and race stats are saved on the device (browser `localStorage`).
 - Works offline once it has been opened online.
@@ -102,6 +103,7 @@ Then open http://localhost:8642.
 | `js/ui.js` | Menu screens |
 | `js/input.js` | Keyboard, touch and controller input |
 | `js/audio.js` | Synthesised engine, tyres, impacts and beeps |
+| `js/poster.js` | The opening poster: a vintage race-poster illustration (start lights going out, the car launching), drawn as SVG and animated with CSS |
 | `js/music.js` | The music: an original hip-hop beat, its sounds recorded once in the browser and played back from the game loop |
 | `js/tiles.js` | Phones: the circuit drawn once into tiles and reused every frame |
 | `js/storage.js` | Everything saved on the device |
@@ -121,7 +123,7 @@ Developer extras:
 - `tools/sim-pitlane.mjs` runs races and looks at the pit lane when it's busy (`node tools/sim-pitlane.mjs all 3`, add `4 normal same` for 4 races each with the whole field planning to stop on the same lap): how long cars wait in their box for a gap, time in the lane, cars standing still in the lane: the check for `PIT_RELEASE`.
 - `tools/sim-quali.mjs` runs qualifying without a browser (`node tools/sim-quali.mjs all normal 0.88,0.95`: pole, P10 and last time of the computer drivers, and where a bot driving your car at those paces qualifies; add `race` to race from that grid). The bot drifts, which the computer drivers don't, so it's quicker than they are at the same pace.
 - `tools/convert-circuit.mjs` turns a GeoJSON centre line into a circuit file (see below).
-- Add `?nopause` to the URL to stop the game pausing when the tab is hidden (for automated testing).
+- Add `?nopause` to the URL to stop the game pausing when the tab is hidden (for automated testing), and `?noposter` to skip the opening poster.
 - `window.lightsOut` in the browser console gives access to the game state.
 
 ## Adding a real circuit
